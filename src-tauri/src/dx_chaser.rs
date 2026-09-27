@@ -1815,7 +1815,10 @@ mod matrix_tests {
         let current_generation = engine_lock(&engine).tx_halt_generation();
         resume.wait();
         let snapshot = arm_thread.join().unwrap();
-        assert!(snapshot.automation_armed, "the forced race applied its stale arm");
+        assert!(
+            snapshot.automation_armed,
+            "the forced race applied its stale arm"
+        );
         let stale_generation = chaser_lock(&chaser).arm_halt_generation.unwrap();
         assert_ne!(stale_generation, current_generation);
 

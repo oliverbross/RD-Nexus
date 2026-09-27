@@ -1,6 +1,7 @@
 # DX Chaser parity ledger
 
 Reviewed upstream: `kd9taw/mshv-auto-dx-chaser@d960ae22de78940c6be9d95bd4817d233d02ee39`.
+Reviewed Nexus baseline: `kd9taw/Nexus@1150c8dd9db714fecd12182ae26bc8d72b92f444` (Landing 62).
 
 This ledger is the source-behavior acceptance record for the behavioral port. `VERIFIED`
 means the upstream behavior is implemented in the DX Chaser engine or adapter and has
@@ -76,6 +77,7 @@ in the source matrix even when its implementation is replaced by a shared Nexus 
 | Generation-bound Engine call guard | `cargo test -p tempo-app dx_chaser -- --nocapture` | 6 passed; 1,654 filtered |
 | Focused Tauri adapter and guard coverage | `cargo test --manifest-path src-tauri/Cargo.toml --features radio,custom-protocol matrix_tests:: -- --nocapture` | 17 passed; 719 filtered |
 | Native UI, registry, and translation integrity | `npm test -- --run src/features/registry.test.ts src/i18n/hardcoded-strings.test.ts src/components/DxChaserView.dxcc.test.tsx` | 206 passed across 3 files |
+| Landing 62 affected UI/style integration | `npm test -- --run src/features/registry.test.ts src/i18n/hardcoded-strings.test.ts src/components/DxChaserView.dxcc.test.tsx src/components/TopBar.onair.test.tsx src/styles-palette-roles.test.ts` | 295 passed across 5 files |
 | Production UI bundle | `npm run build` | passed |
 | Tauri host compile | `cargo check --manifest-path src-tauri/Cargo.toml --features radio,custom-protocol` | passed; optional AI CW model warning only |
 | Rust formatting | `cargo fmt --manifest-path Cargo.toml --all -- --check` and `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` | passed |
