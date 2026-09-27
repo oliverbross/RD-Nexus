@@ -1909,14 +1909,26 @@ UI-only preferences (applied live, not via Save) and the section toggles.
 - **Language** — the language Nexus writes in. Frequencies, signal reports,
   callsigns, grid squares, and band and mode names are never translated or
   reformatted: a dial reads the same in every language.
-- **Theme** — Light or Dark. Light reads best outdoors in daylight. Either way,
-  the top bar's **Field** chip boosts contrast and size on top of the theme you
-  picked.
+- **Theme** — Light, Dark or System. Light reads best outdoors in daylight.
+  **System** follows your computer's own light or dark setting and changes when it
+  does; Dark is the default. Either way, the top bar's **Field** chip boosts
+  contrast and size on top of the theme you picked.
 - **High contrast** — Off or On. Strengthens text against its background in
   whichever theme you are using, and changes nothing else — the interface stays
   exactly the size you have set it. This is the one to reach for if the screen
   is simply hard to read. If you want bigger as well as stronger, set **UI
   scale** below to taste; the two are independent.
+- **Night** — Off, On or Auto. A darker, warmer screen for operating after dark, in
+  whichever theme you use: the panels, the text and the accent colour dim and warm up, and
+  the meters and the frequency readout dim with them. **Auto** turns Night on at dusk and off
+  at dawn at your grid square, when the sun is 6° below the horizon there. It needs your grid
+  square (Settings ▸ Station); until it has one, Night stays off and the row says so. The
+  transmit red, the ON AIR sign, alerts, and the signal and Needed colours never change. A
+  waterfall on the **Auto** palette turns Amber CRT at night; a palette you picked by name
+  stays as it is. In the light theme the change is gentle, because the Needed and signal
+  colours were chosen for a white page and the page can only get a little darker before they
+  stop reading well; the Dark theme gives the darkest screen. With **High contrast** on, every
+  word keeps at least 7:1 against its background at night. Remembered per computer.
 - **Field mode** — Off or On. The outdoor switch: maximum contrast *and* larger
   type together, on top of whichever theme you are using, for reading the screen
   in daylight. It is the same switch as the **Field** chip in the top bar —
@@ -1928,8 +1940,16 @@ UI-only preferences (applied live, not via Save) and the section toggles.
   big monitor. A cap this window can't reach is disabled and its tooltip says
   why ("a larger window or monitor unlocks it"). **Manual** picks a fixed
   percentage instead. The waterfall stays sharp either way.
-- **Density** — Comfortable or Compact. "How tightly rows and controls pack.
-  Compact fits more on screen."
+- **Text size** — Normal, Large or Larger. Makes every word on the screen bigger
+  (Large by 12%, Larger by 25%), the decode lists, the Call Roster and the Logbook
+  included, and leaves the rest of the layout at its size. UI scale above zooms
+  the whole screen instead; the two combine. The numbers drawn on the waterfall
+  and scope follow UI scale only. Remembered per computer.
+- **Density** — Comfortable, Standard, Compact or Touch. How tightly rows and
+  controls pack: Compact fits more on screen, Comfortable spaces the rows a little
+  further apart than Standard. **Touch** is Comfortable with bigger places to tap
+  for a touchscreen: the larger buttons grow to 48 pixels and the small chips get
+  a 36-pixel box.
 - **Logbook globe** — shows the 3-D globe above the Logbook table (on by
   default). Turn it off and the table starts at the top. Computers whose
   graphics cannot draw the globe never show it, whatever this says.
@@ -1943,6 +1963,32 @@ UI-only preferences (applied live, not via Save) and the section toggles.
 ![The Workspace row: Language set to English, Theme with Dark selected of Light and Dark, UI scale on Auto (fit) with max-scale chips from 100% to 175% and 125% lit, and Density set to Comfortable.](../img/manual/settings-workspace.webp)
 
 *Workspace in Nexus 1.10.3. Reset pane sizes sits to the right of Density.*
+
+### Colours
+
+Pick your own colour for five jobs a colour does on screen, from a few choices
+each. Every choice has been checked for contrast in the light and dark themes,
+with High contrast or Field mode on, and on the dark displays (the frequency
+readout, the meters, the waterfall's scale). Changes apply at once and are
+remembered per computer, like the theme.
+
+- **Accent** — selected chips, focus rings, your own chat bubbles. Cyan (the
+  standard), Blue or Violet.
+- **Readout** — the frequency digits and other readouts. Cyan (the standard),
+  Amber, Green or Violet. The digits still turn red when the dial is outside
+  your licence privileges, whichever colour you pick.
+- **OK / green** — good signal, RX, confirmed. Green (the standard), Teal or
+  Mint. Teal sits further from the reds, which helps with red-green colour
+  blindness.
+- **Amber** — warnings and marginal signal. Amber (the standard), Gold or
+  Yellow. In the light theme these keep the standard amber's weight on the
+  page, so the change there is a shift of hue.
+- **Cyan** — information chips. Sky (the standard), Cyan or Blue.
+
+**Reset** puts a colour back to the standard one; it is greyed while the
+colour already is. The transmit red (including the ON AIR sign), the alert
+orange and the Needed colours stay fixed and have no setting, so a keyed
+transmitter and an alert always look the same.
 
 ### Connect on a TV
 

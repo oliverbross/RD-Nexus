@@ -9,9 +9,17 @@
         try {
           var d = document.documentElement
           var t = localStorage.getItem('tempo-theme')
+          // System follows the computer's light/dark setting (useTheme.ts systemTheme): dark
+          // when the platform cannot say. Nothing stored stays the page's own dark.
+          if (t === 'system') t = window.matchMedia && !window.matchMedia('(prefers-color-scheme: dark)').matches ? 'light' : 'dark'
           if (t === 'light' || t === 'dark') d.setAttribute('data-theme', t)
+          // Density and text size (#215): the first-paint copies of useDensity and useTextSize,
+          // held to them by index-preseed.test.ts. Touch is Comfortable plus data-touch.
           var den = localStorage.getItem('nexus-density')
-          if (den === 'guided' || den === 'standard' || den === 'dense') d.setAttribute('data-density', den)
+          d.setAttribute('data-density', den === 'guided' || den === 'dense' ? den : den === 'touch' ? 'guided' : 'standard')
+          if (den === 'touch') d.setAttribute('data-touch', '1')
+          var ts = localStorage.getItem('nexus-text-size')
+          d.setAttribute('data-text-size', ts === 'large' || ts === 'larger' ? ts : 'normal')
           if (localStorage.getItem('nexus-motion') === 'reduce') d.setAttribute('data-motion', 'reduce')
           // The contrast axis, and the asymmetry IS the feature (#215 — useFieldMode.ts is
           // the runtime copy of this derivation). EITHER field mode or the standing
@@ -22,6 +30,25 @@
           var fieldOn = localStorage.getItem('nexus-field-mode') === '1'
           if (fieldOn || localStorage.getItem('nexus-high-contrast') === '1') {
             d.setAttribute('data-contrast', 'high')
+          }
+          // Night (Settings ▸ Appearance ▸ Workspace; useNight.ts is the runtime copy). On paints
+          // Night from the first frame. Auto needs the station's grid square, which only arrives
+          // with the first snapshot, so Auto is the hook's to set (index-preseed.test.ts).
+          if (localStorage.getItem('nexus-night') === 'on') d.setAttribute('data-night', '1')
+          // The colour roles (Settings ▸ Appearance ▸ Colours; usePaletteRoles.ts is the runtime
+          // copy): one attribute per role, set only for a preset the table knows. The default is
+          // NO attribute. These ids mirror features/paletteRoles.ts, less each role's default;
+          // index-preseed.test.ts holds the two copies together preset by preset.
+          var PALETTE = {
+            accent: ['blue', 'violet'],
+            readout: ['amber', 'green', 'violet'],
+            ok: ['teal', 'mint'],
+            amber: ['gold', 'yellow'],
+            cyan: ['cyan', 'blue'],
+          }
+          for (var role in PALETTE) {
+            var pick = localStorage.getItem('nexus-palette-' + role)
+            if (PALETTE[role].indexOf(pick) !== -1) d.setAttribute('data-' + role, pick)
           }
           // First-paint zoom seed — keep in sync with useScale.ts (SCALE_STEPS, the
           // per-surface natural fit model, keys nexus-ui-scale-mode /
