@@ -35,6 +35,7 @@ export type SettingsTabId =
   | 'digital'
   | 'spots'
   | 'logging'
+  | 'groupsio'
   | 'contesting'
   | 'appearance'
   | 'configurations'
@@ -60,6 +61,7 @@ export const SETTINGS_TABS: SettingsTabDef[] = [
   { id: 'digital', label: 'Digital' },
   { id: 'spots', label: 'Spots & Alerts' },
   { id: 'logging', label: 'Logging & Connectors' },
+  { id: 'groupsio', label: 'Groups.io' },
   { id: 'contesting', label: 'Contesting' },
   { id: 'appearance', label: 'Appearance' },
   { id: 'configurations', label: 'Config' },
@@ -464,6 +466,15 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
       'hamqth', 'qsl', 'upload', 'auto-upload', 'password', 'api key', 'credential', 'login',
       'callbook', 'repeaterbook', 'tqsl', 'station location',
       'wrl', 'world radio league', 'qth nickname', 'nickname'],
+  },
+
+  // ---- Groups.io ---------------------------------------------------------------
+  {
+    id: 'groups-io',
+    label: 'Groups.io',
+    tab: 'groupsio',
+    keywords: ['groups io', 'mailing list', 'api key', 'memberships', 'topics', 'messages',
+      'offline archive', 'drafts', 'outbox', 'retention', 'attachments', 'sync'],
   },
 
   // ---- Contesting --------------------------------------------------------------

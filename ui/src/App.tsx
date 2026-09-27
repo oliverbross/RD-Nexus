@@ -106,6 +106,7 @@ import { DxpeditionsView } from './components/DxpeditionsView'
 import { SatellitesView } from './components/SatellitesView'
 import { RadioProgView } from './components/RadioProgView'
 import { MemoriesView } from './components/MemoriesView'
+import { GroupsIoView } from './components/GroupsIoView'
 import { ConnectView } from './components/ConnectView'
 import {
   getPropagation,
@@ -3011,6 +3012,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
             onFieldModeChange={setFieldMode}
             highContrast={highContrast}
             onHighContrastChange={setHighContrast}
+            onOpenGroupsIo={() => handleView('groupsio')}
           />
         </main>
       )
@@ -3159,6 +3161,19 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
             }
             onRecall={recallMemory}
           />
+        </main>
+      )
+      break
+    case 'groupsio':
+      // A local-information workspace: entry performs no radio action. Network refresh and
+      // posting remain explicit foreground gestures inside the view.
+      workspace = remote ? (
+        <main className="layout single">
+          <section className="panel"><p className="empty" role="status">{t('groupsio.remoteUnavailable')}</p></section>
+        </main>
+      ) : (
+        <main className="layout single">
+          <GroupsIoView onOpenSettings={() => openSettingsAt('groups-io')} />
         </main>
       )
       break

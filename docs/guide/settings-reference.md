@@ -1,6 +1,6 @@
 # Settings reference
 
-Settings is organized into ten tabs. Only the active tab renders, so typing in
+Settings is organized into eleven tabs. Only the active tab renders, so typing in
 one field doesn't lag the whole panel. **Save** at the bottom applies your
 changes; most take effect live (a few say "takes effect on restart", and a few
 apply the instant you touch them — those say so too).
@@ -13,16 +13,16 @@ The tabs, in the order they appear:
 
 [Station](#station) · [Radio](#radio) · [Phone](#phone) · [CW](#cw) ·
 [Digital](#digital) · [Spots & Alerts](#spots--alerts) ·
-[Logging & Connectors](#logging--connectors) · [Contesting](#contesting) ·
+[Logging & Connectors](#logging--connectors) · [Groups.io](#groupsio) · [Contesting](#contesting) ·
 [Appearance](#appearance) · [Config](#config)
 
 The panel header carries the **build stamp** (confirm a fresh install actually
 took) and a **Check for updates** button, both at the right-hand end of the same
 row as the search box.
 
-![The Settings header: a Find a setting box, and under it the ten tab names in a row with Station first and Radio selected.](../img/manual/settings-tabs.webp)
+![The Settings header: a Find a setting box, and under it the eleven tab names in a row with Station first and Radio selected.](../img/manual/settings-tabs.webp)
 
-*The ten tabs and the setting search, in Nexus 1.10.3.*
+*The eleven tabs and the setting search.*
 
 ---
 
@@ -1698,6 +1698,32 @@ HTTP.
 
 *RepeaterBook and Cloudlog / Wavelog in Nexus 1.10.3, both unconfigured. A blank
 Cloudlog base URL is off.*
+
+---
+
+## Groups.io
+
+### Groups.io
+
+Connect RD-Nexus to a Groups.io account with a personal API key. The key is kept in
+macOS Keychain, Windows Credential Manager, or Linux Secret Service and is never
+written to the RD-Nexus configuration, logs, backups, or portable exports.
+
+- **Foreground sync enabled** — permits refresh while RD-Nexus is open. There is no
+  permanent background poller.
+- **Default lookback / maximum messages** — bounds ordinary group refreshes.
+- **Complete archive safety bound** — caps one foreground archive run; a later run
+  resumes from the saved opaque cursor.
+- **Foreground refresh interval** — the staleness threshold used by refresh-on-open.
+- **Offline retention / attachment ceiling / draft retention** — local storage policy.
+- **Refresh on opening Groups.io**, **Auto-download attachments**, **Include muted
+  groups**, and **Show foreground new-message preview** — per-machine behaviour.
+
+**Connect and verify** checks the key against the current Groups.io memberships before
+it is saved. **Disconnect** removes only the credential; cached reading and drafts remain
+available. **Clear downloaded cache** preserves drafts, receipts and the credential.
+**Delete all local data** also removes drafts and receipts, but leaves the credential
+until Disconnect is chosen.
 
 ---
 

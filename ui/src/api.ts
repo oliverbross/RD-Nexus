@@ -2983,6 +2983,140 @@ export async function setSettings(settings: Settings): Promise<AppSnapshot> {
   return invoke<AppSnapshot>('set_settings', { settings })
 }
 
+// Groups.io is a native RD-Nexus subsystem. The API key crosses this boundary only on an
+// explicit Connect action and is never returned; Rust stores it in the platform credential vault.
+export interface GroupsIoGroupPolicy {
+  enabled: boolean
+  inheritGlobal: boolean
+  lookbackDays: number
+  maximumMessages: number
+  attachments: boolean
+  retentionDays: number
+}
+
+export interface GroupsIoSettings {
+  enabled: boolean
+  defaultLookbackDays: number
+  defaultMaximumMessages: number
+  defaultArchiveDepth: number
+  attachmentAutoDownload: boolean
+  maximumAttachmentBytes: number
+  offlineRetentionDays: number
+  refreshOnOpen: boolean
+  foregroundRefreshMinutes: number
+  includeMutedGroups: boolean
+  draftRetentionDays: number
+  showNewMessagePreview: boolean
+  mutedGroupIds: string[]
+  groupOverrides: Record<string, GroupsIoGroupPolicy>
+}
+
+export interface GroupsIoGroup {
+  id: string
+  name: string
+  title: string
+  active: boolean
+  canPost: boolean
+  canReply: boolean
+  downloadArchives: boolean
+  lastSyncUnix: number
+}
+
+export interface GroupsIoTopic {
+  id: string
+  groupId: string
+  subject: string
+  messageCount: number
+  lastMessageUnix: number
+  closed: boolean
+}
+
+export interface GroupsIoMessage {
+  id: string
+  groupId: string
+  topicId: string
+  messageNumber: string
+  apiMessageId: string
+  subject: string
+  sender: string
+  body: string
+  createdUnix: number
+  attachmentCount: number
+}
+
+export interface GroupsIoDraft {
+  id: string
+  groupId: string
+  topicId: string | null
+  replyMessageNumber: string | null
+  replyApiMessageId: string | null
+  remoteDraftId: string | null
+  kind: 'new_topic' | 'reply'
+  subject: string
+  body: string
+  replyDestination: string
+  state: string
+  note: string
+  updatedUnix: number
+}
+
+export interface GroupsIoStatus {
+  enabled: boolean
+  connected: boolean
+  apiRevision: string
+  endpoint: string
+  providerState: string
+  deliveryPolicy: string
+  counts: { groups: number; topics: number; messages: number; drafts: number; outbox: number }
+  storageBytes: number
+  settings: GroupsIoSettings
+  lastSyncUnix: number
+  newMessageIds: string[]
+  topicTokens: Record<string, string>
+  messageTokens: Record<string, string>
+  archive: {
+    state: string
+    groupId: string | null
+    downloaded: number
+    total: number | null
+    rangeDays: number | null
+    pageToken: string | null
+    message: string
+  }
+  groups: GroupsIoGroup[]
+  topics: GroupsIoTopic[]
+  messages: GroupsIoMessage[]
+  drafts: GroupsIoDraft[]
+  outbox: GroupsIoDraft[]
+}
+
+export const getGroupsIoStatus = (): Promise<GroupsIoStatus> => invoke('groups_io_status')
+export const saveGroupsIoSettings = (settings: GroupsIoSettings): Promise<GroupsIoStatus> =>
+  invoke('groups_io_save_settings', { settings })
+export const connectGroupsIo = (apiKey: string): Promise<GroupsIoStatus> =>
+  invoke('groups_io_connect', { apiKeyValue: apiKey })
+export const disconnectGroupsIo = (): Promise<GroupsIoStatus> => invoke('groups_io_disconnect')
+export const syncGroupsIo = (groupId?: string): Promise<GroupsIoStatus> =>
+  invoke('groups_io_sync', { groupId: groupId ?? null })
+export const searchGroupsIo = (
+  groupId: string,
+  query: string,
+  online: boolean,
+  pageToken?: string,
+): Promise<{ items: GroupsIoMessage[]; nextPageToken: string | null }> =>
+  invoke('groups_io_search', { groupId, query, online, pageToken: pageToken ?? null })
+export const saveGroupsIoDraft = (draft: GroupsIoDraft): Promise<GroupsIoStatus> =>
+  invoke('groups_io_save_draft', { draft })
+export const deleteGroupsIoDraft = (id: string): Promise<GroupsIoStatus> =>
+  invoke('groups_io_delete_draft', { id })
+export const sendGroupsIoDraft = (id: string, confirmed: boolean): Promise<GroupsIoStatus> =>
+  invoke('groups_io_send_draft', { id, confirmed })
+export const archiveGroupsIo = (groupId: string, rangeDays: number | null): Promise<GroupsIoStatus> =>
+  invoke('groups_io_archive', { groupId, rangeDays })
+export const pauseGroupsIoArchive = (): Promise<GroupsIoStatus> => invoke('groups_io_pause_archive')
+export const clearGroupsIoCache = (deleteAll: boolean): Promise<GroupsIoStatus> =>
+  invoke('groups_io_clear_cache', { deleteAll })
+
 /** THE writer of the satellite uplink consent pair (VFO mapping + per-radio
  * confirmation) — the pass rail's confirm/select and Settings ▸ Radio's
  * mapping select both go through it. The pair is backend-owned live state

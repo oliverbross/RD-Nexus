@@ -9377,6 +9377,8 @@ export const EN = {
   'nav.memories.label': 'Memories',
   'nav.memories.title':
     'Memories — saved channels: repeaters, nets, calling freqs; groups + ★ favorites; one click to tune',
+  'nav.groupsio.title': 'Groups.io — memberships, topics, offline archives, drafts and explicit posting',
+  'groupsio.remoteUnavailable': 'Groups.io is available in the installed RD-Nexus application, where the operating system credential vault can protect its API key.',
   'nav.program.label': 'Program',
   'nav.program.title':
     'Program — build channel lists for your radios: local repeaters → CHIRP CSV, rig memories, or tune-now',
@@ -10016,6 +10018,8 @@ export const EN = {
   'features.memories.label': 'Memories',
   'features.memories.oneLine':
     'Saved channels — repeaters, HF nets, calling freqs: groups, ★ favorites, one-click tune, CHIRP CSV, starter packs + opt-in net reminders.',
+  'features.groupsio.oneLine':
+    'Groups.io memberships, downloaded topics and messages, offline search, local drafts, archive sync and explicitly confirmed posting.',
   'features.program.label': 'Program',
   'features.program.oneLine':
     'Program your radios — local repeaters to a channel list: CHIRP CSV, rig memories, or tune-now.',

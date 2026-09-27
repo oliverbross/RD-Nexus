@@ -37,6 +37,9 @@ mod cluster_nodes;
 /// Is the data folder somewhere a DATABASE must not live — a network share, or a folder some
 /// consumer sync client is also writing to? The log is the one thing here that cannot be rebuilt.
 mod data_folder_location;
+/// Groups.io memberships, offline messages and explicit foreground posting. Credentials stay in
+/// the platform vault; the profile store contains no secret.
+mod groups_io;
 /// The Logbook's changes to one contact, addressed by id and the edit key of the version the
 /// caller holds (SPEC-2 v2 §3).
 mod log_by_id;
@@ -29326,6 +29329,18 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             dxcc_entity_names,
             dxcc_entity_continents,
             cloudlog_station_info,
+            groups_io::groups_io_status,
+            groups_io::groups_io_save_settings,
+            groups_io::groups_io_connect,
+            groups_io::groups_io_disconnect,
+            groups_io::groups_io_sync,
+            groups_io::groups_io_search,
+            groups_io::groups_io_save_draft,
+            groups_io::groups_io_delete_draft,
+            groups_io::groups_io_send_draft,
+            groups_io::groups_io_archive,
+            groups_io::groups_io_pause_archive,
+            groups_io::groups_io_clear_cache,
             dxcc_entity_locations,
             set_frequency,
             sstv_tune,
