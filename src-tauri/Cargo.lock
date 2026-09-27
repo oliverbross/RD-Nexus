@@ -5406,6 +5406,7 @@ dependencies = [
  "tempo-sstv",
  "tokio",
  "tokio-tungstenite",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
