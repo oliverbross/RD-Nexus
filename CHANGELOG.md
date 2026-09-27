@@ -7,6 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A Text size setting: Normal, Large or Larger (#215).** Settings ▸ Appearance ▸ Workspace has a
+  new **Text size** row, directly under UI scale. Large makes every word on the screen 12% bigger
+  and Larger 25%, Band Activity, the Call Roster and the Logbook included, while the rest of the
+  layout keeps its size. UI scale zooms the whole screen instead, so a bigger scale fits less on
+  it; the two can be combined. Normal is exactly the size text has always been, and the choice is
+  kept per computer, like the theme. The numbers drawn on the waterfall and the scope, the map's
+  labels and the other drawn graphics follow UI scale only.
+- **A Touch density for touchscreens.** Density (Settings ▸ Appearance ▸ Workspace) offers four
+  choices: **Comfortable**, **Standard**, **Compact** and **Touch**. Touch is Comfortable with
+  bigger places to tap: the larger buttons grow from 44 to 48 pixels tall, and the small chips
+  (the decode filters, the Settings choices, the top bar's toggles) get a 36-pixel box.
+  Comfortable spaces the decode, roster and log rows a little further apart than Standard.
+- **A System theme that follows your computer.** Settings ▸ Appearance ▸ Workspace ▸ Theme offers
+  **System** beside Light and Dark: it takes your computer's light or dark setting and changes
+  when the computer does, for example when it switches to dark in the evening. Dark stays the
+  default, and a theme you already picked is kept. The Remote station monitor's theme button
+  offers it too, as its third press.
+- **Pick your own colours.** Settings ▸ Appearance ▸ Colours lets you change five colours, each
+  from a few choices that are checked for contrast in the light and dark themes, with High
+  contrast or Field mode on, and on the dark displays: the **Accent** (selected chips, focus
+  rings, your own chat bubbles: Cyan, Blue or Violet), the **Readout** (the frequency digits:
+  Cyan, Amber, Green or Violet), **OK / green** (good signal, RX, confirmed: Green, Teal or Mint),
+  **Amber** (warnings and marginal signal: Amber, Gold or Yellow) and **Cyan** (information chips:
+  Sky, Cyan or Blue). Each colour has its own **Reset**. Nothing changes until you pick
+  something: the first choice in each row is the colour you have today. Teal is the green that
+  stays furthest from the reds for a red-green colour-blind operator. The transmit red, the ON AIR
+  sign, the alert orange and the Needed colours cannot be changed, so a keyed transmitter and an
+  alert always look the same. A pick shows at once, on the map and the waterfall markers too, and
+  is remembered per computer, like the theme. The frequency digits still turn red when the dial
+  is outside your licence privileges, whatever colour you pick for them.
+- **Three ready-made layouts for Connect: Map first, List first and Dashboard.** **⊞ Panels** on
+  Connect now opens with a **Layout** section. **Map first** gives the map the full height and all
+  but two narrow side columns (Conditions and Band Advisor, Chase and Space Wx). **List first**
+  puts Chase, Chase Feed, Getting Out and Openings in two wide columns with a small map between
+  them. **Dashboard** opens seven panes around a smaller map: Space Wx and Band Advisor on the
+  left, Chase and Getting Out on the right, Openings, Band Outlook and Greyline along the bottom.
+  Nothing changes until you pick one: Connect still opens the way it always has, which the menu
+  calls **Standard**. Move or resize anything afterwards and the menu says **Custom**, and your
+  change stays put. Picking a layout over an arrangement of your own replaces it, the menu says
+  so first, and **Undo last change** puts it back, column widths included; **Reset layout** still
+  returns to Standard. On a small window the columns narrow to fit and the map keeps the same
+  minimum size it always had. Each window keeps its own layout, the Remote Connect page and the
+  TV page have the same menu, and the map's own choices (globe or flat, layers, colours) are left
+  alone.
+- **Night: a darker, warmer screen after dark.** Settings ▸ Appearance ▸ Workspace has a new
+  **Night** row under High contrast: Off, On, or **Auto**, which turns Night on at dusk and off at
+  dawn at your grid square (when the sun is 6° below the horizon there). Night dims and warms the
+  panels, the text and the accent colour in the dark and the light theme alike, and the meters and
+  the frequency readout dim with the room. The transmit red, the ON AIR sign, alerts, and the
+  signal and Needed colours stay exactly as they are. A waterfall on the **Auto** palette turns
+  Amber CRT at night; a palette you picked by name never changes. Auto needs your grid square
+  (Settings ▸ Station): without one Night stays off, and the row says so. In the light theme the
+  change is gentle, because the Needed and signal colours were chosen for a white page; the Dark
+  theme gives the darkest screen. With High contrast on, every word stays at least 7:1 against its
+  background at night. Night is not a top-bar button: Field stays the one quick toggle there. It
+  is remembered per computer, like the theme.
+
+### Changed
+
+- **ON AIR is now a solid red sign you cannot miss.** While the rig is keyed, the TX state in the
+  cockpit header (Phone, CW, RTTY, PSK, SSTV, JS8 and Tempo), Operate's **▲ TRANSMITTING** in the
+  QSO strip and the **TX** plate in the top bar all show as a steady red pill with white lettering
+  and an outline. It reads in the dark and light themes, and with High contrast or Field mode on.
+  The top bar's plate no longer blinks. The pill takes the same room keyed or not, so nothing
+  beside it, Stop TX included, moves when you key. The receive state looks as before, and the TX
+  colour itself is unchanged.
+- **The light theme keeps its displays dark.** The frequency readout in the cockpit header, the
+  S-meters, the transmit meters (SWR, ALC, PO, COMP), the RX audio level meter, CW's zero-beat
+  bar, the waterfall's frequency scale and legend, the MSK144 Fast Graph and the small audio
+  spectrum (Settings and Connect) now stay dark in the light theme, like the waterfall itself. Everything around them
+  stays light: think of a light-coloured radio with dark display windows. The meter colours and
+  the readout's digits are the ones the dark theme uses, so a strong signal or a high SWR looks
+  the same whichever theme you run. In the dark theme they look as before. The waterfall's
+  **TX** and **RX** markers, and the RX line in PSK and the Mark line in RTTY, now take the
+  app's own TX and RX colours instead of colours of their own.
+- **Density's middle setting is called Standard.** It was labelled Comfortable while Density had
+  two choices; Comfortable is now the roomier setting beside it. Whichever you had picked stays
+  picked, and nothing on the screen moves.
+
+### Fixed
+
+- **Band Activity and Rx Frequency scroll instead of cutting off on a short window.** When a decode
+  pane's header, with its filter chips, is taller than the pane (a small window with large text,
+  or a big UI scale), the pane now scrolls and its decode list keeps at least one row. Before,
+  the list and the lowest chips were cut off with no way to reach them. In the Classic layout the
+  Tx1–Tx6 panel scrolls inside its column in the same situation instead of running off the bottom
+  of the window. Nothing changes on a window where everything already fits.
+- **A long callsign in the Logbook ends in "…" instead of being cut through its last letter.** The
+  call column could not shorten a call the way the other columns shorten their text, so a call
+  wider than the column was sliced off at the edge.
+- **The QRZ link (↗) beside a worked station in the Call Roster shows at 1024×768 again.** The
+  Call column was sized before the link joined it, so on a narrow window a worked station's B4
+  and LoTW marks pushed the ↗ out of the cell. The column is a little wider; on a wide window
+  nothing changes.
+- **The Stations filters in the Classic layout wrap instead of cutting off the last one.** On a
+  narrow window the Needed filter was cut off at the panel's edge; the filters now take a second
+  line when they need one.
+
 ### Corrections to 1.15.0
 
 A released section is history and is not rewritten, so a credit it overstated is corrected here.

@@ -1,6 +1,6 @@
 # Glossary — the words that come back over and over
 
-There are 5,044 rows in the CSV and about sixty words that appear in hundreds of them. If one of
+There are 5,096 rows in the CSV and about sixty words that appear in hundreds of them. If one of
 those words gets translated three different ways across the file, the program reads as though
 three people wrote it. So this is the list to settle **once**, before you start, and then not
 think about again.
@@ -24,7 +24,7 @@ The checker (`verify-ptbr.py`) enforces this list per row, using the `do_not_tra
 | QSO / QSOs | 96 / 54 | The contact itself. Universal on the air; pluralises fine as *QSOs*. |
 | LoTW | 96 | ARRL's Logbook of The World — a service name. |
 | CAT | 82 | Computer Aided Transceiver — the radio control protocol. |
-| TX / RX | 79 / 71 | Transmit and receive. Printed on the radio itself. |
+| TX / RX | 79 / 72 | Transmit and receive. Printed on the radio itself. |
 | CW | 67 | The mode. Never "telegrafia" in a mode picker. |
 | QRZ | 67 | Both the Q-code and the callsign lookup site. |
 | CQ | 63 | The call. Translating it would be strange on the air and on screen. |
@@ -100,13 +100,13 @@ word in, and use only that word in the CSV.
 | mode | 208 | The emission mode. The mode *names* (FT8, USB, CW) stay as they are. | |
 | rig | 151 | Same object as "radio" — decide whether Portuguese keeps two words or one. | |
 | log / logbook | 130 / 60 | Both the noun and the verb ("log this contact"). Watch which one each row is. | |
-| settings | 117 | The Settings screen and every reference to it. | |
-| grid | 111 | The Maidenhead locator. Many Brazilian operators say "grid" — your call. | |
+| settings | 118 | The Settings screen and every reference to it. | |
+| grid | 113 | The Maidenhead locator. Many Brazilian operators say "grid" — your call. | |
 | audio | 106 | Sound cards, levels, routing. | |
-| station | 103 | Both your own station and the one you are working. | |
+| station | 104 | Both your own station and the one you are working. | |
 | port | 97 | Serial and network ports. | |
 | dial | 95 | The dial frequency. A radio term, but the word itself is prose. | |
-| transmit / receive | 94 / 30 | The verbs. The abbreviations TX/RX stay English. | |
+| transmit / receive | 95 / 30 | The verbs. The abbreviations TX/RX stay English. | |
 | pass | 85 | A satellite pass. | |
 | callsign | 78 | Appears constantly. Whatever you choose, choose it once. | |
 | worked | 78 | "Worked before", "stations you have worked". | |

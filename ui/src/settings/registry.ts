@@ -546,10 +546,25 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     // which is half of why the reporter went hunting and gave up. NOT bare 'field' — the
     // configurations section already owns that word for home/field station presets, and an
     // exact keyword outranks everything but a label.
-    keywords: ['theme', 'dark', 'light', 'ui scale', 'text size', 'font size', 'zoom',
+    keywords: ['theme', 'dark', 'light', 'system theme', 'dark mode', 'light mode',
+      'ui scale', 'text size', 'font size', 'zoom',
       'contrast', 'high contrast', 'field mode', 'accessibility', 'large text', 'readable',
-      'daylight', 'sunlight',
-      'density', 'compact', 'pane', 'layout', 'globe', 'logbook globe', 'clock', 'local time', 'time zone', 'utc'],
+      'daylight', 'sunlight', 'larger text', 'bigger text',
+      // Night (useNight.ts): the words for a dimmer screen after dark.
+      'night', 'night mode', 'dim', 'dimmer', 'dusk', 'after dark', 'dark adaptation', 'night vision',
+      'density', 'compact', 'comfortable', 'touch', 'touchscreen',
+      'pane', 'layout', 'globe', 'logbook globe', 'clock', 'local time', 'time zone', 'utc'],
+  },
+  {
+    // The colour roles (features/paletteRoles.ts): a few pre-checked presets for the accent, the
+    // frequency digits and the OK / amber / info colours. Both spellings, and the words an
+    // operator reaches for when a colour is the thing they want to change.
+    id: 'colours',
+    label: 'Colours',
+    tab: 'appearance',
+    keywords: ['color', 'colors', 'colour', 'accent', 'palette', 'readout', 'frequency digits',
+      'vfo colour', 'vfo color', 'digits colour', 'chip colour', 'personalise', 'personalize',
+      'customise', 'customize', 'violet', 'purple', 'teal', 'amber'],
   },
   {
     // The read-only LAN page. Filed under Appearance because it is a way of LOOKING at

@@ -172,6 +172,8 @@ import { getClusterNodes } from '../api'
 import type { ClusterNodes } from '../types'
 import { SetupHealth } from './SetupHealth'
 import { ThemeSwitcher } from './ThemeSwitcher'
+import { SettingsColours } from './SettingsColours'
+import type { PaletteRoleId, PaletteSelection } from '../features/paletteRoles'
 import { LiveLevelMeter, LiveRxLevelDb } from './LiveMeters'
 import { WatchlistPanel } from './WatchlistPanel'
 import { MiniSpectrum } from './MiniSpectrum'
@@ -187,6 +189,9 @@ import { APRS_FREQS, BEACON_SYMBOLS, NORTH_AMERICA, aprsChannelForGrid } from '.
 import type { Scale, ScaleMode } from '../useScale'
 import { SCALE_STEPS, fitScale } from '../useScale'
 import type { Density } from '../useDensity'
+import type { TextSize } from '../useTextSize'
+import type { ThemeChoice } from '../useTheme'
+import type { NightChoice } from '../useNight'
 import { useLogbookGlobe } from '../features/logbookGlobe'
 import type { FeaturesApi } from '../useFeatures'
 import { FEATURES, featureById, featureCategoryLabel, type FeatureCategory, type FeatureDef, type FeatureId } from '../features/registry'
@@ -237,6 +242,10 @@ interface Props {
   onScaleCapChange: (c: Scale) => void
   density: Density
   onDensityChange: (d: Density) => void
+  /** #215: text size, Normal / Large / Larger (`useTextSize`). Optional so hosts/tests that do
+   *  not wire it render Workspace unchanged, without the row. */
+  textSize?: TextSize
+  onTextSizeChange?: (s: TextSize) => void
   /** #253: the optional local-time clock beside UTC (UI-only, per machine — `useLocalClock`).
    *  Optional so hosts/tests that do not wire it render Workspace unchanged, without the field. */
   localClock?: boolean
@@ -246,10 +255,11 @@ interface Props {
   features: FeaturesApi
   /** Re-open the first-run setup wizard. */
   onRerunWizard?: () => void
-  /** Theme (Light/Dark) — moved here from the top bar (operator, 2026-08-10);
-   * optional so hosts/tests without theme wiring render the tab unchanged. */
-  theme?: 'light' | 'dark'
-  onThemeChange?: (t: 'light' | 'dark') => void
+  /** Theme (Light/Dark/System) — moved here from the top bar (operator, 2026-08-10); the
+   * operator's CHOICE, 'system' included, not the resolved theme the page paints. Optional so
+   * hosts/tests without theme wiring render the tab unchanged. */
+  theme?: ThemeChoice
+  onThemeChange?: (t: ThemeChoice) => void
   /** #215: Field mode — maximum contrast plus larger type (`useFieldMode`). It shipped as a
    *  chip in the top bar only, which is the other half of why the operator who asked for a
    *  high-contrast, large-text setting could not find one: the two halves of the answer were
@@ -262,6 +272,17 @@ interface Props {
    *  (UI scale, just below); this is the half that had none. Same optional shape. */
   highContrast?: boolean
   onHighContrastChange?: (on: boolean) => void
+  /** Night — Off / On / Auto at dusk (`useNight`, owned by App): a darker, warmer screen after
+   *  dark. `nightGridKnown` is whether Auto has a grid square to go by, so the row can say when
+   *  it has none. Same optional shape as the theme. */
+  night?: NightChoice
+  onNightChange?: (c: NightChoice) => void
+  nightGridKnown?: boolean
+  /** Settings ▸ Appearance ▸ Colours: the colour-role picks and their setter, owned by App's
+   *  `usePaletteRoles`. Optional like the theme, so hosts and tests without the wiring render
+   *  the tab unchanged. */
+  palette?: PaletteSelection
+  onPaletteChange?: (role: PaletteRoleId, presetId: string) => void
 }
 
 /** Display order for the Features section's category groups. */
@@ -959,6 +980,8 @@ export function SettingsPanel({
   onScaleCapChange,
   density,
   onDensityChange,
+  textSize,
+  onTextSizeChange,
   localClock = false,
   onLocalClockChange,
   onResetLayout,
@@ -970,6 +993,11 @@ export function SettingsPanel({
   onFieldModeChange,
   highContrast = false,
   onHighContrastChange,
+  night = 'off',
+  onNightChange,
+  nightGridKnown = false,
+  palette,
+  onPaletteChange,
 }: Props) {
   const configuration=useNavigation<SettingsConfiguration>('settings')
   const remote=configuration.remote
@@ -3536,6 +3564,53 @@ export function SettingsPanel({
                   </span>
                 </div>
               )}
+              {/* NIGHT, under High contrast: the other row that changes how the theme above it
+                  paints (darker and warmer, whichever theme is on). A Settings row and NOT a
+                  top-bar chip — the operator's pick; Field stays the only quick toggle. Auto goes
+                  by the sun at the station's grid square, so with none it cannot work, and the
+                  hint says so rather than leaving a switch that silently does nothing. */}
+              {onNightChange && (
+                <div className="settings-field">
+                  <span className="settings-label">{t('settings.workspace.night.label')}</span>
+                  <div
+                    className="theme-switcher"
+                    role="group"
+                    aria-label={t('settings.workspace.night.label')}
+                  >
+                    <button
+                      type="button"
+                      className={`theme-chip${night === 'off' ? ' active' : ''}`}
+                      aria-pressed={night === 'off'}
+                      onClick={() => onNightChange('off')}
+                    >
+                      {t('settings.workspace.night.off')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`theme-chip${night === 'on' ? ' active' : ''}`}
+                      aria-pressed={night === 'on'}
+                      onClick={() => onNightChange('on')}
+                    >
+                      {t('settings.workspace.night.on')}
+                    </button>
+                    <button
+                      type="button"
+                      className={`theme-chip${night === 'auto' ? ' active' : ''}`}
+                      aria-pressed={night === 'auto'}
+                      onClick={() => onNightChange('auto')}
+                    >
+                      {t('settings.workspace.night.auto')}
+                    </button>
+                  </div>
+                  <span className="settings-hint">
+                    {night !== 'auto'
+                      ? t('settings.workspace.night.hint')
+                      : nightGridKnown
+                        ? t('settings.workspace.night.hint.auto')
+                        : t('settings.workspace.night.hint.noGrid')}
+                  </span>
+                </div>
+              )}
               {/* #215: Field mode, BETWEEN theme and scale, because it is both — maximum
                   contrast and larger type in one switch. It has been in the app since
                   2026-08-09 and reachable only as a chip named "Field" in the top bar, so an
@@ -3675,6 +3750,48 @@ export function SettingsPanel({
                 )}
               </div>
 
+              {/* #215: TEXT SIZE, directly under UI scale because it is the other size control —
+                  scale magnifies everything (and so fits less), this grows the words and leaves
+                  the layout at its size. Normal / Large / Larger, +0 / +12 / +25 %. */}
+              {onTextSizeChange && (
+                <div className="settings-field">
+                  <span className="settings-label">{t('settings.workspace.textSize.label')}</span>
+                  <div
+                    className="theme-switcher"
+                    role="group"
+                    aria-label={t('settings.workspace.textSize.label')}
+                  >
+                    <button disabled={remote}
+                      type="button"
+                      className={`theme-chip${textSize === 'normal' ? ' active' : ''}`}
+                      aria-pressed={textSize === 'normal'}
+                      onClick={() => onTextSizeChange('normal')}
+                    >
+                      {t('settings.workspace.textSize.normal')}
+                    </button>
+                    <button disabled={remote}
+                      type="button"
+                      className={`theme-chip${textSize === 'large' ? ' active' : ''}`}
+                      aria-pressed={textSize === 'large'}
+                      onClick={() => onTextSizeChange('large')}
+                    >
+                      {t('settings.workspace.textSize.large')}
+                    </button>
+                    <button disabled={remote}
+                      type="button"
+                      className={`theme-chip${textSize === 'larger' ? ' active' : ''}`}
+                      aria-pressed={textSize === 'larger'}
+                      onClick={() => onTextSizeChange('larger')}
+                    >
+                      {t('settings.workspace.textSize.larger')}
+                    </button>
+                  </div>
+                  <span className="settings-hint">{t('settings.workspace.textSize.hint')}</span>
+                </div>
+              )}
+
+              {/* Four densities, each chip pressed for its OWN id: `guided` is Comfortable (it had
+                  no writer before this row), Touch is Comfortable plus finger-sized targets. */}
               <div className="settings-field">
                 <span className="settings-label">{t('settings.workspace.density.label')}</span>
                 <div
@@ -3684,8 +3801,16 @@ export function SettingsPanel({
                 >
                   <button disabled={remote}
                     type="button"
-                    className={`theme-chip${density !== 'dense' ? ' active' : ''}`}
-                    aria-pressed={density !== 'dense'}
+                    className={`theme-chip${density === 'guided' ? ' active' : ''}`}
+                    aria-pressed={density === 'guided'}
+                    onClick={() => onDensityChange('guided')}
+                  >
+                    {t('settings.workspace.density.guided')}
+                  </button>
+                  <button disabled={remote}
+                    type="button"
+                    className={`theme-chip${density === 'standard' ? ' active' : ''}`}
+                    aria-pressed={density === 'standard'}
                     onClick={() => onDensityChange('standard')}
                   >
                     {t('settings.workspace.density.standard')}
@@ -3697,6 +3822,14 @@ export function SettingsPanel({
                     onClick={() => onDensityChange('dense')}
                   >
                     {t('settings.workspace.density.dense')}
+                  </button>
+                  <button disabled={remote}
+                    type="button"
+                    className={`theme-chip${density === 'touch' ? ' active' : ''}`}
+                    aria-pressed={density === 'touch'}
+                    onClick={() => onDensityChange('touch')}
+                  >
+                    {t('settings.workspace.density.touch')}
                   </button>
                 </div>
                 <span className="settings-hint">{t('settings.workspace.density.hint')}</span>
@@ -3753,6 +3886,18 @@ export function SettingsPanel({
                 <span className="settings-hint">{t('settings.workspace.panes.hint')}</span>
               </div>
             </div>
+          </fieldset>
+          )}
+
+          {/* ---- Colours: the colour roles (features/paletteRoles.ts) ----
+              Right after Workspace, whose Theme row picks the palette these presets retune. Only
+              pre-checked presets, no hex field ("presets first, hex later", operator 2026-09-26);
+              the transmit red, the alert orange and the Needed colours have no row at all. */}
+          {tab === 'appearance' && palette && onPaletteChange && (
+          <fieldset className="settings-section" id="settings-colours">
+            <legend>{t('settings.colours.legend')}</legend>
+            <span className="settings-hint">{t('settings.colours.hint')}</span>
+            <SettingsColours palette={palette} onChange={onPaletteChange} />
           </fieldset>
           )}
 

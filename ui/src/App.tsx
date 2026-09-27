@@ -64,10 +64,13 @@ import { loadWatchlist, type WatchFilter } from './watchlist'
 import { foldRetiredWantedList } from './features/watchlistFold'
 import { useTheme } from './useTheme'
 import { useContrastPrefs } from './useFieldMode'
+import { usePaletteRoles } from './usePaletteRoles'
+import { useNight } from './useNight'
 import { useScale } from './useScale'
 import { useDpiScaleSeed } from './useDpiSeed'
 import { useViewport } from './useViewport'
 import { useDensity } from './useDensity'
+import { useTextSize } from './useTextSize'
 import { useLocalClock } from './useLocalClock'
 import { useMotion } from './useMotion'
 import { useBandEdgeTones } from './useBandEdgeTones'
@@ -273,11 +276,14 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   const needsRead = useRemoteCollection('needs')
   const spotsRead = useRemoteCollection('spots')
   const [remoteSelection, setRemoteSelection] = useState<string | null>(null)
-  const [theme, setTheme] = useTheme()
+  const [theme, setTheme, themeChoice] = useTheme()
   // The contrast axis: field mode (outdoor/POTA) and the standing high-contrast preference
   // (#215). Both set data-contrast on <html>; only field mode is handed to useScale, because
   // only it carries the larger auto-fit. Global — facts about the station, like the theme.
   const { fieldMode, setFieldMode, highContrast, setHighContrast } = useContrastPrefs()
+  // The colour roles (Settings ▸ Appearance ▸ Colours): App is their one writer, and Settings is
+  // handed the picks and the setter, the same way it gets the theme.
+  const { palette, setPreset: setPalettePreset } = usePaletteRoles()
   const { scale, mode: scaleMode, cap: scaleCap, setMode: setScaleMode, setCap: setScaleCap } = useScale(fieldMode)
   // First launch on a high-density display: raise the auto-fit ceiling so the UI can grow to
   // the panel. Once only, raise only, and nothing at all on an ordinary 96-dpi monitor or on
@@ -286,8 +292,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   // Publishes the zoom-aware `data-viewport` size class on <html> (live on resize
   // AND on scale change) so the layout adapts to the EFFECTIVE width.
   useViewport(scale)
-  // Density (row heights / padding). Comfortable ↔ Compact toggle lives in Settings.
+  // Density (row heights / padding) and text size (#215) — both chosen in Settings ▸ Workspace.
   const [density, setDensity] = useDensity()
+  const [textSize, setTextSize] = useTextSize()
   // #253: optional local-time clock beside UTC in the top bar (per machine, off by default).
   const [localClock, setLocalClock] = useLocalClock()
   useMotion()
@@ -309,6 +316,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   const { commitLeft, commitRight, resetWidths } = usePaneWidths(scale)
   const layoutRef = useRef<HTMLElement>(null)
   const [snap, setSnap] = useState<AppSnapshot | null>(remote?.snapshot ?? null)
+  // Night (Settings ▸ Appearance ▸ Workspace): App is its one writer. Auto goes by the sun at the
+  // station's grid square, which arrives with the snapshot — until then Auto has no grid and stays off.
+  const { night, setNight, gridKnown: nightGridKnown } = useNight(snap?.mygrid ?? '')
   // Routes a typed or clicked RX offset; kept through a brief control lapse so a commit made then
   // still takes the FT runtime path (the transport sends it only once control is current).
   const ftRuntimeControl = useStationCapability('ftRuntime', true)
@@ -3000,17 +3010,24 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
             onScaleCapChange={setScaleCap}
             density={density}
             onDensityChange={setDensity}
+            textSize={textSize}
+            onTextSizeChange={setTextSize}
             localClock={localClock}
             onLocalClockChange={setLocalClock}
             onResetLayout={resetWidths}
             features={features}
             onRerunWizard={() => setShowWizard(true)}
-            theme={theme}
+            theme={themeChoice}
             onThemeChange={setTheme}
             fieldMode={fieldMode}
             onFieldModeChange={setFieldMode}
             highContrast={highContrast}
             onHighContrastChange={setHighContrast}
+            night={night}
+            onNightChange={setNight}
+            nightGridKnown={nightGridKnown}
+            palette={palette}
+            onPaletteChange={setPalettePreset}
           />
         </main>
       )
