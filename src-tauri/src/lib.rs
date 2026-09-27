@@ -28116,6 +28116,7 @@ fn start_on_the_logbook(
                     s.cloudlog_upload && !s.cloudlog_url.trim().is_empty(),
                     s.cloudlog_url.trim().to_string(),
                     s.cloudlog_station_id.trim().to_string(),
+                    u64::from(s.wavelog_full_sync_hours.clamp(1, 168)) * 60 * 60,
                 )
             };
             if !enabled {
@@ -28157,7 +28158,6 @@ fn start_on_the_logbook(
                 )
             };
             match result {
-                    u64::from(s.wavelog_full_sync_hours.clamp(1, 168)) * 60 * 60,
                 Ok(r)
                     if r.downloaded
                         + r.uploaded
