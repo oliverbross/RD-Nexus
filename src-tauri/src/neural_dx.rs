@@ -12,11 +12,12 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tempo_app::engine::engine_lock;
+use tempo_core::process::command;
 
 use crate::log_queries::LogQueries;
 use crate::SharedEngine;
@@ -159,12 +160,7 @@ fn launch(app: &AppHandle) -> Result<(Child, PathBuf, String), String> {
             engine.settings().mygrid.clone(),
         )
     };
-    let mut command = Command::new(executable);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
+    let mut command = command(executable);
     command
         .current_dir(&home)
         .env("NEURAL_DX_PORT", "0")

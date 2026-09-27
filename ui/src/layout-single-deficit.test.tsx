@@ -56,6 +56,13 @@ vi.mock('./api', () => {
   const fn = () => vi.fn().mockResolvedValue(undefined)
   return {
     getSettings: vi.fn().mockResolvedValue(null),
+    getWavelogV2Status: vi.fn().mockResolvedValue({
+      localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1,
+      localOnly: 0, remoteOnly: 0, lastSyncUnix: 1,
+      lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1,
+      incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400,
+      syncing: false, lastError: null, deliveryUnknownCreates: 0,
+    }),
     setSettings: fn(), exportLog: fn(), openPanelWindow: fn(),
     deleteQsoById: fn(), editQsoById: fn(), exportGeneralLog: fn(), importAdif: fn(),
     logOperators: () => Promise.resolve([]), exportLogForOperator: fn(),

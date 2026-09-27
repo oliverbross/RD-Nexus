@@ -16,6 +16,7 @@ use tauri::{AppHandle, Manager, State};
 use tempo_app::dto::{AppSnapshot, LoggedQso};
 use tempo_app::engine::engine_lock;
 use tempo_core::logbook::QsoEdit;
+use tempo_core::process::command;
 
 use crate::SharedEngine;
 
@@ -148,7 +149,7 @@ fn child_command(app: &AppHandle) -> Result<Command, String> {
         .map_err(|e| format!("resolve resource directory: {e}"))?;
     let bundled = bundled_executable(&resource_dir);
     if bundled.is_file() {
-        return Ok(Command::new(bundled));
+        return Ok(command(bundled));
     }
 
     Err("OpenHamClock is not staged; run `node scripts/stage-openhamclock.mjs` before starting Nexus".into())
@@ -179,13 +180,6 @@ fn launch(app: &AppHandle) -> Result<(Child, PathBuf), String> {
     };
 
     let mut command = child_command(app)?;
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // pkg emits a console-subsystem executable. Keep that implementation
-        // detail invisible so Nexus remains the only application window.
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-    }
     command
         .env("HOST", "127.0.0.1")
         .env("PORT", PREFERRED_PORT.to_string())

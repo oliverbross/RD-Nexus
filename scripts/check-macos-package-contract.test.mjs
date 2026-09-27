@@ -16,7 +16,7 @@ function workflowJob(workflow, name) {
   return next < 0 ? rest : rest.slice(0, rest.indexOf('\n') + 1 + next)
 }
 
-test('macOS CI packages and verifies the non-distributed Neural DX companion', () => {
+test('macOS CI stages and verifies both bundled companions', () => {
   const ci = read('.github/workflows/ci.yml')
   const job = workflowJob(ci, 'macos-check')
   for (const required of [
@@ -26,6 +26,8 @@ test('macOS CI packages and verifies the non-distributed Neural DX companion', (
     'node scripts/stage-neural-dx.mjs',
     'node scripts/check-neural-dx-staged.mjs',
     'node scripts/check-neural-dx-consumer.mjs',
+    'node scripts/stage-openhamclock.mjs --target macos-arm64',
+    'node scripts/check-openhamclock-staged.mjs --target macos-arm64',
     'bash scripts/build-macos.sh --debug',
   ]) {
     assert.ok(job.includes(required), `macos-check lost: ${required}`)
@@ -33,7 +35,7 @@ test('macOS CI packages and verifies the non-distributed Neural DX companion', (
   assert.ok(!job.includes('actions/upload-artifact'), 'the private package rehearsal must never upload its app')
 })
 
-test('the macOS build script checks the companion inside the assembled app', () => {
+test('the macOS build script checks both companions inside the assembled app', () => {
   const script = read('scripts/build-macos.sh')
   for (const required of [
     'Contents/Resources/resources/neural-dx',
@@ -43,6 +45,9 @@ test('the macOS build script checks the companion inside the assembled app', () 
     'NEURAL_DX_SELF_TEST=1',
     'check-neural-dx-self-test.mjs',
     "file \"$neural\" | grep -q 'Mach-O.*arm64'",
+    'Contents/Resources/resources/openhamclock',
+    'check-openhamclock-package.mjs',
+    '--target macos-arm64 --bundle-resources "$app/Contents/Resources"',
   ]) {
     assert.ok(script.includes(required), `build-macos.sh lost: ${required}`)
   }

@@ -16,6 +16,10 @@
   ],
   "sections": [
     {
+      "id": "hamClock",
+      "label": "Ham Clock"
+    },
+    {
       "id": "operate",
       "label": "Operate"
     },

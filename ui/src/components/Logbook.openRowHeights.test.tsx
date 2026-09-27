@@ -40,6 +40,7 @@ vi.mock('../api', () => {
   return {
     // The engine answers each question from its log (features/logAnswers.testkit).
     askLog: vi.fn(async (q: LogQuestion) => (await import('../features/logAnswers.testkit')).answerAs(q, engine.log as LoggedQso[], engine.revision)),
+    getWavelogV2Status: vi.fn(async () => ({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: false, lastError: null, deliveryUnknownCreates: 0 })),
     deleteQsoById: noop(), editQsoById: noop(), exportGeneralLog: noop(), importAdif: noop(),
     logOperators: vi.fn(() => Promise.resolve([] as string[])), exportLogForOperator: noop(),
     logActivations: vi.fn(() => Promise.resolve([])), exportLogForActivation: noop(),

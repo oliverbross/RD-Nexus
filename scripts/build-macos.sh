@@ -12,6 +12,7 @@ fi
 app="$repo/src-tauri/target/$profile/bundle/macos/RD-Nexus.app"
 app_hamlib="$app/Contents/Resources/resources/hamlib"
 app_neural="$app/Contents/Resources/resources/neural-dx"
+app_openham="$app/Contents/Resources/resources/openhamclock"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "scripts/build-macos.sh is for macOS." >&2
@@ -69,6 +70,16 @@ neural_self_test="$(cd "$neural_tmp" && NEURAL_DX_SELF_TEST=1 "$neural")"
 expected_neural_version="$(jq -er '.version' "$repo/docs/neural-dx/upstream.json")"
 printf '%s\n' "$neural_self_test" \
   | node "$repo/scripts/check-neural-dx-self-test.mjs" --version "$expected_neural_version"
+
+# OpenHamClock's build receipt is specific to this staging run. Compare it and the executable
+# bytes against the assembled app so a resource-glob or bundle-layout regression cannot pass by
+# checking only the staging directory.
+node "$repo/scripts/check-openhamclock-package.mjs" \
+  --target macos-arm64 --bundle-resources "$app/Contents/Resources"
+[[ -x "$app_openham/openhamclock" ]] || {
+  echo "bundled OpenHamClock executable is not executable: $app_openham/openhamclock" >&2
+  exit 1
+}
 
 # A local Tauri build has no Developer ID identity, but macOS still leaves an outer signature
 # placeholder that fails its resource seal once bundled resources are present. Seal only the

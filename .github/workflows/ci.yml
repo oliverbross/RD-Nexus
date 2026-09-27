@@ -1050,9 +1050,14 @@ jobs:
           node scripts/check-neural-dx-staged.mjs
           node scripts/check-neural-dx-consumer.mjs
 
+      - name: Stage and verify OpenHamClock for the package check
+        run: |
+          node scripts/stage-openhamclock.mjs --target macos-arm64
+          node scripts/check-openhamclock-staged.mjs --target macos-arm64
+
       # NO LIBRARY_PATH export: tempo-fast-sys must derive Homebrew's gfortran/FFTW paths itself.
       # scripts/build-macos.sh performs the Tauri build and then verifies the complete app contract,
-      # including the executable Neural DX sidecar and its pinned provenance inside the `.app`.
+      # including the executable Neural DX and OpenHamClock companions inside the `.app`.
       - name: Build and verify the ad-hoc RD-Nexus.app
         run: bash scripts/build-macos.sh --debug
 

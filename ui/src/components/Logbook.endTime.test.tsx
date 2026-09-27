@@ -31,6 +31,7 @@ const engineLog = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => {
   const noop = () => vi.fn()
   return {
+    getWavelogV2Status: vi.fn(async () => ({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: false, lastError: null, deliveryUnknownCreates: 0 })),
     askLog: vi.fn(async (q: LogQuestion) => (await import('../features/logAnswers.testkit')).answerAs(q, await engineLog())),
     deleteQsoById: noop(), exportGeneralLog: noop(), importAdif: noop(),
     editQsoById: vi.fn(() => Promise.resolve({})),

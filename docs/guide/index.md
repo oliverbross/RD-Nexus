@@ -113,6 +113,9 @@ Thirteen panels tear off into their own OS window — see
 ## The sections
 
 ### Operating
+- **[Ham Clock](ham-clock.md)** — the complete OpenHamClock dashboard for maps,
+  propagation, spots, satellites, space weather, clocks and emergency information,
+  with Nexus providing the station, radio, rotator and canonical logbook.
 - **[Operate — FT8/FT4 digital](operate-digital.md)** — the digital cockpit with
   WSJT-X-grade sequencing, country/worked-before flags on every decode, and
   one-click "work it."

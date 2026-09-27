@@ -14001,7 +14001,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: 6px;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 4px;
+  gap: var(--space-1);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-elev);
@@ -14016,12 +14016,10 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   text-align: left;
   padding: 6px 9px;
 }
-.log-actions-popover select.log-rowbtn { appearance: auto; }
-
 .wavelog-sync-strip {
   display: flex;
   align-items: center;
-  gap: 8px 14px;
+  gap: var(--space-2) calc(14px * var(--space-scale));
   min-height: 34px;
   padding: 6px var(--space-3);
   border-bottom: 1px solid var(--border-soft);
@@ -25909,7 +25907,7 @@ tr.sel .aprs-sym {
   background: var(--state-bad);
   color: #fff;
   font-weight: 900;
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--elev-2);
 }
 .ham-clock-error {
   position: absolute;
