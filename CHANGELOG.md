@@ -114,6 +114,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   can take about a minute to give up on a session after a pulled network cable, so this backs up
   the TX watchdog rather than replacing it. The line under the switch shows what Nexus last read
   from Parsec's log.
+- **Spots and Needed on the Phone screen (#345).** ⊞ Panels on the Phone cockpit has two new
+  entries, **Spots** and **Needed**, and both start unticked, so nobody's Phone screen changes on
+  the update. Tick one and it fills space that used to sit empty: on a wide window Spots goes
+  under Band Activity and the voice keyer, and Needed under the receiver and transmitter panes; on
+  a narrower window both go at the bottom of the left-hand column, with a divider between them
+  that you drag to share the height (the split is remembered). On a smaller window, hide the voice
+  keyer or the receiver and transmitter panes, or drag the scope smaller, to give them more room.
+  **Spots** opens on the voice spots (the ones in the phone part of the band) on the band your
+  radio is on, and moves with the radio when you change band. Its Filter chips widen it to other
+  modes and other bands, and unticking your own band's chip stops it following. **Needed** opens
+  on the phone needs, and its chips widen it the same way. Each pane keeps its own filters, so a
+  chip on the Phone screen never changes the Spots or Needed screen, or the other way round. A
+  click on a row does exactly what it does on those screens: the radio goes to the station and the
+  call goes into the log. A CW or digital spot, once you have widened the list to it, opens its
+  own screen as it does from Spots. Nothing transmits. **Reset layout** unticks both again. On the
+  Remote page the panes show the spots and needs the station already shares, and say so when it
+  does not.
 
 ### Changed
 
@@ -156,13 +173,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   period. Clicking works exactly as before: left-click sets RX, right-click or Shift-click sets TX
   for a split, and Ctrl-click sets both. A click inside a marker tunes to the spot you clicked. WSPR,
   MSK144, FT2 and the Tempo modes keep the single line.
-- **Changing a setting no longer holds up the radio.** A band pick, the Pwr slider, a TX offset,
-  a switch in Settings: every change used to make the loop that runs the radio wait while the
+- **Most settings changes no longer hold up the radio.** A band pick, the Pwr slider, a TX
+  offset, a switch in Settings: each used to make the loop that runs the radio wait while the
   settings file was written to disk, a few milliseconds on a fast drive and longer on a slow one
   or while an antivirus scanned the file. The file is now written in the background, always with
   the newest change, and Nexus writes the last one before it quits, restarts, reopens for
-  another radio or installs an update. What each setting does, and when it takes effect, is
-  unchanged.
+  another radio or installs an update. Some changes still save on the spot, because whether the
+  save worked decides the change: changes made from Remote, restoring a backup, the RTTY and PSK
+  macro editors and the satellite Doppler switch. What each setting does, and when it takes
+  effect, is unchanged.
 
 ### Fixed
 
@@ -192,6 +211,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Stopped" after that. A voice, CW or RTTY over still running at the station could already read
   "Stopped", because only the FT and mic-key flags were checked. It now waits for the same reading
   as the ON AIR sign. The Stop itself works exactly as before.
+- **"Use one radio" in the launch picker stays chosen.** It turned simultaneous radios off in the
+  settings file but not in the window you went on to operate in, so the next setting you changed
+  there turned it back on, and the picker returned at the next launch. The window now keeps the
+  choice too.
+- **The band chip's band name is readable in the light theme.** The band chip (the top bar, the
+  cockpit headers, Phone's and CW's band picker, and Settings ▸ Station) spelled the band name in
+  the band's own colour, which barely shows on a light background: 20m's green read about 1.5:1.
+  In the light theme the name is now in the normal text colour, and the band's colour stays on the
+  chip's border, its glow and the dot beside it.
+- **The six violet bands read clearly on the dark band chip.** 2200m, 630m, 160m, 70cm, 33cm and
+  23cm are lettered in a slightly lighter violet on the chip, so each reads at least 4.5:1. Every
+  other band looks exactly as before, and the map, the globes and the Field Day board keep their
+  colours.
+- **The SSTV picture viewer no longer misses an arrow key pressed as it opens.** On a busy
+  computer, a ← or → pressed the moment the pictures appeared could be ignored, because the keys
+  were connected to the pictures a moment after they were drawn. They are now connected as the
+  pictures appear.
 - **Band Activity and Rx Frequency scroll instead of cutting off on a short window.** When a decode
   pane's header, with its filter chips, is taller than the pane (a small window with large text,
   or a big UI scale), the pane now scrolls and its decode list keeps at least one row. Before,
