@@ -767,7 +767,7 @@ pub(super) const WRITE_DENIED_KEYS: &[&str] = &[
 ];
 impl Serialize for SettingsView<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut out = serializer.serialize_struct("SettingsView", 272)?;
+        let mut out = serializer.serialize_struct("SettingsView", 273)?;
         out.serialize_field("mycall", &self.0.mycall)?;
         out.serialize_field("mygrid", &self.0.mygrid)?;
         out.serialize_field("opName", &self.0.op_name)?;
