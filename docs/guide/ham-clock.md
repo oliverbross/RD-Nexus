@@ -83,11 +83,13 @@ internet connection, provider availability or the configuration those feeds
 require. Propagation, solar and satellite panels are predictions or third-party
 observations; seeing them is not proof that a path is open at your station.
 
-Automated tests and a packaged app prove the local bridge, bounded log transfer,
-restart recovery and Nexus transmit guards. They do not prove a physical-radio
-QSY or contact, a live rotator, every upstream data provider, a signed and
-notarized public installer, or that an external microphone, VOX circuit or
-front-panel PTT outside Nexus control has been released.
+Automated tests verify the local bridge protocol, bounded log transfer, restart
+recovery logic and Nexus transmit guards. Package inspection verifies that the
+required resources are assembled. Neither substitutes for a separate,
+SHA-bound packaged-runtime receipt, nor proves a physical-radio QSY or contact,
+a live rotator, every upstream data provider, a signed and notarized public
+installer, or that an external microphone, VOX circuit or front-panel PTT
+outside Nexus control has been released.
 
 ## Related guides
 
