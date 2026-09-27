@@ -20,14 +20,21 @@ assert.ok(pkgPatches[`v${upstream.nodeRuntime.version}`], 'pinned pkg tool must 
 const stage = read('scripts/stage-openhamclock.mjs')
 for (const invariant of [
   'app.listen(PORT, HOST', 'frameguard', 'geo-tz/dist/find-all',
-  'process.env[key] === undefined', 'nexusBridge.js', 'replaceFromNexus',
-  'nexus-rig-state', 'OHC_NEXUS_PARENT_PID', '@yao-pkg', 'process.execPath',
+  'process.env[key] === undefined', 'nexusBridge.js', 'mergeFromNexus',
+  'nexusLogMerge.mjs', 'nexusMirrorStore.mjs', 'commitNexusDelta', 'applyNexusDelta', 'NEXUS_LEDGER_KEY', 'nexus-rig-state', 'OHC_NEXUS_PARENT_PID',
+  'OHC_NEXUS_PORT_FILE', 'EADDRINUSE', '@yao-pkg', 'process.execPath',
+  'configuration',
 ]) assert.ok(stage.includes(invariant), 'staging adaptation missing: ' + invariant)
+for (const control of ['rig:setFreq', 'rig:setMode', 'rig:setPTT']) {
+  assert.match(stage, new RegExp(control.replace(':', '\\:') + "[^\\n]+return;"), `embedded ${control} must return before upstream actuation`)
+}
 
 const supervisor = read('src-tauri/src/openhamclock.rs')
-for (const invariant of ['127.0.0.1', 'phase: "idle"', 'CREATE_NO_WINDOW', 'WSJTX_ENABLED', 'N1MM_UDP_ENABLED']) {
+for (const invariant of ['127.0.0.1', 'phase: "idle"', 'CREATE_NO_WINDOW', 'health_ready', 'broker_ptt', 'PortHandshake', 'MAX_HEALTH_RESPONSE_BYTES', 'serde_json::from_slice', 'openhamclock_log_delta', 'log_changed_ids_since']) {
   assert.ok(supervisor.includes(invariant), 'supervisor invariant missing: ' + invariant)
 }
+assert.ok(!supervisor.includes('.env("WSJTX_ENABLED", "false")'), 'upstream WSJT-X must remain configurable')
+assert.ok(!supervisor.includes('.env("N1MM_UDP_ENABLED", "false")'), 'upstream N1MM must remain configurable')
 
 const tauri = JSON.parse(read('src-tauri/tauri.conf.json'))
 assert.equal(tauri.bundle.resources['resources/openhamclock/*'], 'resources/openhamclock/')

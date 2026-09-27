@@ -1,0 +1,55 @@
+{
+  "generatedAt": "2026-09-27T14:01:24.433Z",
+  "targets": [
+    {
+      "target": "win-x64",
+      "format": "PE32+ executable (console) x86-64, for MS Windows",
+      "size": 160270805,
+      "sha256": "69e31a6d1fd70592119eac6ab5e8cc1ba96b71bae723738e43879898ceee8195",
+      "packageStatus": "VERIFIED",
+      "runtimeStatus": "EXTERNAL",
+      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
+      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+    },
+    {
+      "target": "linux-x64",
+      "format": "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=ca84d2a66235a3419ee31ec0465cfeb582064b1a, for GNU/Linux 3.2.0, stripped",
+      "size": 176997489,
+      "sha256": "7c3a0dbb1fa86e7405b1f50e2f1cb80a6c764c618c235500b5e67634869fa58c",
+      "packageStatus": "VERIFIED",
+      "runtimeStatus": "EXTERNAL",
+      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
+      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+    },
+    {
+      "target": "linux-arm64",
+      "format": "ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=33d9f7d4a0e9d1f4534dd79728f4a647079672b2, for GNU/Linux 3.7.0, stripped",
+      "size": 171676457,
+      "sha256": "59d1e21ef2f2f6eea699e1b3a9bd73b01b2ae1483a43286a2a30d2072724b555",
+      "packageStatus": "VERIFIED",
+      "runtimeStatus": "EXTERNAL",
+      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
+      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+    },
+    {
+      "target": "macos-x64",
+      "format": "Mach-O 64-bit executable x86_64",
+      "size": 166626896,
+      "sha256": "ec1c28e8fbdf3196ed254bac9a9a9784979f975bc6005fbf86b4535a7c718212",
+      "packageStatus": "VERIFIED",
+      "runtimeStatus": "EXTERNAL",
+      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
+      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+    },
+    {
+      "target": "macos-arm64",
+      "format": "Mach-O 64-bit executable arm64",
+      "size": 163258768,
+      "sha256": "03f4b3c16e57ae4c08dba2d28690d8268eb55692724bb46418c95e5b6d733bf7",
+      "packageStatus": "VERIFIED",
+      "runtimeStatus": "VERIFIED",
+      "runtimeEvidence": "packaged health, route, asset, persistence, collision, restart, and browser probes on the build host",
+      "runtimeReason": ""
+    }
+  ]
+}

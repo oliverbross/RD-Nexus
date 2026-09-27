@@ -30,4 +30,8 @@ const provenance = JSON.parse(readFileSync(join(dir, 'provenance.json'), 'utf8')
 if (provenance.commit !== expected.commit || provenance.version !== expected.version) {
   throw new Error('OpenHamClock staged provenance does not match the reviewed upstream pin')
 }
+const inventory = JSON.parse(readFileSync(join(dir, 'parity-inventory.json'), 'utf8'))
+if (inventory.panels.length < 50 || inventory.settingsTabs.length < 10 || inventory.routes.length < 80 || inventory.storage.length < 50 || inventory.configuration.length < 80 || inventory.distFiles.length < 20) {
+  throw new Error('OpenHamClock staged parity inventory is incomplete')
+}
 process.stdout.write(`OpenHamClock ${provenance.version} staged (${provenance.commit})\n`)

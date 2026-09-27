@@ -22,8 +22,16 @@ To update upstream:
 3. Run `node scripts/stage-openhamclock.mjs --target <target>` for every release target.
 4. Run OpenHamClock's tests and the RD-Nexus gates/browser probe.
    For a native staged target, run `node scripts/smoke-openhamclock.mjs`.
-5. Update `NOTICE` and release notes if upstream attribution or behavior changed.
+5. Generate `integrations/openhamclock/PARITY-LEDGER.md` from the staged
+   inventory and locked dependency closure, then review every non-PASS row.
+6. Update `NOTICE` and release notes if upstream attribution or behavior changed.
 
 The sync command never commits, pushes, or publishes. A changed integration
 anchor fails loudly so an upstream update cannot silently drop the loopback or
 embedding boundary.
+
+OpenHamClock's git-based self-updater is intentionally replaced by the
+RD-Nexus release/update boundary: an installed signed application cannot safely
+rewrite a nested bundled executable. The sync command has positive and negative
+controls proving that it detects a newer upstream commit without modifying the
+pin unless `--apply` is explicitly supplied and reviewed.

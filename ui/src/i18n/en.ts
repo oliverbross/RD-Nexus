@@ -9359,6 +9359,10 @@ export const EN = {
   'hamClock.starting': 'Starting the local OpenHamClock service…',
   'hamClock.unavailable': 'OpenHamClock is unavailable on this computer.',
   'hamClock.retry': 'Restart OpenHamClock',
+  'hamClock.stopTx': 'STOP TX',
+  'hamClock.clearConfirm': 'Clear the complete Nexus logbook?',
+  'hamClock.clearWarning': 'OpenHamClock already asked once. Nexus will save an ADIF backup before deleting every contact. This cannot be undone inside the app.',
+  'hamClock.clear': 'Back up and clear',
 
   // ── A torn-off panel window ─────────────────────────────────────────────────────────
   'detached.connecting': 'Connecting to the radio…',

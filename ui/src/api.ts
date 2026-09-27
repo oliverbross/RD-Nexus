@@ -126,6 +126,27 @@ export async function restartOpenHamClock(): Promise<void> {
   await bridge()<void>('restart_openhamclock')
 }
 
+/** Route embedded OpenHamClock PTT through Nexus's external-program arbiter.
+ * Key-down cannot arm TX or bypass operator opt-in, licence/band legality,
+ * ownership, or watchdog state; key-up is always accepted. */
+export async function setOpenHamClockPtt(on: boolean): Promise<AppSnapshot> {
+  return bridge()<AppSnapshot>('openhamclock_set_ptt', { on })
+}
+
+export interface OpenHamClockLogDelta {
+  revision: number
+  reset: boolean
+  upserts: { row: LoggedQso; editKey: string }[]
+  deleted: string[]
+}
+
+/** Compact bounded changes since an initialized Ham Clock mirror revision.
+ * `reset` means the native recent-change window was crossed and the caller
+ * must perform one capped/paged cold snapshot. */
+export async function openHamClockLogDelta(sinceRevision: number): Promise<OpenHamClockLogDelta> {
+  return bridge()<OpenHamClockLogDelta>('openhamclock_log_delta', { sinceRevision })
+}
+
 /**
  * Fired after any command that could change WHICH credentials are stored.
  *

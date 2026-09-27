@@ -29165,6 +29165,8 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         .invoke_handler(tauri::generate_handler![
             display_metrics,
             openhamclock::openhamclock_status,
+            openhamclock::openhamclock_set_ptt,
+            openhamclock::openhamclock_log_delta,
             openhamclock::restart_openhamclock,
             update_install_block,
             prepare_update_install,

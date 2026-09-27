@@ -23646,6 +23646,16 @@ contact yourself."
         self.station.marks().revision
     }
 
+    /// Bounded compact log mutation feed for consumers that already hold a full
+    /// snapshot. `None` means the recent-change window cannot safely describe the
+    /// interval and the consumer must request a fresh bounded snapshot.
+    pub fn log_changed_ids_since(
+        &self,
+        revision: u64,
+    ) -> Option<Vec<tempo_core::logbook::RecordId>> {
+        self.station.changed_ids_since(revision)
+    }
+
     /// The revision of the log's last change a fold over its content must be built again for
     /// — every change but an upload stamp, a QSL-sent mark or an id's adoption. The key a fold
     /// that reads none of those is kept against (SPEC-2 v3 §4.4). See
