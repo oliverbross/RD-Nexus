@@ -25806,6 +25806,72 @@ tr.sel .aprs-sym {
 .remote-contact-host { display: contents; }
 .remote-contact-host[hidden] { display: none; }
 
+/* OpenHamClock owns the content inside its frame; Nexus owns exactly one bounded
+   shell around it. The frame is the single grower and never creates a second
+   page-level scroll owner. */
+.ham-clock-view {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+.ham-clock-stop {
+  position: absolute;
+  z-index: 10;
+  top: var(--space-2);
+  right: var(--space-2);
+  min-width: 7rem;
+  min-height: 2.75rem;
+  border: 2px solid var(--state-bad);
+  border-radius: var(--radius-sm);
+  background: var(--state-bad);
+  color: #fff;
+  font-weight: 900;
+  box-shadow: var(--shadow-2);
+}
+.ham-clock-error {
+  position: absolute;
+  z-index: 11;
+  left: var(--space-2);
+  right: 9rem;
+  bottom: var(--space-2);
+  max-height: 7rem;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--state-bad);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--state-bad) 35%, var(--bg));
+  color: var(--text);
+  font-weight: 700;
+}
+.ham-clock-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  background: var(--bg);
+}
+.ham-clock-state {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+  overflow: auto;
+}
+.ham-clock-state h1,
+.ham-clock-state p {
+  margin: 0;
+}
+.ham-clock-detail {
+  max-width: min(42rem, 90%);
+  color: var(--state-bad);
+  overflow-wrap: anywhere;
+}
+
 /* THE QSO DETAIL VIEW (#313) — one contact, everything the record holds. A definition list
    in two columns: label left, value right, so a long comment wraps under its own label
    instead of shoving the next field sideways. Sections are omitted entirely when empty

@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/accius/openhamclock.git",
+  "branch": "main",
+  "commit": "6cfb6b2d8011828a8067e6d9f3659044168cbef1",
+  "version": "26.8.0",
+  "license": "MIT",
+  "nodeRuntime": {
+    "version": "22.23.2",
+    "licenseUrl": "https://raw.githubusercontent.com/nodejs/node/v22.23.2/LICENSE",
+    "licenseSha256": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+  }
+}

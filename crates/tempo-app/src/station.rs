@@ -833,6 +833,22 @@ impl Recent {
         }
     }
 
+    /// The stable row ids touched after `revision`, when the bounded recent-change
+    /// window can describe every intervening change. `None` requires a full snapshot:
+    /// the caller is older than the window, ahead of this process, or crossed a purge,
+    /// bulk/foreign merge, or other change that deliberately names every row.
+    fn ids_since(&self, revision: u64, current: u64) -> Option<Vec<RecordId>> {
+        if revision > current || revision < self.floor {
+            return None;
+        }
+        let mut ids = HashSet::new();
+        for (_, rows) in self.changes.iter().filter(|(at, _)| *at > revision) {
+            let rows = rows.as_ref()?;
+            ids.extend(rows.iter().filter_map(|(id, _)| *id));
+        }
+        Some(ids.into_iter().collect())
+    }
+
     /// Whether no change since `revision` touched any of `ids`.
     fn untouched_since(&self, revision: u64, ids: &[RecordId]) -> bool {
         self.untouched_since_by(revision, |(id, _)| id.is_some_and(|id| ids.contains(&id)))
@@ -2640,6 +2656,13 @@ impl StationCore {
     /// The log's watermarks, as the station keeps them — see [`Watermarks`] and [`Self::follow`].
     pub(crate) fn marks(&self) -> Watermarks {
         self.marks
+    }
+
+    /// Row ids changed since a consumer's revision, if the bounded mutation feed
+    /// still covers that revision. Consumers read the current versions by id after
+    /// releasing the Engine lock; missing ids are deletions.
+    pub(crate) fn changed_ids_since(&self, revision: u64) -> Option<Vec<RecordId>> {
+        self.recent.ids_since(revision, self.marks.revision)
     }
 
     /// The station's position id, which the ids of the contacts it logs from now on carry (see
@@ -5115,3 +5138,42 @@ mod hot_parity_tests {
 
 #[cfg(test)]
 mod bulk_tests;
+
+#[cfg(test)]
+mod openhamclock_delta_tests {
+    use super::*;
+
+    fn id(seq: u32) -> RecordId {
+        RecordId::Minted {
+            posid: 1,
+            nonce: 2,
+            seq,
+        }
+    }
+
+    #[test]
+    fn recent_ids_are_bounded_and_fail_closed_across_unknown_changes() {
+        let mut recent = Recent::default();
+        recent.push(10, Some(vec![(Some(id(1)), "K1ABC".into())]));
+        recent.push(11, Some(vec![(Some(id(2)), "K2ABC".into())]));
+        let changed: HashSet<_> = recent.ids_since(9, 11).unwrap().into_iter().collect();
+        assert_eq!(changed, HashSet::from([id(1), id(2)]));
+        assert_eq!(recent.ids_since(11, 11), Some(Vec::new()));
+
+        recent.note_any(12);
+        assert!(
+            recent.ids_since(11, 12).is_none(),
+            "purge/bulk/foreign changes require reset"
+        );
+
+        let mut bounded = Recent::default();
+        for revision in 1..=(RECENT_CHANGES as u64 + 1) {
+            bounded.push(
+                revision,
+                Some(vec![(Some(id(revision as u32)), "K1ABC".into())]),
+            );
+        }
+        assert!(bounded.ids_since(0, RECENT_CHANGES as u64 + 1).is_none());
+        assert!(bounded.changes.len() <= RECENT_CHANGES);
+    }
+}

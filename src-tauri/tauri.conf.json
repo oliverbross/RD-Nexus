@@ -7,8 +7,14 @@
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ui run dev",
-    "beforeBuildCommand": "npm --prefix ui run build"
+    "beforeDevCommand": {
+      "cwd": "..",
+      "script": "node scripts/check-openhamclock-staged.mjs && npm --prefix ui run dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "..",
+      "script": "node scripts/check-openhamclock-staged.mjs && npm --prefix ui run build"
+    }
   },
   "app": {
     "withGlobalTauri": true,
@@ -72,6 +78,7 @@
       "resources/deepcw/*": "resources/deepcw/",
       "resources/tles/*": "resources/tles/",
       "resources/neural-dx/*": "resources/neural-dx/",
+      "resources/openhamclock/*": "resources/openhamclock/",
       "../licenses/remote/*": "resources/remote/",
       "../licenses/openssl/*": "resources/openssl/",
       "../COPYING": "COPYING",

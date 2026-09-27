@@ -161,6 +161,7 @@
   "stationPowerW": null,
   "swrStopEnabled": false,
   "swrStopThreshold": 2.5,
+  "parsecPresenceStop": false,
   "maxPowerPhone": null,
   "maxPowerCw": null,
   "maxPowerDigital": null,

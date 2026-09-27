@@ -93,6 +93,8 @@ node "$REPO/scripts/stage-neural-dx.mjs"
 node "$REPO/scripts/check-neural-dx-staged.mjs"
 node "$REPO/scripts/check-neural-dx-consumer.mjs"
 ok "Neural DX staged (self-contained bundled companion)"
+node "$REPO/scripts/stage-openhamclock.mjs"
+ok "OpenHamClock staged (bundled companion)"
 
 # 4 — the GUI app + offline .deb + AppImage ---------------------------------------------------
 bold "4/4  Nexus GUI app + .deb + AppImage"

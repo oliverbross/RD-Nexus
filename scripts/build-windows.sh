@@ -109,6 +109,8 @@ node "$REPO/scripts/stage-neural-dx.mjs"
 node "$REPO/scripts/check-neural-dx-staged.mjs"
 node "$REPO/scripts/check-neural-dx-consumer.mjs"
 ok "Neural DX staged (self-contained bundled companion)"
+node "$REPO/scripts/stage-openhamclock.mjs" --target win-x64
+ok "OpenHamClock staged (bundled companion)"
 bash "$REPO/scripts/fetch-hamlib.sh"     # bundle rigctld so CAT needs no separate install
 ok "Hamlib staged (bundled into the installer)"
 

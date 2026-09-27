@@ -51,6 +51,10 @@ mod log_folds;
 /// slots (SPEC-2 v3 C17a).
 mod log_queries;
 mod neural_dx;
+mod openhamclock;
+/// Parsec presence mode's watcher thread: stop latched transmissions when the operator's Parsec
+/// session drops (off by default; started on Windows only).
+mod parsec_presence;
 mod pouncer;
 mod profile_sync;
 /// The quit when the logbook still has changes on their way to disk: the window is held while
@@ -28140,6 +28144,10 @@ fn start_on_the_logbook(
     // Field Day, if the operator left it on — after the attach, and before the radio loop starts.
     resume_field_day(&engine);
 
+    // Parsec presence mode — reads Parsec's log off the engine lock and passes only a verdict in.
+    // A no-op off Windows, and idle until the operator switches the mode on.
+    parsec_presence::spawn(engine.clone());
+
     // Decay + persist the grid-activity census on a slow cadence (10 min): the
     // decay keeps a one-off DXpedition from permanently un-raring a water grid,
     // and the small JSON survives restarts. Skips the write when nothing is
@@ -29621,6 +29629,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         // capability entry, so the webview cannot open a dialog of its own.
         .plugin(tauri_plugin_dialog::init())
         .manage(neural_dx::NeuralDxState::default())
+        .manage(openhamclock::OpenHamClockState::default())
         .manage(d.engine)
         .manage(SharedDxChaser::default())
         .manage(remote_publisher)
@@ -29656,6 +29665,10 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             neural_dx::neural_dx_ack_actions,
             neural_dx::neural_dx_execute_action,
             neural_dx::neural_dx_resolve_action,
+            openhamclock::openhamclock_status,
+            openhamclock::openhamclock_set_ptt,
+            openhamclock::openhamclock_log_delta,
+            openhamclock::restart_openhamclock,
             update_install_block,
             prepare_update_install,
             restart_app,

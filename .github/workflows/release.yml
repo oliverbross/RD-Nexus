@@ -288,6 +288,15 @@ jobs:
           m=/tmp/dc/usr/lib/Nexus/resources/deepcw/model.onnx
           [ -s "$m" ] || { echo "DeepCW model missing from the .deb"; exit 1; }
           echo "$MODEL_SHA  $m" | sha256sum -c -
+          ohc=/tmp/dc/usr/lib/Nexus/resources/openhamclock
+          [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the .deb"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the .deb"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the .deb"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the .deb"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
+          node scripts/check-openhamclock-package.mjs \
+            --target linux-x64 --bundle-resources /tmp/dc/usr/lib/Nexus
           # HAMLIB MUST BE IN BOTH ARTIFACTS, and it must RUN from where it lands.
           #
           # Before 1.9.0 the AppImage shipped Hamlib's five licence .txt files and no Hamlib, and
@@ -306,8 +315,21 @@ jobs:
           "$app" --appimage-extract >/dev/null
           hl=squashfs-root/usr/lib/Nexus/resources/hamlib
           [ -s "$hl/rigctld" ] || { echo "rigctld missing from the AppImage"; exit 1; }
-          neural="$appdir/squashfs-root/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher"
+          neural="squashfs-root/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher"
           [ -x "$neural" ] || { echo "Neural DX sidecar missing from the AppImage"; exit 1; }
+          ohc=squashfs-root/usr/lib/Nexus/resources/openhamclock
+          [ -x "$ohc/openhamclock" ] \
+            || { echo "OpenHamClock executable missing from the AppImage"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] \
+            || { echo "OpenHamClock license missing from the AppImage"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] \
+            || { echo "OpenHamClock third-party notices missing from the AppImage"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] \
+            || { echo "Node.js runtime license missing from the AppImage"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
+          node scripts/check-openhamclock-package.mjs \
+            --target linux-x64 --bundle-resources squashfs-root/usr/lib/Nexus
           # GSTREAMER PLUGINS, or every alert tone in the app is silently dead. linuxdeploy
           # bundles GStreamer's core libraries and no plugins, then points the plugin search
           # path INSIDE the AppImage at a directory it never created — which also suppresses
@@ -504,7 +526,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-
       - uses: actions/download-artifact@v4
         with:
           name: neural-dx-windows-sidecar
@@ -579,6 +600,23 @@ jobs:
             || { echo "NSIS listing has no WebView2 payload — webviewInstallMode broke"; 7z l "$exe" | tail -40; exit 1; }
           7z l "$exe" | grep -qi 'neural-dx-watcher\.exe' \
             || { echo "NSIS listing has no Neural DX sidecar"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+openhamclock\.exe' \
+            || { echo "NSIS listing has no bundled OpenHamClock executable"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+OPENHAMCLOCK-LICENSE\.txt' \
+            || { echo "NSIS listing has no OpenHamClock license"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+OPENHAMCLOCK-THIRD-PARTY-NOTICES\.txt' \
+            || { echo "NSIS listing has no OpenHamClock third-party notices"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+NODE-RUNTIME-LICENSE\.txt' \
+            || { echo "NSIS listing has no Node.js runtime license"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+provenance\.json' \
+            || { echo "NSIS listing has no OpenHamClock provenance"; exit 1; }
+          rm -rf /tmp/nexus-nsis-check
+          7z x -y -o/tmp/nexus-nsis-check "$exe" >/dev/null
+          ohc_receipt=$(find /tmp/nexus-nsis-check -path '*/resources/openhamclock/build-receipt.json' -print -quit)
+          [ -n "$ohc_receipt" ] || { echo "NSIS payload has no OpenHamClock build receipt"; exit 1; }
+          nsis_root=$(dirname "$(dirname "$(dirname "$ohc_receipt")")")
+          node scripts/check-openhamclock-package.mjs \
+            --target win-x64 --bundle-resources "$nsis_root"
           [ "$sz" -gt 190000000 ] || { echo "installer only $sz bytes — too small to contain the ~150 MB offline WebView2 runtime"; exit 1; }
           # Check both the raw PE and the NSIS payload: this catches a correct build left
           # beside a stale installer, as well as a package made from a stale native binary.
@@ -752,6 +790,9 @@ jobs:
           codesign -dvv "$neural" 2>&1 | grep -q "flags=.*runtime" \
             || { echo "Neural DX sidecar lacks hardened runtime"; exit 1; }
 
+      - name: Stage OpenHamClock (bundled — no Node install for the user)
+        run: node scripts/stage-openhamclock.mjs --target macos-arm64
+
       # Pinned, not "^2": tauri-cli 2.12.0 (2026-09-26) re-downloads linuxdeploy-plugin-gtk.sh over
       # the pinned copy (scripts/build-linux.sh refused the 1.15.0 AppImage for it). Every job builds
       # with the version 1.14.0 shipped with; move it deliberately, all four installs together.
@@ -802,6 +843,18 @@ jobs:
           done
           echo "all staged Hamlib binaries signed, hardened and timestamped"
 
+      - name: Sign the bundled OpenHamClock executable
+        run: |
+          set -euo pipefail
+          ohc=src-tauri/resources/openhamclock/openhamclock
+          [ -x "$ohc" ] || { echo "OpenHamClock executable was not staged"; exit 1; }
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$ohc"
+          codesign --verify --strict --verbose=2 "$ohc"
+          codesign -dvv "$ohc" 2>&1 | grep -q "flags=.*runtime" \
+            || { echo "OpenHamClock hardened runtime missing after signing"; exit 1; }
+          node scripts/record-openhamclock-build-receipt.mjs --target macos-arm64
+          node scripts/check-openhamclock-staged.mjs --target macos-arm64
+
       - name: Build, sign and notarize the DMG
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -851,6 +904,16 @@ jobs:
           neural="$app/Contents/Resources/resources/neural-dx/neural-dx-watcher"
           [ -x "$neural" ] || { echo "Neural DX sidecar missing from the .app"; exit 1; }
           codesign --verify --strict --verbose=2 "$neural"
+          ohc="$app/Contents/Resources/resources/openhamclock"
+          [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the .app"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the .app"; exit 1; }
+          node scripts/check-openhamclock-package.mjs \
+            --target macos-arm64 --bundle-resources "$app/Contents/Resources"
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the .app"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the .app"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
+          codesign --verify --strict --verbose=2 "$ohc/openhamclock"
           # HAMLIB MUST BE IN THE .app, AND THE APP MUST LOOK WHERE IT LANDS (#190).
           #
           # The Linux job has had this gate since 1.9.0; macOS had the staging and the
@@ -1113,6 +1176,13 @@ jobs:
           echo "$MODEL_SHA  $m" | sha256sum -c -
           neural=/tmp/debcheck/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher
           [ -x "$neural" ] || { echo "Neural DX sidecar missing from the Pi package"; exit 1; }
+          ohc=/tmp/debcheck/usr/lib/Nexus/resources/openhamclock
+          [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the package"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the package"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the package"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the package"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
           mv "$deb" "pi-out/${{ matrix.base }}/Nexus_${ver}_pi_arm64_${{ matrix.base }}.deb"
           sha256sum pi-out/${{ matrix.base }}/*.deb
 

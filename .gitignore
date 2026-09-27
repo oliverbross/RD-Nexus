@@ -103,3 +103,15 @@ src-tauri/resources/neural-dx/neural-dx-watcher.exe
 src-tauri/resources/neural-dx/provenance.json
 src-tauri/resources/neural-dx/UPSTREAM-README.txt
 src-tauri/resources/neural-dx/SOURCE-PERMISSION.txt
+
+# OpenHamClock companion staged by scripts/stage-openhamclock.mjs. The exact source pin,
+# build tool lock and license stay tracked; generated cross-platform executables do not.
+src-tauri/resources/openhamclock/openhamclock
+src-tauri/resources/openhamclock/openhamclock.exe
+src-tauri/resources/openhamclock/OPENHAMCLOCK-LICENSE.txt
+src-tauri/resources/openhamclock/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt
+src-tauri/resources/openhamclock/NODE-RUNTIME-LICENSE.txt
+src-tauri/resources/openhamclock/provenance.json
+src-tauri/resources/openhamclock/build-receipt.json
+src-tauri/resources/openhamclock/parity-inventory.json
+integrations/openhamclock/runtime-receipt.json

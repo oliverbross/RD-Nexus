@@ -124,6 +124,8 @@ if [ "$GUI" = 1 ]; then
   ( cd "$REPO/ui" && npm ci >/dev/null )            # deps; cargo tauri runs the build
   node "$REPO/scripts/check-neural-dx-staged.mjs" --platform win32
   ok "Neural DX Windows companion is staged"
+  node "$REPO/scripts/stage-openhamclock.mjs" --target win-x64
+  ok "OpenHamClock staged (bundled companion)"
   [ -f "$REPO/src-tauri/icons/icon.ico" ] || python3 "$REPO/scripts/gen-icons.py"
   bash "$REPO/scripts/fetch-hamlib.sh"              # bundle Hamlib for CAT (no-op if staged)
 

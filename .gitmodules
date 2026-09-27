@@ -1,3 +1,7 @@
 [submodule "third_party/neural-dx-watcher"]
 	path = third_party/neural-dx-watcher
 	url = https://github.com/F1SMV/Neural-DX-Watcher.git
+[submodule "openhamclock"]
+	path = third_party/openhamclock
+	url = https://github.com/accius/openhamclock.git
+	branch = main

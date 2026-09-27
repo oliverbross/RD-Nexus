@@ -3694,6 +3694,11 @@ export interface Settings {
   /** The SWR ratio the cutoff trips above (default 2.5). Clamped to 1.0–99.0 on READ in Rust,
    *  so a hand-edited 0 or NaN can never reach the transmit path. */
   swrStopThreshold?: number
+  /** Parsec presence mode. Default OFF. When the connected Parsec session drops (or its log
+   *  becomes unreadable), stop Nexus Phone PTT, embedded Ham Clock PTT, continuous RTTY/PSK and
+   *  Tune through their own stop paths. Generic external CAT PTT and FT auto-sequencing are not
+   *  covered. The watcher runs on a Windows station only (the Parsec host). */
+  parsecPresenceStop?: boolean
   maxPowerPhone?: number | null
   maxPowerCw?: number | null
   maxPowerDigital?: number | null
@@ -4333,6 +4338,22 @@ export interface AppSnapshot {
    *  again when the refusal can pass, held for the quit when it cannot. Null while every change
    *  is in the database or on its way there; absent from a station older than the re-send. */
   logSaveTrouble?: LogSaveTrouble | null
+  /** Parsec presence mode (Settings ▸ Radio ▸ Transmit limits & sharing). Null while it is
+   *  switched off, which is the default; absent from a station older than the mode. */
+  parsecPresence?: ParsecPresence | null
+}
+
+/** What Parsec presence mode knows (mirror of the Rust ParsecPresenceDto). Tokens only — the
+ *  words are the UI's, in features/parsecPresence.ts. */
+export interface ParsecPresence {
+  /** What the watcher last found in Parsec's log: 'starting' (not read yet) | 'connected' |
+   *  'notConnected' | 'unreadable'. */
+  status: string
+  /** When presence mode last stopped a transmission (unix seconds). Kept until the watcher
+   *  observes another protected latch, so the reason is still on screen when they reconnect. */
+  stoppedAt: number | null
+  /** What that stop ended: 'tune' | 'ptt' | 'rtty' | 'psk'. */
+  stopped: string[]
 }
 
 /** Why the logbook database could not be opened at launch (mirror of the Rust

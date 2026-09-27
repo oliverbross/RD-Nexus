@@ -114,6 +114,7 @@ import { RadioProgView } from './components/RadioProgView'
 import { MemoriesView } from './components/MemoriesView'
 import { GroupsIoView } from './components/GroupsIoView'
 import { ConnectView } from './components/ConnectView'
+import { HamClockView } from './components/HamClockView'
 import {
   getPropagation,
   getFeedHealth,
@@ -166,6 +167,7 @@ import { checkSatAlarms, satAlarmMap } from './features/satAlarm'
 import { tickSatPassAlert } from './features/satPassAlert'
 import { tickIssAutoArm } from './features/issAutoArm'
 import { satElementsLane } from './features/satLane'
+import { parsecStopLane } from './features/parsecPresence'
 import { dxpedWorkMode } from './components/connect/paneFormat'
 import { setStatus } from './status'
 import type { PropagationSnapshot, FeedHealth, NeedAlert, SpotRow, DxpedWindow, WorkableCard, CatTestResult } from './types'
@@ -673,6 +675,15 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
       warn ? { tier: 'warning', message: t('shell.lane.recording.message'), detail: warn } : null,
     )
   }, [snap?.radio.recordingWarning])
+
+  // Parsec presence mode stopped a transmission because the operator's Parsec session dropped.
+  // The lane, not a toast: the operator was not there to see a toast, so the reason must still be
+  // on screen when they reconnect. The station keeps the report until its once-per-second watcher
+  // observes another protected latch; a finite/short transmission does not promise to retire it.
+  // Not on the Remote page, like the log notices above: a station-side feature, and that page is frozen.
+  useEffect(() => {
+    setStatus('parsecStop', remote ? null : parsecStopLane(snap?.parsecPresence))
+  }, [snap?.parsecPresence?.stoppedAt, snap?.parsecPresence?.stopped.join(','), remote])
 
   // Connector auto-upload outcomes (QRZ/ClubLog/eQSL) now happen in the backend
   // log funnel; the engine bumps uploadTick per outcome and we toast it here —
@@ -2852,6 +2863,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
 
   let workspace: JSX.Element | null
   switch (effectiveView) {
+    case 'hamClock':
+      workspace = remote ? null : <HamClockView snap={snap} onSnap={setSnap} />
+      break
     case 'fieldDay':
       // THE FIELD DAY SECTION IS SETUP, SCORE, SECTIONS, BONUSES, LOG AND THE CLUB BOARD.
       // It is NOT an operating surface, and there is deliberately no second one: Field Day is
@@ -3039,6 +3053,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
             target={settingsTarget?.where}
             targetSeq={settingsTarget?.seq}
             radio={snap.radio}
+            parsecPresence={snap.parsecPresence}
             activeRadioId={snap.activeRadioId}
             onProveTx={handleProveTx}
             scale={scale}

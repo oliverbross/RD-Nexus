@@ -5849,6 +5849,22 @@ export const EN = {
   'settings.transmit.swrStop.noMeterStream':
     'Nexus is not receiving this Flex\'s own SWR meter, so this cutoff will not stop anything, however high the SWR goes. That meter comes from the radio\'s native stream, and it is off. Turn on "Flex native panadapter (early access)" in Settings \u25b8 Radio \u25b8 Rig & CAT to start it. Until then this setting has no effect.',
 
+  // Parsec presence mode (operator sign-off 2026-09-27): stop-only, off by default. The hint
+  // says what it watches and what it stops, and names what it leaves alone. `Parsec`, `PTT`,
+  // `RTTY`, `PSK`, `Tune`, `TX`, `FT8/FT4` and the two folder paths are tokens.
+  'settings.transmit.parsecStop.label': 'Stop latched transmissions if my Parsec session drops',
+  'settings.transmit.parsecStop.hint':
+    "For running the shack over Parsec. Nexus watches Parsec's own log on this computer. If the Parsec session that was connected drops, or its log can no longer be read, Nexus stops Nexus's latched Phone PTT, embedded Ham Clock PTT, continuous RTTY or PSK, and Tune, exactly as their own Stop does, and says why. A generic external CAT client's PTT remains that client's responsibility. Nexus never starts a transmission or turns TX back on. FT8/FT4 overs are not touched: they end by themselves, and the TX watchdog still applies. Parsec can take up to a minute to notice a pulled network cable, so this backs up the watchdog rather than replacing it.",
+  'settings.transmit.parsecStop.unavailable':
+    'Available on Windows only, where Nexus can read the Parsec host\u2019s log.',
+  'settings.transmit.parsecStop.status.starting': 'Checking Parsec\u2019s log\u2026',
+  'settings.transmit.parsecStop.status.connected':
+    'A Parsec session is connected. If it drops, a latched transmission stops.',
+  'settings.transmit.parsecStop.status.notConnected':
+    'No Parsec session is connected, so nothing will be stopped.',
+  'settings.transmit.parsecStop.status.unreadable':
+    'Nexus cannot find or read Parsec\u2019s log (it looks for log.txt in %APPDATA%\\Parsec and %ProgramData%\\Parsec), so nothing will be stopped until it can.',
+
   // `Test CAT`, `Rig Model` and `Serial Port` are the names of controls in Rig & CAT, and
   // `rigctld` is the daemon's own; the call site supplies the emphasis for each.
   'settings.transmit.note':
@@ -9286,6 +9302,15 @@ export const EN = {
   'shell.lane.txPowerZero.detail':
     'The radio reports 0% power and transmit is armed — it will key and put nothing on the air. Check the Pwr slider, and the rig\u2019s own power for THIS mode: Yaesu rigs keep a separate level for SSB, DATA, CW and AM.',
   'shell.lane.recording.message': 'RECORDING',
+  // Parsec presence mode stopped a transmission while the operator was away. The lane remains
+  // until the watcher observes another protected latch. `{{what}}` is a list below.
+  'shell.lane.parsecStop.message': 'PARSEC DROPPED — TX STOPPED',
+  'shell.lane.parsecStop.detail':
+    'Your Parsec session dropped (or Parsec’s log stopped answering) at {{time}} UTC, so Nexus stopped: {{what}}. Nothing was restarted; key up again when you are back.',
+  'shell.lane.parsecStop.what.ptt': 'Nexus/Ham Clock latched PTT',
+  'shell.lane.parsecStop.what.rtty': 'continuous RTTY',
+  'shell.lane.parsecStop.what.psk': 'continuous PSK',
+  'shell.lane.parsecStop.what.tune': 'Tune',
   'shell.lane.prop.offline.message': 'Prop: no live data',
   'shell.lane.prop.offline.detail':
     'No live propagation data yet — set your callsign in Settings and check your internet connection.',
@@ -9431,6 +9456,17 @@ export const EN = {
   'shell.source.set': 'Source: {{source}}',
   'shell.wizard.saveFailed': "Setup didn't fully save: {{error}} — check Settings",
 
+  // ── OpenHamClock companion view ─────────────────────────────────────────────────────
+  'hamClock.title': 'Ham Clock',
+  'hamClock.frameTitle': 'OpenHamClock dashboard',
+  'hamClock.starting': 'Starting the local OpenHamClock service…',
+  'hamClock.unavailable': 'OpenHamClock is unavailable on this computer.',
+  'hamClock.retry': 'Restart OpenHamClock',
+  'hamClock.stopTx': 'STOP TX',
+  'hamClock.clearConfirm': 'Clear the complete Nexus logbook?',
+  'hamClock.clearWarning': 'OpenHamClock already asked once. Nexus will save an ADIF backup before deleting every contact. This cannot be undone inside the app.',
+  'hamClock.clear': 'Back up and clear',
+
   // ── A torn-off panel window ─────────────────────────────────────────────────────────
   'detached.connecting': 'Connecting to the radio…',
   'detached.fieldDay.inactive': 'Field Day isn’t active.',
@@ -9461,6 +9497,8 @@ export const EN = {
     'APRS — AFSK-1200 packet: decode positions/messages, send a position beacon',
   'nav.digital.js8.title':
     'JS8 — JS8Call-compatible keyboard mode: heartbeats, directed messages, relay and a store-and-forward inbox, all four speeds decoded at once',
+  'nav.hamClock.title':
+    'Ham Clock — the complete OpenHamClock dashboard, using the bundled Nexus service',
   'nav.phone.title': 'Phone (SSB) operating — PTT, sideband, RF power, panadapter (casual)',
   'nav.cw.title': 'CW operating — keyboard + F-key macros, WPM, spectrum (casual)',
   'nav.connect.label': 'Connect',
@@ -10135,6 +10173,9 @@ export const EN = {
   'features.category.system': 'System',
   'features.operate.label': 'Operate',
   'features.operate.oneLine': 'The waterfall-first cockpit — decode, tune, and work stations.',
+  'features.hamClock.label': 'Ham Clock',
+  'features.hamClock.oneLine':
+    'The complete OpenHamClock map, propagation, spots, satellites, space weather, and emergency dashboard.',
   'features.cw.oneLine': 'CW operating — keyboard + F-key macros, WPM, spectrum, casual ragchew.',
   'features.phone.oneLine':
     'Phone (SSB) operating — PTT, band-aware sideband, RF power, panadapter.',

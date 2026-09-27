@@ -17,6 +17,7 @@ import {
 const EXPECTED_SECTIONS: FeatureId[] = [
   'operate',
   'cw',
+  'hamClock',
   'phone',
   'rtty',
   'psk',
@@ -54,6 +55,7 @@ describe('feature registry', () => {
       'connect',
       'dxChaser',
       'groupsio',
+      'hamClock',
       'logbook',
       'needed',
       'neuralDx',

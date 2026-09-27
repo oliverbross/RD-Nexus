@@ -1140,6 +1140,28 @@ represent that permission as a general public license. Public redistribution is
 `BLOCKED_PENDING_LICENSE_EVIDENCE` until the exact written grant is retained and reviewed for
 compatible modification, redistribution, and sublicensing terms. `docs/neural-dx/SOURCE_PERMISSION.md` and
 `docs/neural-dx/upstream.json` preserve the permission basis, source URL and exact pin. Every
-private validation packages carry those records beside the self-contained
+private validation package carries those records beside the self-contained
 `resources/neural-dx/neural-dx-watcher` companion. Nexus integration code and overlays remain
 GPL-3.0-only.
+
+## OpenHamClock
+
+Nexus includes the complete OpenHamClock application from
+<https://github.com/accius/openhamclock>, copyright © 2024–2026 OpenHamClock
+Contributors, under the **MIT License**. The reviewed source is pinned as the
+third_party/openhamclock Git submodule; integrations/openhamclock/upstream.json
+records the exact revision. Release builds compile that source into a
+self-contained loopback-only executable which is bundled as a Nexus resource.
+
+The full upstream MIT text is retained at third_party/openhamclock/LICENSE and
+ships beside the executable as OPENHAMCLOCK-LICENSE.txt. The per-file MIT
+notices for the HB9HIL zone layer and Florian Mauracher's orbit code remain in
+their source files. OpenHamClock's rendered map/tile attribution remains part
+of its UI. The dependency and per-file review is recorded in
+integrations/openhamclock/LICENSE-AUDIT.md and is enforced by
+scripts/check-openhamclock-licenses.mjs.
+
+The self-contained companion embeds the Node.js 22.23.2 runtime. Its official
+license and bundled third-party notices ship beside the executable as
+NODE-RUNTIME-LICENSE.txt; the staging step verifies the pinned license text by
+SHA-256 before an installer can be built.

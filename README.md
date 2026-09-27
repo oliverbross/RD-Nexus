@@ -27,6 +27,9 @@ WSJT-X-parity **FT8/FT4** cockpit, seven more WSJT-X modes that **transmit as we
 **propagation map**, an evidence-backed **"work this now"** board, a **POTA/SOTA** hunter, a
 club-ready **Field Day** mode, **satellites** with rotor tracking, and a **DXCC-first logbook** with
 LoTW / QRZ / ClubLog / eQSL connectors into one window, across up to three radios, with one log.
+The complete **OpenHamClock** application is built into the same Windows, macOS and Linux package
+and appears as the **Ham Clock** screen; it shares Nexus's authoritative logbook, cluster, rig and
+rotator rather than installing or launching a second operator-facing application.
 
 It is built in **Rust** (DSP, sequencing, CAT, networking) behind a **Tauri** desktop shell, and it
 treats **WSJT-X as the golden standard** for FT8/FT4 behavior. The auto-sequencer state machine,
@@ -136,6 +139,12 @@ WSJT-X muscle memory works unchanged inside a UI built this decade.
   and propagation-mode classification (Es / F2 / aurora / tropo), tiered alerts that go loud only
   for the rare and brief, opening sectors drawn on the map, and a persistent openings log so you can
   ask "how many real 2 m openings this month, and did I catch them?"
+- **🕰️ OpenHamClock, inside Nexus.** The full pinned upstream React + Express application runs as
+  a loopback-only component owned by Nexus and fills the Ham Clock screen. Its complete dashboard
+  remains available while logbook changes, DX-cluster spots, rig tuning/PTT, spot posting and
+  rotator commands cross a narrow audited bridge to Nexus. The executable, upstream license and
+  exact source revision are checked inside every release artifact; no separate Node.js, Docker,
+  browser launch or OpenHamClock installation is required.
 - **🛰️ Satellites and DXpeditions.** Pass schedules, polar plots, Doppler, favorites, true 3-D
   orbits at real altitude with footprint rings, and **rotor auto-track through a pass**. A
   DXpedition month calendar where each operation is a single coloured bar across the days it is on
