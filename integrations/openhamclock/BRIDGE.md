@@ -16,8 +16,10 @@ Nexus sends a small, frequently refreshed `state` message containing:
 
 The logbook is transferred separately as revisioned `logbook:begin`, bounded
 `logbook:chunk`, and `logbook:end` messages. A chunk contains at most 500 rows
-and 512 KiB (with a 1 MiB hard row limit), so a 67,000-contact station does not
-freeze the UI or exceed webview message limits. The iframe requests a fresh
+and 512 KiB as a complete encoded bridge message. A single encoded row is
+limited to 510 KiB, reserving 2 KiB for the message envelope, so a
+67,000-contact station does not freeze the UI or exceed webview message limits.
+The iframe requests a fresh
 snapshot on startup; subsequent snapshots are sent after log changes, not on
 the radio/spot refresh cadence.
 

@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { validateBuildReceipt } from './openhamclock-build-receipt.mjs'
 
 const scriptPath = fileURLToPath(import.meta.url)
 const defaultRepo = resolve(dirname(scriptPath), '..')
@@ -24,30 +25,6 @@ export function expectedTarget(argv = process.argv, env = process.env, platform 
   return arch === 'arm64' ? 'linux-arm64' : 'linux-x64'
 }
 
-function assertExecutableFormat(executable, target) {
-  const header = readFileSync(executable).subarray(0, 4096)
-  if (target === 'win-x64') {
-    const peOffset = header.length >= 0x40 ? header.readUInt32LE(0x3c) : -1
-    if (header.subarray(0, 2).toString('ascii') !== 'MZ' || peOffset < 0 || peOffset + 6 > header.length ||
-        header.subarray(peOffset, peOffset + 4).toString('binary') !== 'PE\0\0' || header.readUInt16LE(peOffset + 4) !== 0x8664) {
-      throw new Error('OpenHamClock staged executable is not a Windows x86-64 PE binary')
-    }
-  }
-  if (target.startsWith('linux-')) {
-    const expectedMachine = target === 'linux-arm64' ? 0xb7 : 0x3e
-    if (!header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) || header[4] !== 2 ||
-        header[5] !== 1 || header.readUInt16LE(18) !== expectedMachine) {
-      throw new Error(`OpenHamClock staged executable is not a ${target} ELF binary`)
-    }
-  }
-  if (target.startsWith('macos-')) {
-    if (header.readUInt32LE(0) !== 0xfeedfacf) throw new Error('OpenHamClock staged executable is not a macOS Mach-O binary')
-    const cpu = header.readUInt32LE(4)
-    const expectedCpu = target === 'macos-arm64' ? 0x0100000c : 0x01000007
-    if (cpu !== expectedCpu) throw new Error(`OpenHamClock staged executable architecture does not match ${target}`)
-  }
-}
-
 export function verifyStaged({ repo = defaultRepo, target = expectedTarget() } = {}) {
 if (!knownTargets.has(target)) throw new Error(`Unsupported expected OpenHamClock target: ${target}`)
 const dir = join(repo, 'src-tauri', 'resources', 'openhamclock')
@@ -61,7 +38,6 @@ if (!existsSync(executable) || statSync(executable).size < 10_000_000) {
   throw new Error(`OpenHamClock executable for ${target} is not staged; run node scripts/stage-openhamclock.mjs --target ${target}`)
 }
 if (existsSync(wrongExecutable)) throw new Error(`Wrong-platform OpenHamClock executable must not be bundled: ${basename(wrongExecutable)}`)
-assertExecutableFormat(executable, target)
 const license = join(dir, 'OPENHAMCLOCK-LICENSE.txt')
 if (!existsSync(license) || statSync(license).size < 500) throw new Error('OpenHamClock MIT license is not staged')
 const notices = join(dir, 'OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt')
@@ -77,11 +53,13 @@ if (provenance.commit !== expected.commit || provenance.version !== expected.ver
 if (provenance.executable !== basename(executable)) throw new Error('OpenHamClock staged executable name does not match provenance')
 const executableSha256 = createHash('sha256').update(readFileSync(executable)).digest('hex')
 if (provenance.executableSha256 !== executableSha256) throw new Error('OpenHamClock staged executable checksum mismatch')
+const buildReceipt = JSON.parse(readFileSync(join(dir, 'build-receipt.json'), 'utf8'))
+const build = validateBuildReceipt({ receipt: buildReceipt, executable, target, expected })
 const inventory = JSON.parse(readFileSync(join(dir, 'parity-inventory.json'), 'utf8'))
 if (inventory.panels.length < 50 || inventory.settingsTabs.length < 10 || inventory.routes.length < 80 || inventory.storage.length < 50 || inventory.configuration.length < 80 || inventory.distFiles.length < 20) {
   throw new Error('OpenHamClock staged parity inventory is incomplete')
 }
-return { target, version: provenance.version, commit: provenance.commit, executableSha256 }
+return { target, version: provenance.version, commit: provenance.commit, executableSha256, buildReceiptId: build.receiptId, format: build.format }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {

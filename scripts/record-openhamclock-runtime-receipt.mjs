@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { REQUIRED_BROWSER_CHECKS, sha256, validateRuntimeReceipt } from './openhamclock-runtime-receipt.mjs'
+import { validateBuildReceipt } from './openhamclock-build-receipt.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const value = (name) => {
@@ -26,13 +27,17 @@ const targetEntry = packageInspection.targets.find((entry) => entry.target === t
 if (!targetEntry) throw new Error(`Package inspection has no ${target} entry`)
 const executable = join(repo, 'src-tauri', 'resources', 'openhamclock', target === 'win-x64' ? 'openhamclock.exe' : 'openhamclock')
 const provenance = JSON.parse(readFileSync(join(repo, 'src-tauri', 'resources', 'openhamclock', 'provenance.json'), 'utf8'))
+const buildReceipt = JSON.parse(readFileSync(join(repo, 'src-tauri', 'resources', 'openhamclock', 'build-receipt.json'), 'utf8'))
+const expected = JSON.parse(readFileSync(join(repo, 'integrations', 'openhamclock', 'upstream.json'), 'utf8'))
+const build = validateBuildReceipt({ receipt: buildReceipt, executable, target, expected })
 const candidateSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
 const receipt = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   receiptId: '',
   generatedAt: new Date().toISOString(),
   candidateSha,
   target,
+  buildReceiptId: build.receiptId,
   executableSha256: sha256(executable),
   provenance: { commit: provenance.commit, version: provenance.version, target: provenance.target },
   smoke: { passed: true, exitCode: 0, outputSha256: createHash('sha256').update(smokeOutput).digest('hex') },

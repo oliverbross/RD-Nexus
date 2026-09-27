@@ -42,6 +42,12 @@ assert.deepEqual(tauri.build.beforeBuildCommand, {
   cwd: '..',
   script: 'node scripts/check-openhamclock-staged.mjs && npm --prefix ui run build',
 })
+const packageInspection = JSON.parse(read('integrations/openhamclock/package-inspection.json'))
+assert.match(packageInspection.evidenceBoundary, /byte-nondeterministic/)
+for (const target of packageInspection.targets) {
+  assert.equal(target.contentIdentity, 'BUILD-SPECIFIC')
+  assert.equal(Object.hasOwn(target, 'sha256'), false, `${target.target} must not claim a stable executable hash`)
+}
 
 const nav = read('ui/src/components/ModeNav.tsx')
 assert.ok(nav.indexOf('navBtn(HAM_CLOCK)') < nav.indexOf('navBtn(PHONE)'), 'Ham Clock must appear above Phone')

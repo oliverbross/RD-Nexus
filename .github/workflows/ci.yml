@@ -64,7 +64,10 @@ jobs:
         run: |
           node scripts/openhamclock-integration.test.mjs
           node scripts/test-openhamclock-log-binding.mjs
+          node scripts/test-openhamclock-bridge-contract.mjs
           node scripts/test-openhamclock-mirror-transaction.mjs
+          node scripts/test-openhamclock-package.mjs
+          node scripts/test-openhamclock-route-inventory.mjs
           node scripts/test-openhamclock-runtime-receipt.mjs
           node scripts/test-openhamclock-staged.mjs
           node scripts/test-openhamclock-sync.mjs

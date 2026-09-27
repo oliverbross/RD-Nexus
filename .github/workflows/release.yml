@@ -711,6 +711,8 @@ jobs:
           codesign --verify --strict --verbose=2 "$ohc"
           codesign -dvv "$ohc" 2>&1 | grep -q "flags=.*runtime" \
             || { echo "OpenHamClock hardened runtime missing after signing"; exit 1; }
+          node scripts/record-openhamclock-build-receipt.mjs --target macos-arm64
+          node scripts/check-openhamclock-staged.mjs --target macos-arm64
 
       - name: Build, sign and notarize the DMG
         env:
@@ -753,6 +755,8 @@ jobs:
           ohc="$app/Contents/Resources/resources/openhamclock"
           [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the .app"; exit 1; }
           [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the .app"; exit 1; }
+          node scripts/check-openhamclock-package.mjs \
+            --target macos-arm64 --bundle-resources "$app/Contents/Resources"
           [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the .app"; exit 1; }
           [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the .app"; exit 1; }
           grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \

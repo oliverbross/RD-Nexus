@@ -10,6 +10,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createBuildReceipt } from './openhamclock-build-receipt.mjs'
+import { discoverExpressRoutes } from './openhamclock-route-inventory.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const source = join(repo, 'third_party', 'openhamclock')
@@ -78,10 +80,7 @@ function parityInventory(work) {
   for (const path of routeFiles) {
     const source = readFileSync(path, 'utf8')
     const relative = path.slice(work.length + 1)
-    for (const match of source.matchAll(/app\.(get|post|put|patch|delete|options)\(\s*(['"])(\/[^'"]+)\2/g)) {
-      const line = source.slice(0, match.index).split('\n').length
-      routes.push({ method: match[1].toUpperCase(), path: match[3], source: `${relative}:${line}` })
-    }
+    routes.push(...discoverExpressRoutes(source, relative))
   }
   const storage = new Map()
   for (const path of filesUnder(join(work, 'src')).filter((path) => /\.(js|jsx)$/.test(path))) {
@@ -337,6 +336,11 @@ try {
     executable: basename(executable),
     executableSha256,
   }, null, 2) + '\n')
+  writeFileSync(join(stage, 'build-receipt.json'), JSON.stringify(createBuildReceipt({
+    executable,
+    target,
+    manifest,
+  }), null, 2) + '\n')
   process.stdout.write(`Staged OpenHamClock ${manifest.version} (${actual}) for ${target}\n`)
 } finally {
   rmSync(temp, { recursive: true, force: true })

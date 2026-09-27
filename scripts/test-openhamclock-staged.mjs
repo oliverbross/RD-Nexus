@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expectedTarget, verifyStaged } from './check-openhamclock-staged.mjs'
+import { createBuildReceipt, receiptId } from './openhamclock-build-receipt.mjs'
 
 const upstream = JSON.parse(readFileSync(new URL('../integrations/openhamclock/upstream.json', import.meta.url), 'utf8'))
 
@@ -44,6 +45,15 @@ function fixture(target, binaryTarget = target, binaryName = target === 'win-x64
   fixtureUpstream.nodeRuntime.licenseSha256 = createHash('sha256').update(readFileSync(join(stage, 'NODE-RUNTIME-LICENSE.txt'))).digest('hex')
   writeFileSync(join(integration, 'upstream.json'), JSON.stringify(fixtureUpstream))
   writeFileSync(join(stage, 'provenance.json'), JSON.stringify({ ...fixtureUpstream, target, executable: binaryName, executableSha256 }))
+  const builtReceipt = createBuildReceipt({
+    executable,
+    target: binaryTarget,
+    manifest: fixtureUpstream,
+    generatedAt: '2026-09-28T00:00:00.000Z',
+  })
+  const receipt = { ...builtReceipt, target }
+  receipt.receiptId = receiptId(receipt)
+  writeFileSync(join(stage, 'build-receipt.json'), JSON.stringify(receipt))
   const rows = (length) => Array.from({ length }, () => ({}))
   writeFileSync(join(stage, 'parity-inventory.json'), JSON.stringify({
     panels: rows(50), settingsTabs: rows(10), routes: rows(80), storage: rows(50), configuration: rows(80), distFiles: rows(20),
@@ -71,6 +81,21 @@ try {
   roots.push(staleSibling)
   writeFileSync(join(staleSibling, 'src-tauri', 'resources', 'openhamclock', 'openhamclock.exe'), binaryHeader('win-x64'))
   assert.throws(() => verifyStaged({ repo: staleSibling, target: 'macos-arm64' }), /Wrong-platform/)
+
+  const staleReceipt = fixture('macos-arm64')
+  roots.push(staleReceipt)
+  const staleReceiptPath = join(staleReceipt, 'src-tauri', 'resources', 'openhamclock', 'build-receipt.json')
+  const stale = JSON.parse(readFileSync(staleReceiptPath, 'utf8'))
+  writeFileSync(staleReceiptPath, JSON.stringify({ ...stale, receiptId: 'stale' }))
+  assert.throws(() => verifyStaged({ repo: staleReceipt, target: 'macos-arm64' }), /receipt digest mismatch/)
+
+  const changedAfterReceipt = fixture('macos-arm64')
+  roots.push(changedAfterReceipt)
+  const changedExecutable = join(changedAfterReceipt, 'src-tauri', 'resources', 'openhamclock', 'openhamclock')
+  const changedBytes = readFileSync(changedExecutable)
+  changedBytes[4096] = 1
+  writeFileSync(changedExecutable, changedBytes)
+  assert.throws(() => verifyStaged({ repo: changedAfterReceipt, target: 'macos-arm64' }), /checksum mismatch|same-run build receipt/)
 
   assert.equal(expectedTarget([process.execPath, 'check-openhamclock-staged.mjs', '--target', 'win-x64'], {}, 'darwin', 'arm64'), 'win-x64')
   assert.equal(expectedTarget([], { TAURI_ENV_TARGET_TRIPLE: 'aarch64-apple-darwin' }, 'linux', 'x64'), 'macos-arm64')

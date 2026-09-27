@@ -1,12 +1,16 @@
 {
-  "generatedAt": "2026-09-27T17:16:59.545Z",
+  "generatedAt": "2026-09-27T19:12:09.514Z",
+  "evidenceBoundary": "OpenHamClock single-executable builds from the same pinned source are byte-nondeterministic. Stable executable hashes are not committed. Every real package must carry and pass its own same-run build receipt and packaged-byte comparison.",
   "targets": [
     {
       "target": "win-x64",
       "format": "PE32+ executable (console) x86-64, for MS Windows",
-      "size": 160274447,
-      "sha256": "9dc6b4b4c3bf78c4789ab0c12fe1039a038db5e0fda903b1d1497c7cd2b46759",
-      "packageStatus": "VERIFIED",
+      "observedSize": 160274447,
+      "sourceCommit": "6cfb6b2d8011828a8067e6d9f3659044168cbef1",
+      "receiptSchemaVersion": 1,
+      "contentIdentity": "BUILD-SPECIFIC",
+      "packageStatus": "VERIFIED-NON-RUNTIME",
+      "packageEvidence": "Exact-source staging produced the expected native format and a same-run cryptographic build receipt; executable bytes are nondeterministic and no stable hash is claimed",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
       "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
@@ -14,9 +18,12 @@
     {
       "target": "linux-x64",
       "format": "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=ca84d2a66235a3419ee31ec0465cfeb582064b1a, for GNU/Linux 3.2.0, stripped",
-      "size": 177001131,
-      "sha256": "0c97c8e5cfaf107bab81d48298b9d4538771b2041556b6565da0f8f38d226975",
-      "packageStatus": "VERIFIED",
+      "observedSize": 177001131,
+      "sourceCommit": "6cfb6b2d8011828a8067e6d9f3659044168cbef1",
+      "receiptSchemaVersion": 1,
+      "contentIdentity": "BUILD-SPECIFIC",
+      "packageStatus": "VERIFIED-NON-RUNTIME",
+      "packageEvidence": "Exact-source staging produced the expected native format and a same-run cryptographic build receipt; executable bytes are nondeterministic and no stable hash is claimed",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
       "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
@@ -24,9 +31,12 @@
     {
       "target": "linux-arm64",
       "format": "ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=33d9f7d4a0e9d1f4534dd79728f4a647079672b2, for GNU/Linux 3.7.0, stripped",
-      "size": 171680099,
-      "sha256": "a2b98d620e2d06c1ea553074aca20ace454ab0d2fc70da9a0feca2e78d6b805e",
-      "packageStatus": "VERIFIED",
+      "observedSize": 171680099,
+      "sourceCommit": "6cfb6b2d8011828a8067e6d9f3659044168cbef1",
+      "receiptSchemaVersion": 1,
+      "contentIdentity": "BUILD-SPECIFIC",
+      "packageStatus": "VERIFIED-NON-RUNTIME",
+      "packageEvidence": "Exact-source staging produced the expected native format and a same-run cryptographic build receipt; executable bytes are nondeterministic and no stable hash is claimed",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
       "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
@@ -34,9 +44,12 @@
     {
       "target": "macos-x64",
       "format": "Mach-O 64-bit executable x86_64",
-      "size": 166630576,
-      "sha256": "c126d26ac13aa9734d7f24c9a54dd3235e75c8b5904fd9cf93fe46af635b2a57",
-      "packageStatus": "VERIFIED",
+      "observedSize": 166630576,
+      "sourceCommit": "6cfb6b2d8011828a8067e6d9f3659044168cbef1",
+      "receiptSchemaVersion": 1,
+      "contentIdentity": "BUILD-SPECIFIC",
+      "packageStatus": "VERIFIED-NON-RUNTIME",
+      "packageEvidence": "Exact-source staging produced the expected native format and a same-run cryptographic build receipt; executable bytes are nondeterministic and no stable hash is claimed",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
       "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
@@ -44,9 +57,12 @@
     {
       "target": "macos-arm64",
       "format": "Mach-O 64-bit executable arm64",
-      "size": 163262416,
-      "sha256": "9757f793f0fc8ce73a4e32f4de9d1362eabf019d7db2a2957b10759b87c02caf",
-      "packageStatus": "VERIFIED",
+      "observedSize": 163262416,
+      "sourceCommit": "6cfb6b2d8011828a8067e6d9f3659044168cbef1",
+      "receiptSchemaVersion": 1,
+      "contentIdentity": "BUILD-SPECIFIC",
+      "packageStatus": "VERIFIED-NON-RUNTIME",
+      "packageEvidence": "Exact-source staging produced the expected native format and a same-run cryptographic build receipt; executable bytes are nondeterministic and no stable hash is claimed",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
       "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
