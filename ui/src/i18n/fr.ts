@@ -6156,4 +6156,12 @@ export const FR: PartialCatalog = {
   "waterfall.zero.title": "Zéro — où se place le point noir par rapport au plancher de bruit. Centre = le défaut (fond noir) ; à gauche on voit plus de bruit, à droite on l'enfouit davantage.",
   "waterfall.zoom.aria": "Étendue du zoom de la cascade",
   "waterfall.zoom.title": "Vue cascade — Std (0–3 kHz, façon WSJT-X), Full (0–4 kHz), ou zoom autour du marqueur RX",
+  "hamClock.title": "Ham Clock",
+  "hamClock.frameTitle": "Tableau de bord OpenHamClock",
+  "hamClock.starting": "Démarrage du service OpenHamClock local…",
+  "hamClock.unavailable": "OpenHamClock n’est pas disponible sur cet ordinateur.",
+  "hamClock.retry": "Redémarrer OpenHamClock",
+  "nav.hamClock.title": "Ham Clock — le tableau de bord OpenHamClock complet avec les services Nexus intégrés",
+  "features.hamClock.label": "Ham Clock",
+  "features.hamClock.oneLine": "Le tableau de bord OpenHamClock complet pour la carte, la propagation, les spots, les satellites, la météo spatiale et les urgences.",
 }

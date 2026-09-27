@@ -1,0 +1,4 @@
+[submodule "openhamclock"]
+	path = third_party/openhamclock
+	url = https://github.com/accius/openhamclock.git
+	branch = main

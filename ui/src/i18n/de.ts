@@ -6146,4 +6146,12 @@ export const DE: PartialCatalog = {
   "settings.configurations.reset.title": "Alle Einstellungen löschen und auf Werkseinstellungen zurücksetzen",
   "shell.lane.txPowerZero.detail": "Das Funkgerät meldet 0 % Leistung und die Sendefreigabe ist aktiv — es tastet und bringt nichts auf die Luft. Prüfen Sie den Pwr-Regler und die Leistung des Geräts für DIESE Betriebsart: Yaesu-Geräte speichern getrennte Werte für SSB, DATA, CW und AM.",
   "shell.lane.txPowerZero.message": "KEINE HF-LEISTUNG",
+  "hamClock.title": "Ham Clock",
+  "hamClock.frameTitle": "OpenHamClock-Dashboard",
+  "hamClock.starting": "Der lokale OpenHamClock-Dienst wird gestartet…",
+  "hamClock.unavailable": "OpenHamClock ist auf diesem Computer nicht verfügbar.",
+  "hamClock.retry": "OpenHamClock neu starten",
+  "nav.hamClock.title": "Ham Clock — das vollständige OpenHamClock-Dashboard mit den gebündelten Nexus-Diensten",
+  "features.hamClock.label": "Ham Clock",
+  "features.hamClock.oneLine": "Die vollständige OpenHamClock-Übersicht für Karte, Ausbreitung, Spots, Satelliten, Weltraumwetter und Notfunk.",
 }

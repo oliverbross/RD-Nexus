@@ -122,6 +122,8 @@ if [ "$GUI" = 1 ]; then
   command -v makensis >/dev/null || warn "makensis not found — the NSIS step needs it (Debian/Ubuntu: sudo apt install nsis)."
   cargo tauri --version >/dev/null 2>&1 || { warn "installing tauri-cli…"; cargo install tauri-cli --version "=2.11.5" --locked; }
   ( cd "$REPO/ui" && npm ci >/dev/null )            # deps; cargo tauri runs the build
+  node "$REPO/scripts/stage-openhamclock.mjs" --target win-x64
+  ok "OpenHamClock staged (bundled companion)"
   [ -f "$REPO/src-tauri/icons/icon.ico" ] || python3 "$REPO/scripts/gen-icons.py"
   bash "$REPO/scripts/fetch-hamlib.sh"              # bundle Hamlib for CAT (no-op if staged)
 

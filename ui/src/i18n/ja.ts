@@ -6139,4 +6139,12 @@ export const JA: PartialCatalog = {
   "profiles.everything.label": "すべて(エキスパート)",
   "profiles.everything.blurb": "コンソール全体をオンに。全セクション・全機能を有効化します。",
   "common.dismiss": "閉じる",
+  "hamClock.title": "Ham Clock",
+  "hamClock.frameTitle": "OpenHamClock ダッシュボード",
+  "hamClock.starting": "ローカル OpenHamClock サービスを起動しています…",
+  "hamClock.unavailable": "このコンピューターでは OpenHamClock を利用できません。",
+  "hamClock.retry": "OpenHamClock を再起動",
+  "nav.hamClock.title": "Ham Clock — Nexus の組み込みサービスを使用する完全な OpenHamClock ダッシュボード",
+  "features.hamClock.label": "Ham Clock",
+  "features.hamClock.oneLine": "地図、伝搬、スポット、衛星、宇宙天気、非常通信を備えた完全な OpenHamClock ダッシュボード。",
 }

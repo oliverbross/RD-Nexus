@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Users,
   MessagesSquare,
+  Clock3,
 } from 'lucide-react'
 import { Fragment, useState, type ButtonHTMLAttributes } from 'react'
 import { Tooltip, TooltipProvider } from './ui/Tooltip'
@@ -166,8 +167,18 @@ function item(v: { id: View; icon: LucideIcon; labelKey: MessageKey; titleKey: M
   }
 }
 
-// The two non-digital operating cockpits, first in the rail (operator order:
-// Phone · CW · Digital group). Both opt-in (gated by `enabled`). Their labels are the
+// Ham Clock and the two non-digital operating cockpits are fixed at the top of the rail
+// (operator order: Ham Clock · Phone · CW · Digital group). Phone and CW are opt-in.
+const HAM_CLOCK: Item = {
+  id: 'hamClock',
+  label: 'Ham Clock',
+  icon: Clock3,
+  get title() {
+    return t('nav.hamClock.title')
+  },
+}
+
+// The two non-digital operating cockpits. Their labels are the
 // MODES' own names, so they are carried here rather than in the catalog.
 const PHONE: Item = {
   id: 'phone',
@@ -295,8 +306,9 @@ export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, on
     <TooltipProvider>
       <nav className="mode-nav" aria-label={t('nav.aria')}>
         <div className="mode-nav-top">
-          {/* Operating group order (operator spec): Phone · CW · Digital group
+          {/* Top-level order (operator spec): Ham Clock · Phone · CW · Digital group
               (FT + Tempo). The FT8/FT4 pick lives in the top bar's tier pills. */}
+          {navBtn(HAM_CLOCK)}
           {enabled.phone !== false && navBtn(PHONE)}
           {enabled.cw !== false && navBtn(CW)}
           <div className="mode-nav-group" role="group" aria-label={t('nav.digital.group.aria')}>

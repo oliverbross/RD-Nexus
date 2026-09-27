@@ -111,6 +111,21 @@ export function isTauri(): boolean {
   }
 }
 
+export interface OpenHamClockStatus {
+  phase: 'idle' | 'starting' | 'ready' | 'unavailable'
+  url: string | null
+  version: string
+  detail: string | null
+}
+
+export async function openHamClockStatus(): Promise<OpenHamClockStatus> {
+  return bridge()<OpenHamClockStatus>('openhamclock_status')
+}
+
+export async function restartOpenHamClock(): Promise<void> {
+  await bridge()<void>('restart_openhamclock')
+}
+
 /**
  * Fired after any command that could change WHICH credentials are stored.
  *

@@ -105,6 +105,7 @@ const MIGRATED = [
   'components/UpdateBanner.tsx',
   'features/updateCheck.ts',
   'components/ErrorBoundary.tsx',
+  'components/HamClockView.tsx',
   'main.tsx',
   // Batch 2 (2026-08-18) — the logbook and QSO entry. The densest UNITS surface in the tree:
   // every callsign, RST, band, mode, frequency, park reference and ADIF field name in these

@@ -157,6 +157,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # EVERY job that builds or names an artifact stamps, and it stamps FIRST: a prerelease tag
       # must produce artifacts and an app that say 1.11.0-beta.3, not 1.11.0. A stable tag is a
@@ -225,6 +226,13 @@ jobs:
           m=/tmp/dc/usr/lib/Nexus/resources/deepcw/model.onnx
           [ -s "$m" ] || { echo "DeepCW model missing from the .deb"; exit 1; }
           echo "$MODEL_SHA  $m" | sha256sum -c -
+          ohc=/tmp/dc/usr/lib/Nexus/resources/openhamclock
+          [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the .deb"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the .deb"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the .deb"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the .deb"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
           # HAMLIB MUST BE IN BOTH ARTIFACTS, and it must RUN from where it lands.
           #
           # Before 1.9.0 the AppImage shipped Hamlib's five licence .txt files and no Hamlib, and
@@ -243,6 +251,17 @@ jobs:
           "$app" --appimage-extract >/dev/null
           hl=squashfs-root/usr/lib/Nexus/resources/hamlib
           [ -s "$hl/rigctld" ] || { echo "rigctld missing from the AppImage"; exit 1; }
+          ohc=squashfs-root/usr/lib/Nexus/resources/openhamclock
+          [ -x "$ohc/openhamclock" ] \
+            || { echo "OpenHamClock executable missing from the AppImage"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] \
+            || { echo "OpenHamClock license missing from the AppImage"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] \
+            || { echo "OpenHamClock third-party notices missing from the AppImage"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] \
+            || { echo "Node.js runtime license missing from the AppImage"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
           # GSTREAMER PLUGINS, or every alert tone in the app is silently dead. linuxdeploy
           # bundles GStreamer's core libraries and no plugins, then points the plugin search
           # path INSIDE the AppImage at a directory it never created — which also suppresses
@@ -412,6 +431,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # See linux-x86: every artifact-producing job stamps, first, or this platform's installer
       # carries a different version from its siblings.
@@ -479,6 +499,16 @@ jobs:
           sudo apt-get install -y --no-install-recommends p7zip-full >/dev/null
           7z l "$exe" | grep -qi 'WebView2.*\.exe' \
             || { echo "NSIS listing has no WebView2 payload — webviewInstallMode broke"; 7z l "$exe" | tail -40; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+openhamclock\.exe' \
+            || { echo "NSIS listing has no bundled OpenHamClock executable"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+OPENHAMCLOCK-LICENSE\.txt' \
+            || { echo "NSIS listing has no OpenHamClock license"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+OPENHAMCLOCK-THIRD-PARTY-NOTICES\.txt' \
+            || { echo "NSIS listing has no OpenHamClock third-party notices"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+NODE-RUNTIME-LICENSE\.txt' \
+            || { echo "NSIS listing has no Node.js runtime license"; exit 1; }
+          7z l "$exe" | grep -Eqi 'openhamclock[\\/]+provenance\.json' \
+            || { echo "NSIS listing has no OpenHamClock provenance"; exit 1; }
           [ "$sz" -gt 190000000 ] || { echo "installer only $sz bytes — too small to contain the ~150 MB offline WebView2 runtime"; exit 1; }
           mkdir -p out && cp "$exe" out/
           # The updater signature. THE KEY DECIDES WHETHER IT IS REQUIRED — same change, same
@@ -561,6 +591,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # See linux-x86: every artifact-producing job stamps, first. The DMG, the .app's
       # CFBundleShortVersionString and the updater tarball all take their version from here.
@@ -618,6 +649,9 @@ jobs:
           npm --prefix ui ci
           npm --prefix ui run build
 
+      - name: Stage OpenHamClock (bundled — no Node install for the user)
+        run: node scripts/stage-openhamclock.mjs --target macos-arm64
+
       # Pinned, not "^2": tauri-cli 2.12.0 (2026-09-26) re-downloads linuxdeploy-plugin-gtk.sh over
       # the pinned copy (scripts/build-linux.sh refused the 1.15.0 AppImage for it). Every job builds
       # with the version 1.14.0 shipped with; move it deliberately, all four installs together.
@@ -668,6 +702,16 @@ jobs:
           done
           echo "all staged Hamlib binaries signed, hardened and timestamped"
 
+      - name: Sign the bundled OpenHamClock executable
+        run: |
+          set -euo pipefail
+          ohc=src-tauri/resources/openhamclock/openhamclock
+          [ -x "$ohc" ] || { echo "OpenHamClock executable was not staged"; exit 1; }
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$ohc"
+          codesign --verify --strict --verbose=2 "$ohc"
+          codesign -dvv "$ohc" 2>&1 | grep -q "flags=.*runtime" \
+            || { echo "OpenHamClock hardened runtime missing after signing"; exit 1; }
+
       - name: Build, sign and notarize the DMG
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -706,6 +750,14 @@ jobs:
           m="$app/Contents/Resources/resources/deepcw/model.onnx"
           [ -s "$m" ] || { echo "DeepCW model missing from the .app"; exit 1; }
           echo "$MODEL_SHA  $m" | shasum -a 256 -c -
+          ohc="$app/Contents/Resources/resources/openhamclock"
+          [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the .app"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the .app"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the .app"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the .app"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
+          codesign --verify --strict --verbose=2 "$ohc/openhamclock"
           # HAMLIB MUST BE IN THE .app, AND THE APP MUST LOOK WHERE IT LANDS (#190).
           #
           # The Linux job has had this gate since 1.9.0; macOS had the staging and the
@@ -892,6 +944,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # See linux-x86: every artifact-producing job stamps, first. BOTH Pi bases go through
       # this job, and the stamp is on the RUNNER — Dockerfile.pi COPYs the build context, so
@@ -934,6 +987,13 @@ jobs:
           m=/tmp/debcheck/usr/lib/Nexus/resources/deepcw/model.onnx
           [ -s "$m" ] || { echo "DeepCW model missing from the package"; exit 1; }
           echo "$MODEL_SHA  $m" | sha256sum -c -
+          ohc=/tmp/debcheck/usr/lib/Nexus/resources/openhamclock
+          [ -x "$ohc/openhamclock" ] || { echo "OpenHamClock executable missing from the package"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-LICENSE.txt" ] || { echo "OpenHamClock license missing from the package"; exit 1; }
+          [ -s "$ohc/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt" ] || { echo "OpenHamClock third-party notices missing from the package"; exit 1; }
+          [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the package"; exit 1; }
+          grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
+            || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
           mv "$deb" "pi-out/${{ matrix.base }}/Nexus_${ver}_pi_arm64_${{ matrix.base }}.deb"
           sha256sum pi-out/${{ matrix.base }}/*.deb
 

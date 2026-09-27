@@ -36,6 +36,35 @@ permissions:
   contents: read
 
 jobs:
+  openhamclock:
+    name: OpenHamClock upstream + integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with the pinned upstream source
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            third_party/openhamclock/package-lock.json
+            integrations/openhamclock/package-lock.json
+      - name: Install pinned dependencies
+        run: |
+          npm --prefix third_party/openhamclock ci --ignore-scripts
+          npm --prefix integrations/openhamclock ci --ignore-scripts
+      - name: Test and build the complete upstream application
+        run: |
+          npm --prefix third_party/openhamclock run test:run
+          npm --prefix third_party/openhamclock run build
+      - name: Verify integration and license invariants
+        run: |
+          node scripts/openhamclock-integration.test.mjs
+          node scripts/check-openhamclock-licenses.mjs
+
   # Job 1 — Rust workspace: build the Fortran/C/C++ libtempo modem (via the
   # tempo-fast-sys build.rs CMake project) and run the headless modem/engine/net/TempoDeep
   # round-trip tests, then clippy across the whole workspace.

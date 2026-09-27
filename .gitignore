@@ -98,3 +98,12 @@ src-tauri/resources/hamlib/rotctld
 src-tauri/resources/hamlib/rotctl
 src-tauri/resources/hamlib/lib*.so*
 src-tauri/resources/hamlib/lib*.dylib*
+
+# OpenHamClock companion staged by scripts/stage-openhamclock.mjs. The exact source pin,
+# build tool lock and license stay tracked; generated cross-platform executables do not.
+src-tauri/resources/openhamclock/openhamclock
+src-tauri/resources/openhamclock/openhamclock.exe
+src-tauri/resources/openhamclock/OPENHAMCLOCK-LICENSE.txt
+src-tauri/resources/openhamclock/OPENHAMCLOCK-THIRD-PARTY-NOTICES.txt
+src-tauri/resources/openhamclock/NODE-RUNTIME-LICENSE.txt
+src-tauri/resources/openhamclock/provenance.json

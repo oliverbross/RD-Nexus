@@ -6156,4 +6156,12 @@ export const ES: PartialCatalog = {
   "waterfall.zero.title": "Cero — dónde queda el punto negro respecto al suelo de ruido. Centro = lo predeterminado (fondo negro); a la izquierda se ve más ruido, a la derecha queda más enterrado.",
   "waterfall.zoom.aria": "Amplitud de zoom de la cascada",
   "waterfall.zoom.title": "Vista de la cascada — Std (0–3 kHz, como WSJT-X), Full (0–4 kHz), o zoom alrededor del marcador RX",
+  "hamClock.title": "Ham Clock",
+  "hamClock.frameTitle": "Panel de OpenHamClock",
+  "hamClock.starting": "Iniciando el servicio local de OpenHamClock…",
+  "hamClock.unavailable": "OpenHamClock no está disponible en este equipo.",
+  "hamClock.retry": "Reiniciar OpenHamClock",
+  "nav.hamClock.title": "Ham Clock — el panel completo de OpenHamClock con los servicios integrados de Nexus",
+  "features.hamClock.label": "Ham Clock",
+  "features.hamClock.oneLine": "El panel completo de OpenHamClock para mapas, propagación, spots, satélites, meteorología espacial y emergencias.",
 }

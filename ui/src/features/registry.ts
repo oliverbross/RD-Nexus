@@ -26,6 +26,7 @@ import { t, type MessageKey } from '../i18n'
  * `ModeNav` and `App` import it from here. */
 export type View =
   | 'operate'
+  | 'hamClock'
   | 'cw'
   | 'phone'
   | 'rtty'
@@ -150,6 +151,17 @@ function feature(
  */
 export const FEATURES: FeatureDef[] = [
   // ---- Core spine (always on) ----
+  feature({
+    id: 'hamClock',
+    labelKey: 'features.hamClock.label',
+    kind: 'section',
+    category: 'Propagation',
+    core: true,
+    dependsOn: [],
+    intents: ['casual', 'dx', 'contest', 'pota', 'vhf'],
+    view: 'hamClock',
+    oneLineKey: 'features.hamClock.oneLine',
+  }),
   feature({
     id: 'operate',
     labelKey: 'features.operate.label',

@@ -107,6 +107,7 @@ import { SatellitesView } from './components/SatellitesView'
 import { RadioProgView } from './components/RadioProgView'
 import { MemoriesView } from './components/MemoriesView'
 import { ConnectView } from './components/ConnectView'
+import { HamClockView } from './components/HamClockView'
 import {
   getPropagation,
   getFeedHealth,
@@ -2821,6 +2822,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
 
   let workspace: JSX.Element | null
   switch (effectiveView) {
+    case 'hamClock':
+      workspace = remote ? null : <HamClockView snap={snap} onSnap={setSnap} />
+      break
     case 'fieldDay':
       // THE FIELD DAY SECTION IS SETUP, SCORE, SECTIONS, BONUSES, LOG AND THE CLUB BOARD.
       // It is NOT an operating surface, and there is deliberately no second one: Field Day is

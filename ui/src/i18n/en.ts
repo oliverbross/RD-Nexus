@@ -9317,6 +9317,13 @@ export const EN = {
   'shell.source.set': 'Source: {{source}}',
   'shell.wizard.saveFailed': "Setup didn't fully save: {{error}} — check Settings",
 
+  // ── OpenHamClock companion view ─────────────────────────────────────────────────────
+  'hamClock.title': 'Ham Clock',
+  'hamClock.frameTitle': 'OpenHamClock dashboard',
+  'hamClock.starting': 'Starting the local OpenHamClock service…',
+  'hamClock.unavailable': 'OpenHamClock is unavailable on this computer.',
+  'hamClock.retry': 'Restart OpenHamClock',
+
   // ── A torn-off panel window ─────────────────────────────────────────────────────────
   'detached.connecting': 'Connecting to the radio…',
   'detached.fieldDay.inactive': 'Field Day isn’t active.',
@@ -9347,6 +9354,8 @@ export const EN = {
     'APRS — AFSK-1200 packet: decode positions/messages, send a position beacon',
   'nav.digital.js8.title':
     'JS8 — JS8Call-compatible keyboard mode: heartbeats, directed messages, relay and a store-and-forward inbox, all four speeds decoded at once',
+  'nav.hamClock.title':
+    'Ham Clock — the complete OpenHamClock dashboard, using the bundled Nexus service',
   'nav.phone.title': 'Phone (SSB) operating — PTT, sideband, RF power, panadapter (casual)',
   'nav.cw.title': 'CW operating — keyboard + F-key macros, WPM, spectrum (casual)',
   'nav.connect.label': 'Connect',
@@ -9977,6 +9986,9 @@ export const EN = {
   'features.category.system': 'System',
   'features.operate.label': 'Operate',
   'features.operate.oneLine': 'The waterfall-first cockpit — decode, tune, and work stations.',
+  'features.hamClock.label': 'Ham Clock',
+  'features.hamClock.oneLine':
+    'The complete OpenHamClock map, propagation, spots, satellites, space weather, and emergency dashboard.',
   'features.cw.oneLine': 'CW operating — keyboard + F-key macros, WPM, spectrum, casual ragchew.',
   'features.phone.oneLine':
     'Phone (SSB) operating — PTT, band-aware sideband, RF power, panadapter.',
