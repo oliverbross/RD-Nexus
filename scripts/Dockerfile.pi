@@ -69,6 +69,12 @@ COPY . .
 RUN sed -i 's/--bundles deb,appimage/--bundles deb/' scripts/build-linux.sh \
     && sed -i 's/"createUpdaterArtifacts": true/"createUpdaterArtifacts": false/' src-tauri/tauri.conf.json \
     && ./scripts/build-linux.sh
+RUN deb=$(find src-tauri/target/release/bundle/deb -name '*.deb' -print -quit) \
+    && test -n "$deb" \
+    && rm -rf /tmp/debcheck \
+    && dpkg-deb -x "$deb" /tmp/debcheck \
+    && node scripts/check-openhamclock-package.mjs \
+         --target linux-arm64 --bundle-resources /tmp/debcheck/usr/lib/Nexus
 RUN mkdir /out && cp src-tauri/target/release/bundle/deb/*.deb /out/
 
 FROM scratch AS export

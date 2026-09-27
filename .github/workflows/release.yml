@@ -1009,8 +1009,6 @@ jobs:
           [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the package"; exit 1; }
           grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
             || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
-          node scripts/check-openhamclock-package.mjs \
-            --target linux-arm64 --bundle-resources /tmp/debcheck/usr/lib/Nexus
           mv "$deb" "pi-out/${{ matrix.base }}/Nexus_${ver}_pi_arm64_${{ matrix.base }}.deb"
           sha256sum pi-out/${{ matrix.base }}/*.deb
 
