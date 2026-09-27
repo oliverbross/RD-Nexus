@@ -10,7 +10,8 @@ Neural DX is a native RD-Nexus section backed by the complete pinned upstream Fl
 a private loopback-only companion. The companion is supervised and packaged by Nexus; it is not a
 separately installed service. Its original cluster and WSJT-X collectors remain available, while
 Nexus additionally supplies station identity, shared spots and canonical logbook state through an
-authenticated bridge. Shared spots are tagged and merged into an expanded buffer rather than
+authenticated bridge. Station identity and the bounded log fold travel directly from native Rust
+to the child; the webview can supply only spots and cannot assert station or QSO truth. Shared spots are tagged and merged into an expanded buffer rather than
 replacing upstream spots; Nexus QSO sets augment worked/confirmed sets without changing LoTW
 provider login/sync provenance or double-counting provider totals. In embedded mode every original
 spot-post gesture is routed exclusively through Nexus's validated cluster authority. A durable
@@ -38,13 +39,14 @@ are retained.
 | Weather, lightning and RF correlation | Original routes/page retained; native Connect/weather is an additional shared view | Integrated; live providers remain an evidence gate |
 | Satellites, TLE, passes, SatNOGS frequencies, rotator controls | Original routes/page retained; native Satellites is an additional shared view | Integrated; hardware/provider operation remains an evidence gate |
 | DX briefing and active expeditions | Original routes/page retained; native DXpeditions is an additional shared view | Integrated; live feeds remain an evidence gate |
-| LoTW/QSO knowledge and worked status | One cached native log fold supplies bounded worked/confirmed sets; LoTW session/provider counters remain independently authoritative | Integrated; WaveLog task will remain the sync authority |
+| LoTW/QSO knowledge and worked status | One cached native-to-child log fold supplies bounded worked/confirmed sets; Nexus knowledge remains usable when the separate LoTW provider is logged out, while its session/counters remain independently authoritative | Integrated; WaveLog task will remain the sync authority |
 | WSJT-X spots | Original UDP collector retained; Nexus station ingestion is an additional shared input | Integrated |
 | Complete original dashboard, maps, world view, AI insight, hunt, briefing, weather and satellite pages | Full pinned upstream application embedded in the Watcher tab | Integrated |
 | Original API and data route surface | Machine-audited inventory of every v12.7 Flask route; the complete app is packaged, not a partial reimplementation | Integrated |
 | Posting a DX spot from the upstream UI | Persistent authenticated child queue into a durable native action-id journal, then Nexus `post_spot`; interrupted delivery is never auto-retried and requires explicit operator resolution | Integrated |
 | Cross-platform application packaging | Pinned upstream source plus a Python 3.10+ self-contained sidecar built per target; no system Python or Pi-only startup script is required | Implemented; public artifacts blocked pending licence evidence; non-macOS runtime still needs CI execution |
 | Upstream additions | Pin, route inventory and `scripts/check-neural-dx-upstream.mjs` | Integrated; update is deliberately reviewed, never auto-imported |
+| Hosted Remote | Desktop companion commands are intentionally absent from the restricted Remote transport | Truthfully hidden from Remote; desktop integration is unchanged |
 | VOACAP 8×24 matrix and free-form target resolver | Original upstream routes and UI remain available; the native Propagation tab additionally links to Nexus modeling | Integrated |
 | REST Countries enrichment (capital, population, timezone) | Original upstream enrichment remains available; Nexus entity/grid data also feeds the shared spot snapshot | Integrated |
 | Ntfy test/status and mail notification transport | Original upstream ntfy configuration, status and test routes remain available | Integrated |
@@ -102,7 +104,8 @@ starting/ready/unavailable state, detects child exit, offers restart, and kills/
 Nexus closes. Upstream HTTP pages keep their own persisted API token; Nexus-only routes use
 constant-time token comparison and reject missing/wrong tokens. Requests, responses, collection
 sizes, strings, spot-action ranges and queue depth are bounded; replayed spot commands are
-deduplicated by stable/full identity with a bounded six-hour LRU. The embedded meta-analysis route
+deduplicated by stable/full identity using station receive time, DX/spotter, frequency, band, mode
+and comment, with a bounded six-hour LRU. The embedded meta-analysis route
 always requires a cryptographic token and cannot be pointed at an arbitrary filesystem path. The
 iframe sandbox excludes top-navigation. Pending child actions survive supervised restarts; native
 execution receipts survive Nexus restarts and make repeated action ids idempotent. The token is
@@ -114,10 +117,10 @@ neither written to the ready file nor included in error messages.
 |---|---|---|
 | Pin and drift | live remote SHA; exact file and route inventories; positive/negative diff tests | Executed locally at the recorded pin |
 | Upstream unit behavior | `test_analytics.py`, `test_country_meta.py`, `test_dxcc_hunt.py` | Passed locally in the packaged Python 3.12 environment |
-| UI/source | production UI build, focused Neural DX/i18n tests, full `scripts/gates --job ui` | Production build passed; 208 focused tests passed; full gate recorded separately |
-| Rust host | action-journal fault/restart tests plus 67k native log-summary benchmark with `radio,custom-protocol` | 5 focused tests passed; 67,000 QSOs folded to 627 bytes in 272 ms on the final local run (3.21 s under peak concurrent build load) |
-| Packaged companion | Python 3.12 PyInstaller build/self-test; authenticated sync; 401 negative controls; eight primary pages; action validation/deduplication; embedded meta analysis | Passed locally on Apple Silicon |
-| Bridge composition | overlap/deletion/restart, provider provenance, same-minute spot identity, bounded LRU, repeated sync, persistent action queue/ack, meta-route auth/path bounds | 6 bridge regression tests passed locally |
+| UI/source | production UI build, focused Neural DX/i18n tests, full suite plus isolated retry of unrelated failures | Production build passed; 224 focused tests passed; full suite exposed one pre-existing Satellite Remote failure outside this change |
+| Rust host | action-journal fault/restart tests plus 67k native log-summary benchmark with `radio,custom-protocol` | 5 focused tests passed; 67,000 QSOs folded to 627 bytes in 962 ms on the final local run |
+| Packaged companion | Python 3.12 PyInstaller build/self-test; authenticated sync; logged-out consumer path; action validation/deduplication; embedded meta analysis | Passed locally on Apple Silicon |
+| Bridge composition | overlap/deletion/restart, provider provenance, same-second production spot identity, bounded LRU, repeated sync, saturation/restart/no-loss action queue, meta-route auth/path bounds | 7 bridge regression tests passed locally |
 | macOS bundle | resource presence, Developer ID signing, hardened runtime, notarization and DMG smoke | Workflow gates added; signing/notarization require release secrets/CI |
 | Windows bundle | native Windows sidecar job plus NSIS content gate | Workflow gates added; runtime needs Windows CI/artifact |
 | Linux/Pi bundles | native build in `build-linux.sh`, deb/AppImage/Pi payload gates | Workflow gates added; runtime needs Linux/Pi CI/artifact |

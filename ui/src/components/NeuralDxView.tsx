@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Activity, BrainCircuit, CloudLightning, Crosshair, MonitorUp, Newspaper, Orbit, RadioTower, RotateCcw } from 'lucide-react'
 import { gridToLatLon, haversineKm } from '../grid'
 import { t } from '../i18n'
-import { ackNeuralDxActions, askLog, executeNeuralDxAction, getNeuralDxActions, getNeuralDxStatus, resolveNeuralDxAction, restartNeuralDx, syncNeuralDx, type NeuralDxAction, type NeuralDxStatus } from '../api'
-import type { NeuralDxQsoSummary } from '../features/logAnswers'
+import { ackNeuralDxActions, executeNeuralDxAction, getNeuralDxActions, getNeuralDxStatus, resolveNeuralDxAction, restartNeuralDx, syncNeuralDx, type NeuralDxAction, type NeuralDxStatus } from '../api'
 import type { NeedAlert, SpotRow } from '../types'
 import type { View } from '../features/registry'
 
@@ -12,7 +11,6 @@ type NeuralTab = 'watcher' | 'hunt' | 'insight' | 'propagation' | 'weather' | 's
 interface Props {
   spots: SpotRow[]
   needs: NeedAlert[]
-  myCall: string
   myGrid: string
   logTick: number
   selectedCall: string | null
@@ -124,10 +122,10 @@ function tabLabel(tab: NeuralTab): string {
   }
 }
 
-function toWatcherSpot(spot: SpotRow, need: NeedAlert | undefined, myGrid: string) {
+export function toWatcherSpot(spot: SpotRow, need: NeedAlert | undefined, myGrid: string) {
   const me = gridToLatLon(myGrid)
   const dx = spot.grid ? gridToLatLon(spot.grid) : null
-  const timestamp = Date.now() / 1000 - Math.max(0, spot.ageSecs)
+  const timestamp = spot.receivedUnix ?? Date.now() / 1000 - Math.max(0, spot.ageSecs)
   const distanceKm = me && dx ? haversineKm(me, dx) : 0
   return {
     timestamp,
@@ -147,19 +145,21 @@ function toWatcherSpot(spot: SpotRow, need: NeedAlert | undefined, myGrid: strin
     color: '#22d3ee',
     type: ['6m', '4m', '2m', '70cm', '23cm'].includes(spot.band) ? 'VHF' : 'HF',
     distance_km: distanceKm,
-    spot_id: `${spot.call}-${Math.floor(timestamp)}`,
+    spot_id: [
+      spot.call.toUpperCase(), spot.spotter.toUpperCase(), spot.freqMhz.toFixed(6),
+      spot.band, spot.submode ?? spot.mode, timestamp.toFixed(3), spot.comment,
+    ].join('|'),
     comment: spot.comment,
     nexus_worked_ago_secs: spot.workedAgoSecs ?? null,
   }
 }
 
-export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCall, onSelect, onWork, onNavigate }: Props) {
+export function NeuralDxView({ spots, needs, myGrid, logTick, selectedCall, onSelect, onWork, onNavigate }: Props) {
   const [tab, setTab] = useState<NeuralTab>('watcher')
   const [history, setHistory] = useState<HistoryPoint[]>(() => loadJson(HISTORY_KEY, []))
   const [watch, setWatch] = useState<string[]>(() => loadJson(WATCH_KEY, []))
   const [runtime, setRuntime] = useState<NeuralDxStatus | null>(null)
   const [runtimeError, setRuntimeError] = useState('')
-  const [qsoSummary, setQsoSummary] = useState<NeuralDxQsoSummary | null>(null)
   const [unknownAction, setUnknownAction] = useState<NeuralDxAction | null>(null)
 
   useEffect(() => {
@@ -185,30 +185,12 @@ export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCa
   useEffect(() => {
     if (runtime?.phase !== 'ready') return
     let live = true
-    askLog({ kind: 'neuralDxSummary' }).then((summary) => {
-      if (live) setQsoSummary(summary)
-    }).catch((error) => { if (live) setRuntimeError(String(error)) })
-    return () => { live = false }
-  }, [runtime?.phase, logTick])
-
-  useEffect(() => {
-    if (runtime?.phase !== 'ready') return
-    let live = true
     const needByCall = new Map(needs.map((need) => [`${need.call.toUpperCase()}|${need.band}`, need]))
     syncNeuralDx({
-      station: { callsign: myCall, grid: myGrid },
       spots: spots.map((spot) => toWatcherSpot(spot, needByCall.get(`${spot.call.toUpperCase()}|${spot.band}`), myGrid)),
     }).catch((error) => { if (live) setRuntimeError(String(error)) })
     return () => { live = false }
-  }, [runtime?.phase, spots, needs, myCall, myGrid])
-
-  useEffect(() => {
-    if (runtime?.phase !== 'ready' || !qsoSummary) return
-    let live = true
-    syncNeuralDx({ station: { callsign: myCall, grid: myGrid }, qsoSummary })
-      .catch((error) => { if (live) setRuntimeError(String(error)) })
-    return () => { live = false }
-  }, [runtime?.phase, myCall, myGrid, qsoSummary])
+  }, [runtime?.phase, spots, needs, myGrid, logTick])
 
   useEffect(() => {
     if (runtime?.phase !== 'ready') return

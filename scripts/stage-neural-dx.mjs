@@ -13,6 +13,10 @@ const stage = join(repo, 'src-tauri', 'resources', 'neural-dx')
 const builder = join(repo, 'target', `neural-dx-builder-${process.platform}-${process.arch}`)
 const python = process.platform === 'win32' ? join(builder, 'Scripts', 'python.exe') : join(builder, 'bin', 'python')
 
+if (process.env.NEURAL_DX_PRIVATE_BUILD !== '1') {
+  execFileSync(process.execPath, [join(repo, 'scripts', 'check-neural-dx-redistribution.mjs')], { stdio: 'inherit' })
+}
+
 function findBuildPython() {
   const candidates = process.env.PYTHON
     ? [process.env.PYTHON]
@@ -59,6 +63,31 @@ try {
   const webapp = join(work, 'webapp.py')
   replaceOnce(webapp, 'MY_CALL = "F1SMV"\nWEB_PORT = 8000', 'MY_CALL = os.getenv("NEURAL_DX_CALLSIGN", "F1SMV")\nWEB_PORT = int(os.getenv("NEURAL_DX_PORT", "8000"))')
   replaceOnce(webapp, 'DEFAULT_QRA = "JN23"', 'DEFAULT_QRA = os.getenv("NEURAL_DX_GRID", "JN23")')
+  for (const functionName of ['lotw_check_call', 'lotw_spots_status', 'lotw_opportunities', 'api_hunt_data']) {
+    const marker = `def ${functionName}():`
+    const start = readFileSync(webapp, 'utf8').indexOf(marker)
+    if (start < 0) throw new Error(`Neural DX integration anchor changed: ${marker}`)
+    const input = readFileSync(webapp, 'utf8')
+    const nextRoute = input.indexOf('\n@app.', start + marker.length)
+    const end = nextRoute < 0 ? input.length : nextRoute
+    const block = input.slice(start, end)
+    let guarded = block.replace(
+      "if not lotw_session['logged_in']:",
+      "if not lotw_session['logged_in'] and not _nexus_knowledge_available():",
+    )
+    if (guarded === block) throw new Error(`Neural DX knowledge gate anchor changed: ${functionName}`)
+    guarded = guarded.replaceAll(
+      "'logged_in': True",
+      "'logged_in': bool(lotw_session['logged_in']), 'knowledge_available': True",
+    )
+    if (functionName === 'lotw_check_call') {
+      guarded = guarded.replace(
+        "return jsonify({\n            'call':",
+        "return jsonify({\n            'logged_in': bool(lotw_session['logged_in']), 'knowledge_available': True,\n            'call':",
+      )
+    }
+    writeFileSync(webapp, input.slice(0, start) + guarded + input.slice(end))
+  }
   replaceOnce(webapp, 'if __name__ == "__main__":\n', `import sys
 from nexus_bridge import install_nexus_bridge
 install_nexus_bridge(app, sys.modules[__name__])

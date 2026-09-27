@@ -91,6 +91,7 @@ bold "3/4  Web UI dependencies"
 ok "ui/node_modules"
 node "$REPO/scripts/stage-neural-dx.mjs"
 node "$REPO/scripts/check-neural-dx-staged.mjs"
+node "$REPO/scripts/check-neural-dx-consumer.mjs"
 ok "Neural DX staged (self-contained bundled companion)"
 
 # 4 — the GUI app + offline .deb + AppImage ---------------------------------------------------

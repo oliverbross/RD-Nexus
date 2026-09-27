@@ -432,6 +432,18 @@ impl LogFold for NeuralDxFold {
 pub struct LogQueries(Arc<Inner>);
 
 impl LogQueries {
+    /// Build the bounded Neural DX knowledge summary without crossing the webview boundary.
+    pub(crate) fn neural_dx_summary(&self, engine: &SharedEngine) -> Result<Value, String> {
+        json(&*self.fold(
+            engine,
+            &self.0.neural_dx,
+            (),
+            Engine::log_content_rev,
+            NEURAL_DX_SUMMARY,
+            NeuralDxFold::default(),
+        )?)
+    }
+
     /// Answer `q`: take what it needs under the Engine lock, release it, read, answer. `resolve`
     /// is a call's live DXCC entity (cty.dat in the app).
     pub(crate) fn answer(
@@ -524,14 +536,7 @@ impl LogQueries {
                 STATISTICS,
                 LogStatCounter::new(resolve),
             )?),
-            LogQuestion::NeuralDxSummary {} => json(&*self.fold(
-                engine,
-                &self.0.neural_dx,
-                (),
-                Engine::log_content_rev,
-                NEURAL_DX_SUMMARY,
-                NeuralDxFold::default(),
-            )?),
+            LogQuestion::NeuralDxSummary {} => self.neural_dx_summary(engine),
             // The backlog reads the LoTW stamp — a Stamp moves `content_rev`, and a contact
             // imported with its stamp is an Append, which moves `index_rev` — so it is kept
             // against `revision`, which every change moves.

@@ -9,9 +9,9 @@
     "readmeClaim": "MIT",
     "licenseFilePresent": false,
     "perFileHeadersPresent": false,
-    "vendoringAllowed": true,
-    "basis": "Project-specific permission from the original developer, attested by the RD-Nexus maintainer on 2026-09-27.",
-    "reason": "The project-specific grant permits use in ShackCQ.com and the maintainer's related software projects; upstream attribution is retained."
+    "vendoringAllowed": false,
+    "basis": "Maintainer-attested project permission supports private integration work, but the qualifying written grant is not archived in this repository.",
+    "reason": "Public artifacts remain blocked until explicit modification, redistribution, and sublicensing permission compatible with GPL-3.0-only is archived and reviewed."
   },
   "files": [
     ".gitignore", "ARCHITECTURE_METEO.md", "README.md", "README_EN.md", "analytics.py", "apercu.png",

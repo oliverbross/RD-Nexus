@@ -5,7 +5,7 @@ import unittest
 from collections import deque
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, request
 
 from nexus_bridge import install_nexus_bridge
 
@@ -61,6 +61,14 @@ class NexusBridgeTests(unittest.TestCase):
         self.app.add_url_rule("/api/meta/run", "run_meta", lambda: ({"upstream": True}, 200), methods=["POST"])
         self.state = _State()
         install_nexus_bridge(self.app, self.state)
+        def knowledge_consumer():
+            if (not self.state.lotw_session["logged_in"]
+                    and not self.state._nexus_knowledge_available()):
+                return {"logged_in": False}
+            call = (request.args.get("call") or "").upper()
+            return {"logged_in": self.state.lotw_session["logged_in"],
+                    "call_confirmed": call in self.state.lotw_data["confirmed_calls"]}
+        self.app.add_url_rule("/test/knowledge-consumer", "knowledge_consumer", knowledge_consumer)
         self.client = self.app.test_client()
         self.headers = {"X-Nexus-Token": "test-secret"}
 
@@ -122,6 +130,9 @@ class NexusBridgeTests(unittest.TestCase):
         self.assertIn("K2SUM", self.state.lotw_data["confirmed_calls"])
         self.assertEqual(self.state.lotw_data["total_qso"], 1)
         self.assertEqual(self.state.nexus_qso_provenance["total_qso"], 25)
+        self.assertFalse(self.state.lotw_session["logged_in"])
+        consumer = self.client.get("/test/knowledge-consumer?call=K2SUM").get_json()
+        self.assertTrue(consumer["call_confirmed"], "Nexus truth reaches a real consumer")
 
         # Restarting only the supervised child retains the provider baseline in the upstream
         # process state, so deleting the Nexus-only QSO cannot promote it into provider truth.
@@ -150,7 +161,7 @@ class NexusBridgeTests(unittest.TestCase):
         self.assertEqual(empty.status_code, 200)
         self.assertEqual(fresh_state.lotw_data["confirmed_calls"], {"PROVIDER"})
 
-    def test_actions_are_validated_deduplicated_and_bounded(self):
+    def test_actions_are_validated_deduplicated_and_reject_when_full(self):
         self.assertFalse(self.state.cluster_send_line("DX nope BAD! control"))
         self.assertFalse(self.state.cluster_send_line("DX 9999999 VK9DX out-of-range"))
         self.assertTrue(self.state.cluster_send_line("DX 14195 VK9DX UP 5"))
@@ -166,11 +177,13 @@ class NexusBridgeTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/nexus/actions/ack", headers=self.headers,
                                          json={"ids": [actions[0]["id"]]}).status_code, 200)
         self.assertEqual(self.client.get("/api/nexus/actions", headers=self.headers).get_json()["actions"], [])
-        for index in range(101):
+        for index in range(100):
             self.assertTrue(self.state.cluster_send_line(f"DX 14195 K{index:03d}DX item-{index}"))
+        self.assertFalse(self.state.cluster_send_line("DX 14195 K999DX rejected-at-capacity"))
         bounded = self.client.get("/api/nexus/actions", headers=self.headers).get_json()["actions"]
         self.assertEqual(len(bounded), 100)
-        self.assertEqual(bounded[0]["comment"], "item-1")
+        self.assertEqual(bounded[0]["comment"], "item-0")
+        self.assertEqual(bounded[-1]["comment"], "item-99")
         oversized = self.client.post(
             "/api/nexus/sync", headers=self.headers, json={"spots": [{}] * 5001}
         )
@@ -186,10 +199,22 @@ class NexusBridgeTests(unittest.TestCase):
             "/api/nexus/actions", headers=self.headers).get_json()["actions"]
         self.assertEqual(replay, pending)
 
+    def test_full_pending_queue_survives_restart_without_loss(self):
+        for index in range(100):
+            self.assertTrue(self.state.cluster_send_line(f"DX 14195 K{index:03d}DX item-{index}"))
+        before = self.client.get("/api/nexus/actions", headers=self.headers).get_json()["actions"]
+        restarted_app = Flask("full-queue-restart")
+        restarted_state = _State()
+        install_nexus_bridge(restarted_app, restarted_state)
+        after = restarted_app.test_client().get(
+            "/api/nexus/actions", headers=self.headers).get_json()["actions"]
+        self.assertEqual(after, before)
+        self.assertFalse(restarted_state.cluster_send_line("DX 14195 K999DX still-full"))
+
     def test_spot_identity_keeps_distinct_same_minute_and_deduplicates_resync(self):
-        first = {"dx_call": "VK9DX", "spotter": "K1AAA", "freq": 14195.0,
+        first = {"dx_call": "VK9DX", "de_call": "K1AAA", "freq": 14195.0,
                  "timestamp": 1_700_000_001.1, "band": "20m", "mode": "SSB", "comment": "UP 5"}
-        second = {**first, "spotter": "K2BBB", "freq": 14196.0}
+        second = {**first, "de_call": "K2BBB", "freq": 14196.0}
         response = self.client.post("/api/nexus/sync", headers=self.headers,
                                     json={"spots": [first, second]})
         self.assertEqual(response.status_code, 200)

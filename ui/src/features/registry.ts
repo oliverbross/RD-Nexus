@@ -49,6 +49,11 @@ export type View =
   | 'program'
   | 'settings'
 
+/** Desktop-only companion surfaces are not available in the hosted Remote transport. */
+export function isHostedRemoteFeature(view: View): boolean {
+  return view !== 'neuralDx'
+}
+
 /** Every section id is a `View`; capabilities add a few cross-cutting ids. */
 export type FeatureId = View | 'nowBar' | 'gamification'
 

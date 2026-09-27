@@ -18067,6 +18067,8 @@ struct SpotRow {
     corroborators: Vec<String>,
     /// Seconds since the spot was received; -1 if unknown (no receive stamp).
     age_secs: i64,
+    /// Stable station receive time used by consumers that need an identity across refreshes.
+    received_unix: Option<u64>,
     comment: String,
     /// True when the operator's license class may TRANSMIT at this spot's frequency in
     /// its mode (privileges::tx_allowed; `Open` class ⇒ always true). Drives the Spots
@@ -18292,6 +18294,7 @@ fn read_all_spots(
                 spotter: cs.spotter.clone(),
                 corroborators: cs.corroborators.clone(),
                 age_secs,
+                received_unix: (cs.received_unix > 0).then_some(cs.received_unix),
                 comment: cs.comment.clone(),
                 licensed,
                 spotter_local: {

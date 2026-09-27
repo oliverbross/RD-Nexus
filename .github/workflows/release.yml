@@ -72,6 +72,16 @@ env:
   GLIBC_FLOOR: '2.39'
 
 jobs:
+  neural-dx-license:
+    name: Gate — Neural DX redistribution evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/check-neural-dx-redistribution.mjs
+
   # ---------------------------------------------------------------------------------------
   # THE CI-EVIDENCE GATE — nothing here publishes until ci.yml has actually passed on the
   # commit the tag points at.
@@ -147,6 +157,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   linux-x86:
     name: Linux x86_64 (.deb + AppImage)
+    needs: neural-dx-license
     # PINNED, not `ubuntu-latest`. The build host's glibc IS the floor of every published
     # x86_64 artifact, so an unpinned label makes the supported-distro list move on GitHub's
     # schedule rather than ours. The arm64 jobs below have always been pinned AND containerised
@@ -404,6 +415,7 @@ jobs:
 
   neural-dx-windows-sidecar:
     name: Neural DX Windows sidecar
+    needs: neural-dx-license
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -419,7 +431,7 @@ jobs:
       - name: Build the self-contained Neural DX companion
         run: node scripts/stage-neural-dx.mjs
       - name: Verify the staged executable and provenance
-        run: node scripts/check-neural-dx-staged.mjs
+        run: node scripts/check-neural-dx-staged.mjs && node scripts/check-neural-dx-consumer.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: neural-dx-windows-sidecar
@@ -431,7 +443,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   windows:
     name: Windows (NSIS installer)
-    needs: neural-dx-windows-sidecar
+    needs: [neural-dx-license, neural-dx-windows-sidecar]
     runs-on: ubuntu-latest
     env:
       # Baked into the binary via option_env! (build.rs). Only referenced in this
@@ -594,6 +606,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   macos:
     name: macOS (Apple Silicon .dmg)
+    needs: neural-dx-license
     runs-on: macos-14
     env:
       CLUBLOG_API_KEY: ${{ secrets.CLUBLOG_API_KEY }}
@@ -665,6 +678,9 @@ jobs:
 
       - name: Stage Neural DX (bundled — no system Python for the user)
         run: node scripts/stage-neural-dx.mjs
+
+      - name: Verify Neural DX native knowledge consumer
+        run: node scripts/check-neural-dx-staged.mjs && node scripts/check-neural-dx-consumer.mjs
 
       - name: Sign the bundled Neural DX executable
         run: |
@@ -945,6 +961,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   pi:
     name: Raspberry Pi .deb (${{ matrix.base }})
+    needs: neural-dx-license
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false

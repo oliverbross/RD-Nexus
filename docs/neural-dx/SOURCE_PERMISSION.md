@@ -16,4 +16,7 @@ grant establishes modification, redistribution, and sublicensing on terms compat
 RD-Nexus's GPL-3.0-only distribution. A README label alone is not that evidence. Local builds and
 private validation may continue; clearing this gate requires retaining the actual grant evidence
 and adding `docs/neural-dx/REDISTRIBUTION_APPROVED.md` with the completed compatibility review.
+
+Private maintainer integration builds must opt in explicitly with
+`NEURAL_DX_PRIVATE_BUILD=1`; that exception is never set by the public release workflow.
 The public-release workflow fails closed while that review record is absent.

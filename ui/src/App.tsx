@@ -168,6 +168,7 @@ import type { PropagationSnapshot, FeedHealth, NeedAlert, SpotRow, DxpedWindow, 
 import { NeededPanel } from './components/NeededPanel'
 import { SpotsPanel } from './components/SpotsPanel'
 import { NeuralDxView } from './components/NeuralDxView'
+import { isHostedRemoteFeature } from './features/registry'
 import { LogConfirm } from './components/LogConfirm'
 import { ContestView } from './components/ContestView'
 import { OperateDecodes } from './components/OperateDecodes'
@@ -2545,12 +2546,16 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   // enabled map that the nav and the redirect guard below both read: master off →
   // Field Day is invisible (nav item hidden, view redirects away); master on → visible.
   const fdActive = settings?.fdActive === true
-  const navEnabled: Record<FeatureId, boolean> = { ...features.enabled, fieldDay: fdActive }
+  const navEnabled: Record<FeatureId, boolean> = {
+    ...features.enabled,
+    fieldDay: fdActive,
+    neuralDx: features.enabled.neuralDx !== false && (!remote || isHostedRemoteFeature('neuralDx')),
+  }
   const isViewEnabled = (v: View): boolean => navEnabled[v as FeatureId] !== false
   // A visible navigation item is not evidence that its station API is connected.
   // In particular, never mount SettingsPanel with the projected operating view:
   // it expects complete configuration and could display absent values as defaults.
-  const isRemoteViewAvailable = (v: View): boolean => !remote || v === 'operate' || v === 'chat' || (!!remote.collections && ['needed', 'spots', 'neuralDx', 'logbook'].includes(v)) || (!!remote.cwPhone && (v === 'cw' || v === 'phone')) || (!!remote.keyboard && (v === 'rtty' || v === 'psk')) || (!!remote.insights && (v === 'awards' || v === 'stats')) || (!!remote.dxpeditions && v === 'dxped') || (!!remote.memories && v === 'memories') || (!!remote.ota && v === 'pota') || (!!remote.fieldDay && v === 'fieldDay') || (!!remote.js8 && v === 'js8') || (!!remote.stationModes && (v === 'sstv' || v === 'aprs')) || (!!remote.navigation && (v === 'connect' || v === 'sats')) || (!!remote.configuration && (v === 'settings' || v === 'program'))
+  const isRemoteViewAvailable = (v: View): boolean => !remote || (isHostedRemoteFeature(v) && (v === 'operate' || v === 'chat' || (!!remote.collections && ['needed', 'spots', 'logbook'].includes(v)) || (!!remote.cwPhone && (v === 'cw' || v === 'phone')) || (!!remote.keyboard && (v === 'rtty' || v === 'psk')) || (!!remote.insights && (v === 'awards' || v === 'stats')) || (!!remote.dxpeditions && v === 'dxped') || (!!remote.memories && v === 'memories') || (!!remote.ota && v === 'pota') || (!!remote.fieldDay && v === 'fieldDay') || (!!remote.js8 && v === 'js8') || (!!remote.stationModes && (v === 'sstv' || v === 'aprs')) || (!!remote.navigation && (v === 'connect' || v === 'sats')) || (!!remote.configuration && (v === 'settings' || v === 'program'))))
 
   // Recall card → Logbook, filtered to the call (#192, kr4fqg: "click a previous contact and
   // land in the log"). Same shape as the `onOpenMemories` handoffs below — `undefined` when the
@@ -2966,7 +2971,6 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
         <NeuralDxView
           spots={allSpots}
           needs={boardAlerts}
-          myCall={snap.mycall}
           myGrid={snap.mygrid}
           logTick={snap.logTick ?? 0}
           selectedCall={activePeer}

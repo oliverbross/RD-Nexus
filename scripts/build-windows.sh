@@ -107,6 +107,7 @@ npm --prefix "$REPO/ui" ci
 ok "ui dependencies installed (Tauri's beforeBuildCommand runs the build)"
 node "$REPO/scripts/stage-neural-dx.mjs"
 node "$REPO/scripts/check-neural-dx-staged.mjs"
+node "$REPO/scripts/check-neural-dx-consumer.mjs"
 ok "Neural DX staged (self-contained bundled companion)"
 bash "$REPO/scripts/fetch-hamlib.sh"     # bundle rigctld so CAT needs no separate install
 ok "Hamlib staged (bundled into the installer)"

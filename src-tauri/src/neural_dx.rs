@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tempo_app::engine::engine_lock;
 
+use crate::log_queries::LogQueries;
 use crate::SharedEngine;
 
 const VERSION: &str = "12.7";
@@ -190,7 +191,10 @@ fn client() -> Result<reqwest::blocking::Client, String> {
 }
 
 fn limited_body(mut response: reqwest::blocking::Response) -> Result<Vec<u8>, String> {
-    if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+    {
         return Err("Neural DX response exceeded the safety limit".into());
     }
     let mut body = Vec::new();
@@ -333,19 +337,25 @@ fn execute_with(
         write_journal(path, &journal)?;
     }
     {
-        let receipt = journal.get_mut(&action.id).expect("inserted action receipt");
+        let receipt = journal
+            .get_mut(&action.id)
+            .expect("inserted action receipt");
         receipt.phase = "transmitting".into();
         receipt.detail = None;
     }
     write_journal(path, &journal)?;
     if let Err(error) = transmit(&action) {
-        let receipt = journal.get_mut(&action.id).expect("existing action receipt");
+        let receipt = journal
+            .get_mut(&action.id)
+            .expect("existing action receipt");
         receipt.phase = "prepared".into();
         receipt.detail = Some(error.clone());
         write_journal(path, &journal)?;
         return Err(error);
     }
-    let receipt = journal.get_mut(&action.id).expect("existing action receipt");
+    let receipt = journal
+        .get_mut(&action.id)
+        .expect("existing action receipt");
     receipt.phase = "success".into();
     receipt.detail = None;
     write_journal(path, &journal)?;
@@ -420,12 +430,13 @@ pub fn start(app: AppHandle) {
                                 .and_then(|payload| payload.get("ok").and_then(Value::as_bool))
                                 == Some(true);
                             if authenticated {
-                                state.0.lock().unwrap_or_else(|e| e.into_inner()).status = NeuralDxStatus {
-                                    phase: "ready",
-                                    url: Some(url),
-                                    version: VERSION,
-                                    detail: None,
-                                };
+                                state.0.lock().unwrap_or_else(|e| e.into_inner()).status =
+                                    NeuralDxStatus {
+                                        phase: "ready",
+                                        url: Some(url),
+                                        version: VERSION,
+                                        detail: None,
+                                    };
                                 let _ = std::fs::remove_file(&ready_file);
                                 return;
                             }
@@ -480,8 +491,57 @@ pub fn restart_neural_dx(app: AppHandle, state: State<'_, NeuralDxState>) {
     start(app);
 }
 
+fn native_sync_payload(
+    payload: Value,
+    callsign: String,
+    grid: String,
+    qso_summary: Value,
+) -> Result<Value, String> {
+    let mut payload = payload
+        .as_object()
+        .cloned()
+        .ok_or("Neural DX sync payload must be an object")?;
+    if payload.keys().any(|key| key != "spots") {
+        return Err("Neural DX browser sync may contain spots only".into());
+    }
+    payload.insert(
+        "station".into(),
+        serde_json::json!({ "callsign": callsign, "grid": grid }),
+    );
+    payload.insert("qsoSummary".into(), qso_summary);
+    Ok(Value::Object(payload))
+}
+
+fn send_sync(url: String, secret: String, payload: Value) -> Result<(), String> {
+    let body =
+        serde_json::to_vec(&payload).map_err(|error| format!("encode Neural DX sync: {error}"))?;
+    if body.len() > MAX_SYNC_BYTES {
+        return Err("Neural DX sync payload exceeded the 16 MiB safety limit".into());
+    }
+    let response = client()?
+        .post(format!("{url}/api/nexus/sync"))
+        .header("X-Nexus-Token", secret)
+        .header("Content-Type", "application/json")
+        .body(body)
+        .send()
+        .map_err(|error| format!("send Neural DX sync: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Neural DX bridge returned HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let _ = limited_body(response)?;
+    Ok(())
+}
+
 #[tauri::command]
-pub fn neural_dx_sync(state: State<'_, NeuralDxState>, payload: Value) -> Result<(), String> {
+pub async fn neural_dx_sync(
+    state: State<'_, NeuralDxState>,
+    engine: State<'_, SharedEngine>,
+    queries: State<'_, LogQueries>,
+    payload: Value,
+) -> Result<(), String> {
     let (url, secret) = {
         let runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if runtime.status.phase != "ready" {
@@ -496,23 +556,22 @@ pub fn neural_dx_sync(state: State<'_, NeuralDxState>, payload: Value) -> Result
             runtime.token.clone(),
         )
     };
-    let body =
-        serde_json::to_vec(&payload).map_err(|error| format!("encode Neural DX sync: {error}"))?;
-    if body.len() > MAX_SYNC_BYTES {
-        return Err("Neural DX sync payload exceeded the 16 MiB safety limit".into());
-    }
-    let response = client()?
-        .post(format!("{url}/api/nexus/sync"))
-        .header("X-Nexus-Token", secret)
-        .header("Content-Type", "application/json")
-        .body(body)
-        .send()
-        .map_err(|error| format!("send Neural DX sync: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("Neural DX bridge returned HTTP {}", response.status().as_u16()));
-    }
-    let _ = limited_body(response)?;
-    Ok(())
+    let engine = engine.inner().clone();
+    let queries = queries.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (callsign, grid) = {
+            let engine = engine_lock(&engine);
+            (
+                engine.settings().mycall.clone(),
+                engine.settings().mygrid.clone(),
+            )
+        };
+        let summary = queries.neural_dx_summary(&engine)?;
+        let payload = native_sync_payload(payload, callsign, grid, summary)?;
+        send_sync(url, secret, payload)
+    })
+    .await
+    .map_err(|error| format!("Neural DX native sync did not finish: {error}"))?
 }
 
 #[tauri::command]
@@ -537,11 +596,14 @@ pub fn neural_dx_actions(state: State<'_, NeuralDxState>) -> Result<Vec<NeuralDx
         .send()
         .map_err(|error| format!("request Neural DX actions: {error}"))?;
     if !response.status().is_success() {
-        return Err(format!("Neural DX bridge returned HTTP {}", response.status().as_u16()));
+        return Err(format!(
+            "Neural DX bridge returned HTTP {}",
+            response.status().as_u16()
+        ));
     }
     let body = limited_body(response)?;
-    let payload: Value =
-        serde_json::from_slice(&body).map_err(|error| format!("decode Neural DX actions: {error}"))?;
+    let payload: Value = serde_json::from_slice(&body)
+        .map_err(|error| format!("decode Neural DX actions: {error}"))?;
     let actions = payload
         .get("actions")
         .and_then(Value::as_array)
@@ -573,11 +635,7 @@ pub fn neural_dx_execute_action(
 ) -> Result<NeuralDxExecution, String> {
     let _serial = state.0.lock().unwrap_or_else(|error| error.into_inner());
     execute_with(&journal_path(&app)?, action, |action| {
-        crate::post_spot(
-            action.freq_mhz,
-            action.call.clone(),
-            action.comment.clone(),
-        )
+        crate::post_spot(action.freq_mhz, action.call.clone(), action.comment.clone())
     })
 }
 
@@ -687,6 +745,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn native_sync_replaces_browser_station_and_log_truth() {
+        let summary = serde_json::json!({
+            "workedCalls": ["VK9DX"], "confirmedCalls": [], "totalQso": 67_000
+        });
+        let payload = native_sync_payload(
+            serde_json::json!({"spots": [{"dx_call": "VK9DX"}]}),
+            "N0CALL".into(),
+            "FN31".into(),
+            summary.clone(),
+        )
+        .unwrap();
+        assert_eq!(payload["station"]["callsign"], "N0CALL");
+        assert_eq!(payload["qsoSummary"], summary);
+        assert_eq!(payload["spots"][0]["dx_call"], "VK9DX");
+        assert!(native_sync_payload(
+            serde_json::json!({"station": {"callsign": "ATTACK"}, "qsoSummary": {}}),
+            "N0CALL".into(),
+            "FN31".into(),
+            serde_json::json!({}),
+        )
+        .is_err());
+    }
+
     fn path(tag: &str) -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "nexus-neural-dx-{tag}-{}-{:?}.json",
@@ -736,7 +818,11 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(sends.get(), 1, "crash before post resumes the prepared intent");
+        assert_eq!(
+            sends.get(),
+            1,
+            "crash before post resumes the prepared intent"
+        );
 
         let unknown_path = path("unknown");
         sends.set(sends.get() + 1); // the external transmission happened

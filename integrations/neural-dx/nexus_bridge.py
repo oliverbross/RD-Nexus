@@ -35,6 +35,12 @@ def install_nexus_bridge(app, state):
         "total_qso": 0,
         "total_confirmed": 0,
     }
+    state.nexus_qso_provenance = getattr(state, "nexus_qso_provenance", {
+        "total_qso": 0, "total_confirmed": 0, "last_sync": None,
+    })
+    state._nexus_knowledge_available = lambda: bool(
+        state.nexus_qso_provenance.get("total_qso", 0)
+    )
     def copy_qso_layer(layer):
         return {
             "confirmed_calls": set(layer.get("confirmed_calls", set())),
@@ -72,7 +78,9 @@ def install_nexus_bridge(app, state):
     if embedded and actions_path.is_file():
         try:
             restored = json.loads(actions_path.read_text(encoding="utf-8"))
-            for action in restored[-100:] if isinstance(restored, list) else []:
+            if not isinstance(restored, list) or len(restored) > 100:
+                raise ValueError("pending action journal exceeds its supported capacity")
+            for action in restored:
                 action_id = action.get("id") if isinstance(action, dict) else None
                 if isinstance(action_id, str) and re.fullmatch(r"[0-9a-f]{32}", action_id):
                     actions[action_id] = action
@@ -90,6 +98,7 @@ def install_nexus_bridge(app, state):
 
     def nexus_cluster_line(line):
         """In an embedded runtime, queue validated intent for Nexus, the sole TX authority."""
+        nonlocal action_journal_error
         if embedded and action_journal_error:
             return False
         if not embedded and upstream_cluster_send_line(line):
@@ -117,18 +126,24 @@ def install_nexus_bridge(app, state):
                     recent_actions.pop(key, None)
             if signature in recent_actions:
                 return True
-            recent_actions[signature] = now
+            if len(actions) >= 100:
+                return False
             action_id = secrets.token_hex(16)
-            actions[action_id] = {
+            action = {
                 "id": action_id,
                 "type": "postSpot",
                 "freqMhz": freq_mhz,
                 "call": call,
                 "comment": comment,
             }
-            while len(actions) > 100:
-                actions.popitem(last=False)
-            persist_actions()
+            actions[action_id] = action
+            try:
+                persist_actions()
+            except OSError as error:
+                actions.pop(action_id, None)
+                action_journal_error = f"pending action journal requires recovery: {error}"
+                return False
+            recent_actions[signature] = now
         return True
 
     state.cluster_send_line = nexus_cluster_line
@@ -172,7 +187,7 @@ def install_nexus_bridge(app, state):
                 identity = ("id", str(supplied_id)) if supplied_id else (
                     "full",
                     str(spot.get("dx_call") or "").upper(),
-                    str(spot.get("spotter") or spot.get("source") or "").upper(),
+                    str(spot.get("de_call") or spot.get("spotter") or spot.get("source") or "").upper(),
                     str(spot.get("freq") or spot.get("freq_mhz") or ""),
                     str(spot.get("timestamp") or ""),
                     str(spot.get("band") or ""),
@@ -326,9 +341,15 @@ def install_nexus_bridge(app, state):
                 for action_id in ids):
             return jsonify({"ok": False, "error": "invalid action ids"}), 400
         with actions_lock:
+            before = actions.copy()
             for action_id in ids:
                 actions.pop(action_id, None)
-            persist_actions()
+            try:
+                persist_actions()
+            except OSError:
+                actions.clear()
+                actions.update(before)
+                raise
         return jsonify({"ok": True})
 
     def embedded_meta_run():
