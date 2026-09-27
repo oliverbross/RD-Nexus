@@ -66,10 +66,9 @@ file "$neural" | grep -q 'Mach-O.*arm64' || {
 neural_tmp="$(mktemp -d)"
 trap 'rm -rf "$neural_tmp"' EXIT
 neural_self_test="$(cd "$neural_tmp" && NEURAL_DX_SELF_TEST=1 "$neural")"
-grep -Eq '^NEURAL_DX_SELF_TEST=.*"ok":true' <<<"$neural_self_test" || {
-  echo "bundled Neural DX self-test failed: $neural_self_test" >&2
-  exit 1
-}
+expected_neural_version="$(jq -er '.version' "$repo/docs/neural-dx/upstream.json")"
+printf '%s\n' "$neural_self_test" \
+  | node "$repo/scripts/check-neural-dx-self-test.mjs" --version "$expected_neural_version"
 
 # A local Tauri build has no Developer ID identity, but macOS still leaves an outer signature
 # placeholder that fails its resource seal once bundled resources are present. Seal only the

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -40,9 +41,28 @@ test('the macOS build script checks the companion inside the assembled app', () 
     'provenance.json',
     'upstream.json',
     'NEURAL_DX_SELF_TEST=1',
+    'check-neural-dx-self-test.mjs',
     "file \"$neural\" | grep -q 'Mach-O.*arm64'",
   ]) {
     assert.ok(script.includes(required), `build-macos.sh lost: ${required}`)
+  }
+})
+
+test('the assembled-app self-test parser accepts Python json.dumps output and rejects bad payloads', () => {
+  const checker = join(root, 'scripts', 'check-neural-dx-self-test.mjs')
+  const run = (input) => spawnSync(process.execPath, [checker, '--version', '12.7'], {
+    input,
+    encoding: 'utf8',
+  })
+  const healthy = run('log line\nNEURAL_DX_SELF_TEST={"ok": true, "missing": [], "version": "12.7"}\n')
+  assert.equal(healthy.status, 0, healthy.stderr)
+
+  for (const bad of [
+    'NEURAL_DX_SELF_TEST={"ok": false, "missing": ["templates/index.html"], "version": "12.7"}\n',
+    'NEURAL_DX_SELF_TEST={"ok": true, "missing": [], "version": "12.6"}\n',
+    'unrelated output\n',
+  ]) {
+    assert.notEqual(run(bad).status, 0, `accepted invalid self-test payload: ${bad}`)
   }
 })
 
