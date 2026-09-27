@@ -6,21 +6,22 @@
 //! authenticated in-process bridge. Nexus remains the sole radio and logbook
 //! authority; the companion process is display and analysis only.
 
-use serde::Serialize;
+use ring::rand::{SecureRandom, SystemRandom};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tempo_app::engine::engine_lock;
 
 use crate::SharedEngine;
 
 const VERSION: &str = "12.7";
-const PREFERRED_PORT: u16 = 39_074;
+const MAX_SYNC_BYTES: usize = 16 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -35,6 +36,23 @@ struct Runtime {
     child: Option<Child>,
     status: NeuralDxStatus,
     token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReadyFile {
+    port: u16,
+    version: String,
+    identity: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeuralDxAction {
+    #[serde(rename = "type")]
+    kind: String,
+    freq_mhz: f64,
+    call: String,
+    comment: String,
 }
 
 pub struct NeuralDxState(Mutex<Runtime>);
@@ -65,19 +83,11 @@ impl Drop for NeuralDxState {
 }
 
 fn token() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}-{:x}", std::process::id(), nanos)
-}
-
-fn reserve_port() -> Result<u16, String> {
-    TcpListener::bind(("127.0.0.1", PREFERRED_PORT))
-        .or_else(|_| TcpListener::bind(("127.0.0.1", 0)))
-        .and_then(|socket| socket.local_addr())
-        .map(|address| address.port())
-        .map_err(|error| format!("reserve a localhost port: {error}"))
+    let mut bytes = [0_u8; 32];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .expect("operating-system random source unavailable");
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn bundled_executable(resource_dir: &Path) -> PathBuf {
@@ -88,8 +98,7 @@ fn bundled_executable(resource_dir: &Path) -> PathBuf {
     })
 }
 
-fn launch(app: &AppHandle) -> Result<(Child, String, String), String> {
-    let port = reserve_port()?;
+fn launch(app: &AppHandle) -> Result<(Child, PathBuf, String), String> {
     let secret = token();
     let resource_dir = app
         .path()
@@ -111,6 +120,13 @@ fn launch(app: &AppHandle) -> Result<(Child, String, String), String> {
         .map_err(|error| format!("create Neural DX data directory: {error}"))?;
     std::fs::create_dir_all(home.join("logs"))
         .map_err(|error| format!("create Neural DX log directory: {error}"))?;
+    let ready_nonce = token();
+    let ready_file = home.join(format!(
+        "ready-{}-{}.json",
+        std::process::id(),
+        &ready_nonce[..12]
+    ));
+    let _ = std::fs::remove_file(&ready_file);
     let log = std::fs::File::create(home.join("neural-dx.log"))
         .map_err(|error| format!("create Neural DX log: {error}"))?;
     let log_err = log
@@ -132,18 +148,43 @@ fn launch(app: &AppHandle) -> Result<(Child, String, String), String> {
     }
     command
         .current_dir(&home)
-        .env("NEURAL_DX_PORT", port.to_string())
+        .env("NEURAL_DX_PORT", "0")
         .env("NEURAL_DX_CALLSIGN", &callsign)
         .env("NEURAL_DX_GRID", &grid)
         .env("NEURAL_DX_NEXUS_EMBED", "1")
         .env("NEURAL_DX_NEXUS_TOKEN", &secret)
+        .env("NEURAL_DX_READY_FILE", &ready_file)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err));
     let child = command
         .spawn()
         .map_err(|error| format!("start Neural DX: {error}"))?;
-    Ok((child, format!("http://127.0.0.1:{port}"), secret))
+    Ok((child, ready_file, secret))
+}
+
+fn client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(4))
+        .build()
+        .map_err(|error| format!("create Neural DX HTTP client: {error}"))
+}
+
+fn limited_body(mut response: reqwest::blocking::Response) -> Result<Vec<u8>, String> {
+    if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
+        return Err("Neural DX response exceeded the safety limit".into());
+    }
+    let mut body = Vec::new();
+    response
+        .by_ref()
+        .take((MAX_RESPONSE_BYTES + 1) as u64)
+        .read_to_end(&mut body)
+        .map_err(|error| format!("read Neural DX response: {error}"))?;
+    if body.len() > MAX_RESPONSE_BYTES {
+        return Err("Neural DX response exceeded the safety limit".into());
+    }
+    Ok(body)
 }
 
 fn set_unavailable(state: &NeuralDxState, detail: String) {
@@ -160,7 +201,7 @@ pub fn start(app: AppHandle) {
         .name("neural-dx".into())
         .spawn(move || {
             let state = app.state::<NeuralDxState>();
-            let (child, url, secret) = match launch(&app) {
+            let (child, ready_file, secret) = match launch(&app) {
                 Ok(value) => value,
                 Err(detail) => {
                     set_unavailable(&state, detail);
@@ -170,14 +211,13 @@ pub fn start(app: AppHandle) {
             {
                 let mut runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
                 runtime.child = Some(child);
-                runtime.token = secret;
-                runtime.status.url = Some(url.clone());
+                runtime.token = secret.clone();
             }
             let deadline = Instant::now() + Duration::from_secs(60);
-            let address = match url.trim_start_matches("http://").parse() {
-                Ok(address) => address,
-                Err(error) => {
-                    set_unavailable(&state, format!("parse Neural DX address: {error}"));
+            let http = match client() {
+                Ok(client) => client,
+                Err(detail) => {
+                    set_unavailable(&state, detail);
                     return;
                 }
             };
@@ -196,14 +236,32 @@ pub fn start(app: AppHandle) {
                     );
                     return;
                 }
-                if TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok() {
-                    state.0.lock().unwrap_or_else(|e| e.into_inner()).status = NeuralDxStatus {
-                        phase: "ready",
-                        url: Some(url),
-                        version: VERSION,
-                        detail: None,
-                    };
-                    return;
+                if let Ok(raw) = std::fs::read(&ready_file) {
+                    if let Ok(ready) = serde_json::from_slice::<ReadyFile>(&raw) {
+                        if ready.identity == "neural-dx-watcher" && ready.version == VERSION {
+                            let url = format!("http://127.0.0.1:{}", ready.port);
+                            let authenticated = http
+                                .get(format!("{url}/api/nexus/status"))
+                                .header("X-Nexus-Token", &secret)
+                                .send()
+                                .ok()
+                                .filter(|response| response.status().is_success())
+                                .and_then(|response| limited_body(response).ok())
+                                .and_then(|body| serde_json::from_slice::<Value>(&body).ok())
+                                .and_then(|payload| payload.get("ok").and_then(Value::as_bool))
+                                == Some(true);
+                            if authenticated {
+                                state.0.lock().unwrap_or_else(|e| e.into_inner()).status = NeuralDxStatus {
+                                    phase: "ready",
+                                    url: Some(url),
+                                    version: VERSION,
+                                    detail: None,
+                                };
+                                let _ = std::fs::remove_file(&ready_file);
+                                return;
+                            }
+                        }
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(180));
             }
@@ -269,37 +327,27 @@ pub fn neural_dx_sync(state: State<'_, NeuralDxState>, payload: Value) -> Result
             runtime.token.clone(),
         )
     };
-    let address = url.trim_start_matches("http://");
     let body =
         serde_json::to_vec(&payload).map_err(|error| format!("encode Neural DX sync: {error}"))?;
-    let mut stream = TcpStream::connect_timeout(
-        &address
-            .parse()
-            .map_err(|error| format!("parse Neural DX address: {error}"))?,
-        Duration::from_secs(2),
-    )
-    .map_err(|error| format!("connect Neural DX bridge: {error}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
-    write!(
-        stream,
-        "POST /api/nexus/sync HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nX-Nexus-Token: {secret}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    )
-    .and_then(|_| stream.write_all(&body))
-    .map_err(|error| format!("write Neural DX bridge: {error}"))?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|error| format!("read Neural DX bridge: {error}"))?;
-    let status = response.lines().next().unwrap_or_default();
-    if !status.contains(" 200 ") {
-        return Err(format!("Neural DX bridge returned {status}"));
+    if body.len() > MAX_SYNC_BYTES {
+        return Err("Neural DX sync payload exceeded the 16 MiB safety limit".into());
     }
+    let response = client()?
+        .post(format!("{url}/api/nexus/sync"))
+        .header("X-Nexus-Token", secret)
+        .header("Content-Type", "application/json")
+        .body(body)
+        .send()
+        .map_err(|error| format!("send Neural DX sync: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Neural DX bridge returned HTTP {}", response.status().as_u16()));
+    }
+    let _ = limited_body(response)?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn neural_dx_actions(state: State<'_, NeuralDxState>) -> Result<Vec<Value>, String> {
+pub fn neural_dx_actions(state: State<'_, NeuralDxState>) -> Result<Vec<NeuralDxAction>, String> {
     let (url, secret) = {
         let runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
         if runtime.status.phase != "ready" {
@@ -314,37 +362,42 @@ pub fn neural_dx_actions(state: State<'_, NeuralDxState>) -> Result<Vec<Value>, 
             runtime.token.clone(),
         )
     };
-    let address = url.trim_start_matches("http://");
-    let mut stream = TcpStream::connect_timeout(
-        &address
-            .parse()
-            .map_err(|error| format!("parse Neural DX address: {error}"))?,
-        Duration::from_secs(2),
-    )
-    .map_err(|error| format!("connect Neural DX bridge: {error}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
-    write!(
-        stream,
-        "GET /api/nexus/actions HTTP/1.1\r\nHost: {address}\r\nX-Nexus-Token: {secret}\r\nConnection: close\r\n\r\n"
-    )
-    .map_err(|error| format!("write Neural DX action request: {error}"))?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|error| format!("read Neural DX action response: {error}"))?;
-    let status = response.lines().next().unwrap_or_default();
-    if !status.contains(" 200 ") {
-        return Err(format!("Neural DX bridge returned {status}"));
+    let response = client()?
+        .get(format!("{url}/api/nexus/actions"))
+        .header("X-Nexus-Token", secret)
+        .send()
+        .map_err(|error| format!("request Neural DX actions: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Neural DX bridge returned HTTP {}", response.status().as_u16()));
     }
-    let body = response
-        .split_once("\r\n\r\n")
-        .map(|(_, body)| body)
-        .ok_or("Neural DX bridge returned an invalid HTTP response")?;
+    let body = limited_body(response)?;
     let payload: Value =
-        serde_json::from_str(body).map_err(|error| format!("decode Neural DX actions: {error}"))?;
-    Ok(payload
+        serde_json::from_slice(&body).map_err(|error| format!("decode Neural DX actions: {error}"))?;
+    let actions = payload
         .get("actions")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default())
+        .unwrap_or_default();
+    if actions.len() > 100 {
+        return Err("Neural DX returned too many actions".into());
+    }
+    actions
+        .into_iter()
+        .map(|value| {
+            let action: NeuralDxAction = serde_json::from_value(value)
+                .map_err(|_| "Neural DX returned an invalid action".to_string())?;
+            if action.kind != "postSpot"
+                || !action.freq_mhz.is_finite()
+                || !(0.1..=1300.0).contains(&action.freq_mhz)
+                || action.call.len() < 3
+                || action.call.len() > 16
+                || !action.call.chars().all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '/')
+                || action.comment.len() > 120
+                || action.comment.chars().any(|char| char.is_control() && char != '\t')
+            {
+                return Err("Neural DX returned an invalid action".into());
+            }
+            Ok(action)
+        })
+        .collect()
 }

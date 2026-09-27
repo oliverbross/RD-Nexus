@@ -10127,6 +10127,7 @@ export const EN = {
   'features.neuralDx.label': 'Neural DX',
   'features.neuralDx.oneLine':
     'Rank live DX opportunities and combine propagation, weather, satellite and expedition intelligence.',
+  'neuralDx.product': 'Neural DX Watcher',
   'neuralDx.subtitle':
     'One native hunting console built from the station’s shared spots, needs, logbook and propagation services.',
   'neuralDx.live': '{{count}} live spots',

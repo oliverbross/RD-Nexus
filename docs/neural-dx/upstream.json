@@ -13,6 +13,59 @@
     "basis": "Project-specific permission from the original developer, attested by the RD-Nexus maintainer on 2026-09-27.",
     "reason": "The project-specific grant permits use in ShackCQ.com and the maintainer's related software projects; upstream attribution is retained."
   },
+  "files": [
+    ".gitignore", "ARCHITECTURE_METEO.md", "README.md", "README_EN.md", "analytics.py", "apercu.png",
+    "app_state.py", "country_meta.py", "diag_analytics.py", "dxcc_hunt.py", "dxcc_resolver.py",
+    "fix_arrl_rss.py", "fix_mysignal_http.py", "ntfy_alerts.py", "predictor.py", "requirements.txt",
+    "start.sh", "static/base.css", "static/basev9claude.css", "templates/ai_insight.html",
+    "templates/apercu_voacap.html", "templates/briefing.html", "templates/hunt.html", "templates/index.html",
+    "templates/map.html", "templates/satellites.html", "templates/weather.html", "templates/world.html",
+    "test_analytics.py", "test_country_meta.py", "test_dxcc_hunt.py", "tools/log_meta_analyzer.py",
+    "verify_deployment.py", "version.json", "voacap_adapter.py", "webapp.py",
+    "webapp.py.before_arrl_rss", "webapp.py.before_mysignal_fix"
+  ],
+  "runtimeCoverage": {
+    "templates": [
+      "ai_insight.html", "apercu_voacap.html", "briefing.html", "hunt.html", "index.html", "map.html",
+      "satellites.html", "weather.html", "world.html"
+    ],
+    "staticAssets": ["base.css", "basev9claude.css"],
+    "runtimeModules": [
+      "webapp.py", "analytics.py", "country_meta.py", "dxcc_hunt.py", "dxcc_resolver.py",
+      "ntfy_alerts.py", "predictor.py", "voacap_adapter.py", "tools/log_meta_analyzer.py"
+    ],
+    "diagnosticsAndTests": [
+      "diag_analytics.py", "test_analytics.py", "test_country_meta.py", "test_dxcc_hunt.py",
+      "verify_deployment.py"
+    ],
+    "documentationAndHistory": [
+      "ARCHITECTURE_METEO.md", "README.md", "README_EN.md", "apercu.png", "version.json",
+      "webapp.py.before_arrl_rss", "webapp.py.before_mysignal_fix"
+    ],
+    "supersededLaunchers": ["start.sh"],
+    "maintenancePatches": ["fix_arrl_rss.py", "fix_mysignal_http.py"],
+    "persistence": [
+      "data/config.json", "data/ui_config.json", "data/api_token.txt", "data/lotw_cache.json",
+      "data/wl_activity.json", "data/briefing_sources.json", "data/beacons_reference.json",
+      "data/beacons_reference.meta.json", "data/satellites_config.json", "data/predictor.sqlite",
+      "data/analytics.sqlite", "data/ntfy_alerts.sqlite", "data/meta/summary.json", "watchlist.json",
+      "cty.dat", "radio_spot_watcher.log"
+    ],
+    "inputs": [
+      "DX cluster telnet", "WSJT-X UDP", "Nexus shared spots", "LoTW login/cache", "Nexus canonical logbook",
+      "WSPR/MQTT", "NOAA/SWPC", "Blitzortung", "RSS/ARRL/DX-World", "SatNOGS/CelesTrak",
+      "REST Countries", "VOACAP executable", "operator callsign/grid/settings"
+    ],
+    "outputs": [
+      "dashboard/maps/world UI", "hunt and scoring", "AI insight/meta analysis", "weather correlation",
+      "briefing/RSS", "satellite passes/footprints/frequencies", "ntfy alerts", "DX cluster spot post",
+      "JSON/XML/PNG APIs", "persistent analytics/predictor databases"
+    ],
+    "embeddedOverlays": [
+      "callsign/grid/port environment injection", "loopback-only bind", "authenticated Nexus spot/logbook bridge",
+      "Nexus fallback for cluster spot posting", "in-process packaged meta analyzer", "Tauri lifecycle supervision"
+    ]
+  },
   "routes": [
     "/", "/map", "/map.html", "/world", "/ai-insight", "/ai_insight", "/analysis.html", "/analysis",
     "/briefing", "/briefing.html", "/weather", "/hunt", "/hunt.html", "/satellites", "/satellites.html",

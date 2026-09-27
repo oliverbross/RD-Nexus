@@ -18,3 +18,14 @@ test('reports additions and removals independently', () => {
     removed: ['/one'],
   })
 })
+
+test('accepts an exact positive-control inventory', () => {
+  assert.deepEqual(routeDiff(['/one', '/two'], ['/one', '/two']), { added: [], removed: [] })
+})
+
+test('fails closed on the negative-control addition', () => {
+  assert.deepEqual(routeDiff(['/one'], ['/one', '/future-capability']), {
+    added: ['/future-capability'],
+    removed: [],
+  })
+})

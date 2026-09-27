@@ -35,6 +35,7 @@ export function main() {
   const sourceDir = argValue('--source') ?? process.env.NEURAL_DX_UPSTREAM
   let remoteHead = null
   let routeStatus = null
+  let fileStatus = null
 
   if (!offline) {
     const output = execFileSync('git', ['ls-remote', manifest.repository, `refs/heads/${manifest.branch}`], {
@@ -47,6 +48,9 @@ export function main() {
   if (sourceDir) {
     const source = readFileSync(resolve(sourceDir, 'webapp.py'), 'utf8')
     routeStatus = routeDiff([...manifest.routes].sort(), parseRoutes(source))
+    const files = execFileSync('git', ['-C', sourceDir, 'ls-files'], { encoding: 'utf8' })
+      .trim().split('\n').filter(Boolean).sort()
+    fileStatus = routeDiff([...manifest.files].sort(), files)
   }
 
   const result = {
@@ -56,6 +60,7 @@ export function main() {
     upToDate: remoteHead == null ? null : remoteHead === manifest.commit,
     license: manifest.license,
     routes: routeStatus,
+    files: fileStatus,
   }
 
   if (json) console.log(JSON.stringify(result, null, 2))
@@ -67,10 +72,16 @@ export function main() {
       for (const route of routeStatus.added) console.log(`+ ${route}`)
       for (const route of routeStatus.removed) console.log(`- ${route}`)
     }
+    if (fileStatus) {
+      console.log(`FILES added=${fileStatus.added.length} removed=${fileStatus.removed.length}`)
+      for (const path of fileStatus.added) console.log(`+ ${path}`)
+      for (const path of fileStatus.removed) console.log(`- ${path}`)
+    }
     if (!manifest.license.vendoringAllowed) console.log(`LICENCE_REVIEW_REQUIRED ${manifest.license.reason}`)
   }
 
-  if (routeStatus && (routeStatus.added.length || routeStatus.removed.length)) process.exitCode = 2
+  if ((routeStatus && (routeStatus.added.length || routeStatus.removed.length)) ||
+      (fileStatus && (fileStatus.added.length || fileStatus.removed.length))) process.exitCode = 2
   else if (remoteHead && remoteHead !== manifest.commit) process.exitCode = 3
 }
 

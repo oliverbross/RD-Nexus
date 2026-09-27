@@ -3,6 +3,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { NeuralDxView, scoreHuntTargets } from './NeuralDxView'
+import { FEATURES } from '../features/registry'
 import type { NeedAlert, SpotRow } from '../types'
 
 const spot = (overrides: Partial<SpotRow> = {}): SpotRow => ({
@@ -23,6 +24,11 @@ const spot = (overrides: Partial<SpotRow> = {}): SpotRow => ({
 })
 
 describe('NeuralDxView', () => {
+  it('is registered immediately below Spots in the main menu', () => {
+    const spotsIndex = FEATURES.findIndex((feature) => feature.id === 'spots')
+    expect(FEATURES[spotsIndex + 1]?.id).toBe('neuralDx')
+  })
+
   it('ranks an unworked needed long-path target above an ordinary worked spot', () => {
     const needed: NeedAlert = {
       call: 'VK9DX', entity: 'Norfolk Island', band: '20m', zone: 32,

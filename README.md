@@ -407,11 +407,12 @@ The modem is Fortran + C behind a Rust FFI, so the **GNU toolchain** is required
 
 Nexus is **free software under the [GNU GPL v3](COPYING)** (GPL-3.0-only).
 
-- **[Neural DX Watcher](https://github.com/F1SMV/Neural-DX-Watcher)** — **F1SMV**. Nexus bundles
-  and adapts the pinned v12.7 source under specific permission from the original developer for
+- **[Neural DX Watcher](https://github.com/F1SMV/Neural-DX-Watcher)** — **F1SMV**. Nexus can build
+  and adapt the pinned v12.7 source under specific permission from the original developer for
   ShackCQ.com and the maintainer's related software projects. The upstream README describes the
   project as MIT but the audited tree has no standalone license file, so Nexus records the direct
-  permission and exact source pin without broadening that claim; see **[NOTICE](NOTICE)** and
+  permission and exact source pin without broadening that claim. Public redistribution remains
+  blocked until the written grant is retained and reviewed; see **[NOTICE](NOTICE)** and
   `docs/neural-dx/SOURCE_PERMISSION.md`.
 
 - **[Auth0 SPA JS](https://github.com/auth0/auth0-spa-js)** and
