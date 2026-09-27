@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Neural DX Watcher is now an integral Nexus screen.** **Neural DX** sits immediately below
+  **Spots** and combines a native need-aware hunt/analytics workspace with the complete pinned
+  Neural DX Watcher v12.7 application. It uses Nexus's station identity, shared spot stream and
+  canonical logbook, routes spot-post actions back through Nexus's validated cluster command, and
+  ships as a self-contained companion inside macOS, Windows, Linux and Raspberry Pi packages—no
+  separate Python installation or Raspberry Pi service is required. A reviewed source pin, full
+  route inventory and drift checker make future upstream additions visible instead of silently
+  losing parity.
+
 ### Corrections to 1.15.0
 
 A released section is history and is not rewritten, so a credit it overstated is corrected here.

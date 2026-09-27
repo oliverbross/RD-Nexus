@@ -25066,3 +25066,117 @@ tr.sel .aprs-sym {
   color: var(--text-dim);
   margin: 0;
 }
+/* Neural DX is a full view with one scroll owner. Its bridges deliberately route to the
+   existing native authorities instead of mounting duplicate collectors in this surface. */
+.neural-dx-view {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  padding: 1rem;
+  display: grid;
+  align-content: start;
+  gap: .85rem;
+  background:
+    radial-gradient(circle at 82% 2%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 32rem),
+    var(--bg);
+}
+
+.neural-dx-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.neural-dx-header h1 {
+  margin: .08rem 0 .2rem;
+  font-size: clamp(1.55rem, 2.6em, 2.4rem);
+  letter-spacing: -.035em;
+}
+
+.neural-dx-header p { margin: 0; max-width: 68ch; color: var(--muted); }
+.neural-dx-kicker { color: var(--accent); font-size: .72rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.neural-dx-live { display: flex; align-items: center; gap: .45rem; white-space: nowrap; color: var(--muted); font-size: .78rem; }
+.neural-dx-live > span { width: .52rem; height: .52rem; border-radius: 50%; background: var(--state-ok); box-shadow: 0 0 .8rem var(--state-ok); }
+
+.neural-dx-tabs {
+  display: flex;
+  gap: .35rem;
+  overflow-x: auto;
+  padding-bottom: .12rem;
+  scrollbar-width: thin;
+}
+
+.neural-dx-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: .38rem;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: .55rem;
+  padding: .52rem .72rem;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.neural-dx-tabs button.active { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.neural-dx-hunt { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(20rem, .85fr); gap: .85rem; }
+.neural-dx-hero { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; padding: 1.2rem; overflow: hidden; }
+.neural-dx-hero::after { content: ''; position: absolute; width: 16rem; height: 16rem; right: -8rem; top: -9rem; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
+.neural-dx-rank { position: absolute; right: 1rem; top: .65rem; color: color-mix(in srgb, var(--accent) 42%, transparent); font-size: 3.2rem; font-weight: 900; }
+.neural-dx-entity { display: block; color: var(--muted); font-size: .82rem; }
+.neural-dx-call { display: block; border: 0; padding: 0; margin: .12rem 0; background: transparent; color: var(--text); font: inherit; font-size: clamp(2.4rem, 6em, 5.6rem); font-weight: 900; letter-spacing: -.045em; line-height: .98; }
+.neural-dx-call:hover { color: var(--accent); }
+.neural-dx-hero p { color: var(--muted); }
+.neural-dx-badges { display: flex; flex-wrap: wrap; gap: .35rem; }
+.neural-dx-badges span { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border)); border-radius: 999px; padding: .18rem .5rem; color: var(--accent); font-size: .68rem; }
+.neural-dx-hero-actions { z-index: 1; align-self: end; display: grid; justify-items: end; gap: .4rem; }
+.neural-dx-hero-actions strong { color: var(--accent); font-size: 2.3rem; line-height: 1; }
+.neural-dx-hero-actions > span { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .08em; }
+.neural-dx-empty { grid-column: 1 / -1; padding: 2rem; color: var(--muted); text-align: center; }
+.neural-dx-targets { min-width: 0; padding: .75rem; }
+.neural-dx-targets h2, .neural-dx-heatmap h2, .neural-dx-bands h2 { margin: 0 0 .6rem; font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.neural-dx-target-list { display: grid; gap: .18rem; }
+.neural-dx-target-list button { min-width: 0; display: grid; grid-template-columns: 1.5rem minmax(5rem, 1fr) minmax(5rem, 1.2fr) 3rem 4.2rem 2.6rem; align-items: center; gap: .4rem; border: 0; border-radius: .35rem; padding: .38rem .45rem; background: transparent; color: var(--text); text-align: left; }
+.neural-dx-target-list button:hover, .neural-dx-target-list button.selected { background: color-mix(in srgb, var(--accent) 11%, var(--panel)); }
+.neural-dx-target-list button > span, .neural-dx-target-list small { color: var(--muted); }
+.neural-dx-target-list em { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-style: normal; }
+.neural-dx-target-list output { color: var(--accent); font-weight: 800; text-align: right; }
+
+.neural-dx-insight { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.neural-dx-metric { padding: 1rem; display: grid; grid-template-columns: 1fr auto; gap: .25rem .75rem; }
+.neural-dx-metric > span { color: var(--muted); }
+.neural-dx-metric strong { grid-row: 1 / span 2; grid-column: 2; color: var(--accent); font-size: 2.3rem; }
+.neural-dx-metric small { color: var(--muted); }
+.neural-dx-heatmap, .neural-dx-bands { padding: 1rem; }
+.neural-dx-heatmap > div { display: grid; grid-template-columns: repeat(12, minmax(1.7rem, 1fr)); gap: .22rem; }
+.neural-dx-heatmap span { display: grid; place-items: center; aspect-ratio: 1.45; border-radius: .24rem; background: color-mix(in srgb, var(--accent) calc(var(--heat) * 78%), var(--panel)); font-size: .68rem; }
+.neural-dx-bands > div { display: grid; grid-template-columns: 3rem minmax(0, 1fr) 2rem; align-items: center; gap: .55rem; margin: .4rem 0; }
+.neural-dx-bands i { height: .42rem; border-radius: 999px; background: linear-gradient(90deg, var(--accent) calc(var(--share) * 100%), color-mix(in srgb, var(--border) 60%, transparent) 0); }
+.neural-dx-bands strong { text-align: right; }
+.neural-dx-bridge { min-height: min(28rem, 60%); padding: 2rem; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1.1rem; }
+.neural-dx-bridge > svg { color: var(--accent); }
+.neural-dx-bridge h2 { margin: 0 0 .35rem; }
+.neural-dx-bridge p { margin: 0; max-width: 70ch; color: var(--muted); }
+.neural-dx-watcher { min-width: 0; min-height: min(42rem, calc(var(--vh-eff) - 15rem)); overflow: hidden; padding: 0; }
+.neural-dx-watcher iframe { display: block; width: 100%; height: min(62rem, calc(var(--vh-eff) - 13rem)); min-height: 34rem; border: 0; background: #071014; }
+.neural-dx-watcher > div { min-height: 24rem; display: grid; place-content: center; justify-items: center; gap: .7rem; padding: 2rem; text-align: center; }
+.neural-dx-watcher > div svg { color: var(--accent); }
+.neural-dx-watcher > div h2, .neural-dx-watcher > div p { margin: 0; }
+.neural-dx-watcher > div p { max-width: 60ch; color: var(--muted); }
+
+[data-viewport='sm'] .neural-dx-hunt,
+[data-viewport='xs'] .neural-dx-hunt,
+[data-viewport='sm'] .neural-dx-insight,
+[data-viewport='xs'] .neural-dx-insight { grid-template-columns: minmax(0, 1fr); }
+[data-viewport='sm'] .neural-dx-bridge,
+[data-viewport='xs'] .neural-dx-bridge { grid-template-columns: auto minmax(0, 1fr); }
+[data-viewport='sm'] .neural-dx-bridge .btn,
+[data-viewport='xs'] .neural-dx-bridge .btn { grid-column: 1 / -1; justify-self: start; }
+[data-viewport='xs'] .neural-dx-header { display: grid; }
+[data-viewport='xs'] .neural-dx-hero { grid-template-columns: minmax(0, 1fr); }
+[data-viewport='xs'] .neural-dx-hero-actions { justify-items: start; }
+[data-viewport='xs'] .neural-dx-target-list button { grid-template-columns: 1.2rem minmax(5rem, 1fr) 3rem 2.4rem; }
+[data-viewport='xs'] .neural-dx-target-list em,
+[data-viewport='xs'] .neural-dx-target-list small { display: none; }

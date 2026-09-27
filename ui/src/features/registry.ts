@@ -38,6 +38,7 @@ export type View =
   | 'sats'
   | 'needed'
   | 'spots'
+  | 'neuralDx'
   | 'chat'
   | 'fieldDay'
   | 'logbook'
@@ -384,6 +385,17 @@ export const FEATURES: FeatureDef[] = [
     view: 'spots',
     // global (no workspace): every spot on the air (all modes), filter client-side.
     oneLineKey: 'features.spots.oneLine',
+  }),
+  feature({
+    id: 'neuralDx',
+    labelKey: 'features.neuralDx.label',
+    kind: 'section',
+    category: 'DX & Awards',
+    core: true,
+    dependsOn: [],
+    intents: ['casual', 'dx', 'contest', 'pota', 'vhf'],
+    view: 'neuralDx',
+    oneLineKey: 'features.neuralDx.oneLine',
   }),
   feature({
     id: 'dxped',

@@ -98,3 +98,8 @@ src-tauri/resources/hamlib/rotctld
 src-tauri/resources/hamlib/rotctl
 src-tauri/resources/hamlib/lib*.so*
 src-tauri/resources/hamlib/lib*.dylib*
+src-tauri/resources/neural-dx/neural-dx-watcher
+src-tauri/resources/neural-dx/neural-dx-watcher.exe
+src-tauri/resources/neural-dx/provenance.json
+src-tauri/resources/neural-dx/UPSTREAM-README.txt
+src-tauri/resources/neural-dx/SOURCE-PERMISSION.txt

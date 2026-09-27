@@ -1383,6 +1383,36 @@ export async function getAllSpots(): Promise<import('./types').SpotRow[]> {
   return invoke<import('./types').SpotRow[]>('get_all_spots')
 }
 
+export interface NeuralDxStatus {
+  phase: 'starting' | 'ready' | 'unavailable'
+  url: string | null
+  version: string
+  detail: string | null
+}
+
+export async function getNeuralDxStatus(): Promise<NeuralDxStatus> {
+  return invoke<NeuralDxStatus>('neural_dx_status')
+}
+
+export async function restartNeuralDx(): Promise<void> {
+  return invoke<void>('restart_neural_dx')
+}
+
+export async function syncNeuralDx(payload: Record<string, unknown>): Promise<void> {
+  return invoke<void>('neural_dx_sync', { payload })
+}
+
+export interface NeuralDxAction {
+  type: 'postSpot'
+  freqMhz: number
+  call: string
+  comment: string
+}
+
+export async function getNeuralDxActions(): Promise<NeuralDxAction[]> {
+  return invoke<NeuralDxAction[]>('neural_dx_actions')
+}
+
 /** Check the release feed (hamradiotools.io, SourceForge as fallback) for a newer Nexus
  * release (Phase 1 update check). Rejects offline / on a
  * fetch error — callers treat that as a silent no-op. */

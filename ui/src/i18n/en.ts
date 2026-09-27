@@ -10051,6 +10051,58 @@ export const EN = {
   'profiles.everything.blurb':
     'Turn the whole console on. Every section and capability enabled.',
 
+  // ── Neural DX ───────────────────────────────────────────────────────────────────────
+  'nav.neuralDx.label': 'Neural DX',
+  'nav.neuralDx.title': 'Open the integrated Neural DX hunting and analysis console',
+  'features.neuralDx.label': 'Neural DX',
+  'features.neuralDx.oneLine':
+    'Rank live DX opportunities and combine propagation, weather, satellite and expedition intelligence.',
+  'neuralDx.subtitle':
+    'One native hunting console built from the station’s shared spots, needs, logbook and propagation services.',
+  'neuralDx.live': '{{count}} live spots',
+  'neuralDx.tabs.aria': 'Neural DX sections',
+  'neuralDx.tab.watcher': 'Watcher',
+  'neuralDx.tab.hunt': 'Hunt',
+  'neuralDx.tab.insight': 'AI Insight',
+  'neuralDx.tab.propagation': 'Propagation',
+  'neuralDx.tab.weather': 'Weather',
+  'neuralDx.tab.satellites': 'Satellites',
+  'neuralDx.tab.briefing': 'Briefing',
+  'neuralDx.unknownEntity': 'Unresolved DX entity',
+  'neuralDx.badge.unworked': 'Unworked call',
+  'neuralDx.badge.corroborated': 'Corroborated',
+  'neuralDx.score': 'hunt score',
+  'neuralDx.work': 'Work this station',
+  'neuralDx.watch': 'Watch call',
+  'neuralDx.unwatch': 'Stop watching',
+  'neuralDx.empty': 'No workable DX is present in the shared spot feed.',
+  'neuralDx.targets': 'Next ranked targets',
+  'neuralDx.runtime.starting': 'Starting Neural DX Watcher',
+  'neuralDx.runtime.wait': 'The bundled local analysis service is preparing its data.',
+  'neuralDx.runtime.unavailable': 'Neural DX Watcher is unavailable',
+  'neuralDx.runtime.restart': 'Restart Neural DX',
+  'neuralDx.insight.recent': 'Spots in the last hour',
+  'neuralDx.insight.maturity': 'Learning history',
+  'neuralDx.insight.samples': 'locally retained samples',
+  'neuralDx.insight.opens': 'When the bands open (UTC)',
+  'neuralDx.insight.bands': 'Live band activity',
+  'neuralDx.propagation.title': 'HF and VHF propagation intelligence',
+  'neuralDx.propagation.body':
+    'Nexus already combines modeled paths, observed openings, WSPR evidence, solar conditions and beacon activity. Neural DX uses that shared authority instead of opening a second collector.',
+  'neuralDx.propagation.open': 'Open propagation console',
+  'neuralDx.weather.title': 'Space and terrestrial weather',
+  'neuralDx.weather.body':
+    'Solar, geomagnetic, lightning and opening evidence remain in the native Connect console and feed the same station-wide state.',
+  'neuralDx.weather.open': 'Open weather intelligence',
+  'neuralDx.satellites.title': 'Satellite and beacon opportunities',
+  'neuralDx.satellites.body':
+    'Use the shared pass engine, TLE status, SatNOGS frequencies, favourites and rotator-safe tracking controls.',
+  'neuralDx.satellites.open': 'Open satellite console',
+  'neuralDx.briefing.title': 'DXpedition and operating briefing',
+  'neuralDx.briefing.body':
+    'Active expedition windows, alarms and workable-mode guidance are supplied by the native DXpedition board.',
+  'neuralDx.briefing.open': 'Open DXpedition briefing',
+
   // ── Shared across surfaces ──────────────────────────────────────────────────────────
   // `common.*` is for words that are genuinely the same act everywhere. Resist it: a shared
   // key that two surfaces want to word differently cannot be split later without orphaning

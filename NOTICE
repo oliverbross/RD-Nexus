@@ -1113,3 +1113,19 @@ code (GPL-3.0). The **full AGPL-3.0 license text ships with the model** at
 `resources/deepcw/LICENSE.AGPL-3.0.txt` (bundled in the installer), so the
 model's license travels with the binary as AGPLv3 §4 requires; the model's
 corresponding source is the upstream e04/deepcw-engine repository above.
+
+## Neural DX Watcher
+
+Nexus bundles a pinned copy of **Neural DX Watcher v12.7**, created by **F1SMV**:
+<https://github.com/F1SMV/Neural-DX-Watcher>. The exact redistributed source is commit
+`150587008a40474045ad3986fc4d7ce484deab1c`, retained as the
+`third_party/neural-dx-watcher` submodule. Our thanks to F1SMV for the application and for granting
+specific permission to use it in ShackCQ.com and the maintainer's related software projects.
+
+The upstream README calls the project MIT, but the audited source tree at that commit contains no
+standalone license file and no per-file license headers. Nexus therefore relies on the direct,
+project-specific developer permission confirmed by the maintainer on 2026-09-27 and does not
+represent that permission as a general public license. `docs/neural-dx/SOURCE_PERMISSION.md` and
+`docs/neural-dx/upstream.json` preserve the permission basis, source URL and exact pin. Every
+installer carries those records beside the self-contained `resources/neural-dx/neural-dx-watcher`
+companion. Nexus integration code and overlays remain GPL-3.0-only.

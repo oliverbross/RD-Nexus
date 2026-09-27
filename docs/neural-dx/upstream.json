@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/F1SMV/Neural-DX-Watcher.git",
+  "branch": "main",
+  "commit": "150587008a40474045ad3986fc4d7ce484deab1c",
+  "version": "12.7",
+  "auditedAt": "2026-09-27",
+  "license": {
+    "readmeClaim": "MIT",
+    "licenseFilePresent": false,
+    "perFileHeadersPresent": false,
+    "vendoringAllowed": true,
+    "basis": "Project-specific permission from the original developer, attested by the RD-Nexus maintainer on 2026-09-27.",
+    "reason": "The project-specific grant permits use in ShackCQ.com and the maintainer's related software projects; upstream attribution is retained."
+  },
+  "routes": [
+    "/", "/map", "/map.html", "/world", "/ai-insight", "/ai_insight", "/analysis.html", "/analysis",
+    "/briefing", "/briefing.html", "/weather", "/hunt", "/hunt.html", "/satellites", "/satellites.html",
+    "/api/token", "/api/ui-config", "/api/world/events", "/api/meta/summary", "/api/update_mycall", "/api/spot",
+    "/api/meta/run", "/api/watchlist/purge", "/api/watchlist/stale", "/api/watchlist/tracking.json", "/api/map/spots",
+    "/api/forecast/anomalies", "/api/forecast/heatmap.png", "/api/solar.xml", "/api/solar.json", "/api/dx_briefing.json",
+    "/api/ai_brief.json", "/api/ai_brief_status.json", "/api/wsjtx/status", "/api/wsjtx/spots", "/api/briefing/debug",
+    "/api/briefing/refresh", "/api/briefing.json", "/api/weather/local.json", "/api/weather/lightning.json",
+    "/api/weather/wspr.json", "/api/weather/synthesis.json", "/api/weather/band_activity.json", "/api/weather/beacons.json",
+    "/api/weather/alerts.json", "/api/weather/correlation.json", "/api/check_update", "/api/voacap", "/api/voacap/predict",
+    "/api/lotw/login", "/api/lotw/diag", "/api/lotw/logout", "/api/lotw/status", "/api/lotw/check_call",
+    "/api/lotw/spots_status", "/api/lotw/opportunities", "/api/hunt/data", "/api/satellites/positions",
+    "/api/satellites/passes/<int:norad_id>", "/api/satellites/footprint/<int:norad_id>", "/api/satellites/catalog",
+    "/api/satellites/list", "/api/satellites/config", "/api/satellites/refresh_tle", "/api/satellites/tle_debug",
+    "/api/satellites/tle_status", "/api/satellites/frequencies/<int:norad_id>", "/api/reality-check/<zone>",
+    "/api/my-signal", "/api/presence", "/api/predictions", "/api/analytics", "/api/predictor/stats", "/api/ntfy/status",
+    "/api/ntfy/test", "/api/spot_history", "/update_qra", "/spot", "/user_location.json", "/spots.json", "/surge.json",
+    "/dxcc_stats_24h.json", "/wanted.json", "/watchlist.json", "/rss.json", "/solar.xml", "/solar.json",
+    "/dx_briefing.json", "/history.json", "/live_bands.json", "/history_highlights.json"
+  ]
+}
