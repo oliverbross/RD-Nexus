@@ -492,6 +492,7 @@ export const EN = {
   'monitor.off': 'Off',
   'monitor.light': 'Use light theme',
   'monitor.dark': 'Use dark theme',
+  'monitor.system': 'Use system theme',
   'monitor.previewTools': 'Preview controls',
   'monitor.scenario': 'Example state',
   'monitor.textSize': 'Display size',
@@ -6930,6 +6931,16 @@ export const EN = {
     'Stronger text-against-background in whichever theme you are using, at the size you already have. Turn this on if the screen is hard to read \u2014 it does not change the UI scale.',
   'settings.workspace.contrast.hint.field':
     'Field mode is on, so high contrast is applied already. This setting is your own standing choice, and it is what the screen keeps when you turn Field mode off.',
+  'settings.workspace.night.label': 'Night',
+  'settings.workspace.night.off': 'Off',
+  'settings.workspace.night.on': 'On',
+  'settings.workspace.night.auto': 'Auto',
+  'settings.workspace.night.hint':
+    'A darker, warmer screen for operating after dark, in whichever theme you use. The transmit red, alerts and signal colours stay exactly as they are.',
+  'settings.workspace.night.hint.auto':
+    'Comes on at dusk and goes off at dawn at your grid square: when the sun is 6° below the horizon there.',
+  'settings.workspace.night.hint.noGrid':
+    'Auto needs your grid square (Settings ▸ Station ▸ Grid) to know when the sun sets. Until it has one, Night stays off.',
   'settings.workspace.field.label': 'Field mode',
   'settings.workspace.field.on': 'On',
   'settings.workspace.field.off': 'Off',
@@ -6956,12 +6967,23 @@ export const EN = {
     'Fits the whole interface to the window so nothing is cut off (currently {{scale}}%). The waterfall stays sharp. Raise the max for big monitors.',
   'settings.workspace.scale.manual.hint':
     'Fixed scale. Switch to Auto to fit the interface to the window automatically.',
+  // #215 text size: the ids are the persisted tokens (useTextSize.ts); the words are prose.
+  'settings.workspace.textSize.label': 'Text size',
+  'settings.workspace.textSize.normal': 'Normal',
+  'settings.workspace.textSize.large': 'Large',
+  'settings.workspace.textSize.larger': 'Larger',
+  'settings.workspace.textSize.hint':
+    'Makes all the text bigger, including the decode and log lists. UI scale above zooms the whole screen instead.',
   'settings.workspace.density.label': 'Density',
   'settings.workspace.density.aria': 'Information density',
-  'settings.workspace.density.standard': 'Comfortable',
+  // `guided` is the roomy density (it had no Settings chip before Touch arrived); `standard`
+  // was labelled Comfortable while it was one of two choices.
+  'settings.workspace.density.guided': 'Comfortable',
+  'settings.workspace.density.standard': 'Standard',
   'settings.workspace.density.dense': 'Compact',
+  'settings.workspace.density.touch': 'Touch',
   'settings.workspace.density.hint':
-    'How tightly rows and controls pack. Compact fits more on screen.',
+    'How tightly rows and controls pack. Compact fits more on screen. Touch makes buttons big enough for a finger.',
   'settings.workspace.logbookGlobe.label': 'Logbook globe',
   'settings.workspace.logbookGlobe.aria': 'Show the 3-D globe above the Logbook',
   'settings.workspace.logbookGlobe.hint':
@@ -7087,6 +7109,20 @@ export const EN = {
   'connect.rail.left.split': 'Split between the left panels',
   'connect.rail.right.split': 'Split between the right panels',
   'connect.rail.handle.title': 'Drag, or use the arrow keys, to resize ({{label}}). Double-click to reset.',
+  // ── Layout presets (the UI redesign, 2026-09-26) ── The ⊞ Panels menu's Layout section. The
+  // name beside the heading says which layout is on screen: Standard (the stock layout, which
+  // Reset layout restores), a preset's own name, or Custom once the operator moves or resizes
+  // anything. `replaces` quotes the Undo button by its own name (`panels.undo`).
+  'connect.layout.heading': 'Layout',
+  'connect.layout.standard': 'Standard',
+  'connect.layout.custom': 'Custom',
+  'connect.layout.mapFirst.label': 'Map first',
+  'connect.layout.mapFirst.title': 'The map as big as it goes: both side columns at their narrowest and the bottom row closed',
+  'connect.layout.listFirst.label': 'List first',
+  'connect.layout.listFirst.title': 'The chase and spot lists in two wide columns, with a small map between them and the bottom row closed',
+  'connect.layout.dashboard.label': 'Dashboard',
+  'connect.layout.dashboard.title': 'Seven panes open at once around a smaller map: conditions on the left, activity on the right, what is coming along the bottom',
+  'connect.layout.replaces': 'Picking one replaces your own arrangement. Undo last change puts it back.',
 
   // Pane names, as they read in the picker and in each pane's header.
   'connect.pane.advisory.title': 'Conditions',
@@ -9522,6 +9558,40 @@ export const EN = {
   'theme.light.title': 'Light (sunlight)',
   'theme.dark.label': 'Dark',
   'theme.dark.title': 'Dark (shack)',
+  // System: follow the computer's own light/dark setting (useTheme.ts). Dark stays the default.
+  'theme.system.label': 'System',
+  'theme.system.title': 'System (follows your computer’s light or dark setting)',
+
+  // ── The colour roles (Settings ▸ Appearance ▸ Colours) ─────────────────────────────────
+  // A role is a job a colour does (features/paletteRoles.ts); its hint says what it paints on
+  // screen. The preset names are plain colour words shared between roles — "Cyan" is both the
+  // accent's standard colour and a Readout choice — and the preset ids are invariant tokens.
+  'settings.colours.legend': 'Colours',
+  'settings.colours.hint':
+    'A few choices for each colour, every one checked for contrast in both themes and on the dark displays. Transmit red, the alert orange and the Needed colours stay fixed.',
+  'settings.colours.reset': 'Reset',
+  'settings.colours.reset.title': 'Back to the standard colour',
+  'settings.colours.reset.aria': 'Reset {{role}} to its standard colour',
+  'palette.accent.label': 'Accent',
+  'palette.accent.hint': 'Selected chips, focus rings, your own chat bubbles',
+  'palette.readout.label': 'Readout',
+  'palette.readout.hint': 'The frequency digits and other readouts',
+  'palette.ok.label': 'OK / green',
+  'palette.ok.hint': 'Good signal, RX, confirmed',
+  'palette.amber.label': 'Amber',
+  'palette.amber.hint': 'Warnings and marginal signal',
+  'palette.cyan.label': 'Cyan',
+  'palette.cyan.hint': 'Information chips',
+  'palette.preset.cyan': 'Cyan',
+  'palette.preset.blue': 'Blue',
+  'palette.preset.violet': 'Violet',
+  'palette.preset.amber': 'Amber',
+  'palette.preset.green': 'Green',
+  'palette.preset.teal': 'Teal',
+  'palette.preset.mint': 'Mint',
+  'palette.preset.gold': 'Gold',
+  'palette.preset.yellow': 'Yellow',
+  'palette.preset.sky': 'Sky',
 
   // ── The waterfall palette picker ────────────────────────────────────────────────────
   // Two wordings, and the difference is load-bearing: an UNSCOPED picker drives the master

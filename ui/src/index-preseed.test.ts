@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
+import { renderHook } from '@testing-library/react'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { fitScale, fieldFitScale, naturalFor } from './useScale'
+import { useTextSize } from './useTextSize'
+import { useDensity } from './useDensity'
+import { useTheme } from './useTheme'
+import { useNight } from './useNight'
+import { PALETTE_ROLES, attrValueOf } from './features/paletteRoles'
 
 // index.html's pre-paint seed script, executed for real: it is the only thing standing
 // between launch and a first-paint flash, and it must mirror the React hooks EXACTLY
@@ -241,5 +247,200 @@ describe('index.html preseed: field mode', () => {
     expect(document.documentElement.style.getPropertyValue('--ui-zoom')).toBe(
       String(fitScale(1366, 768) / 100),
     )
+  })
+})
+
+describe('index.html preseed: text size and density (#215)', () => {
+  // Text size moves every font on screen, so a seed that disagreed with the hooks would
+  // first-paint the whole app at one size and then jump to another. Held by PARITY rather
+  // than by constants: for every stored value, including none and nonsense, the seed must
+  // leave exactly the attributes useTextSize and useDensity then write.
+  const ATTRS = ['data-text-size', 'data-density', 'data-touch'] as const
+  const root = document.documentElement
+  const read = () => Object.fromEntries(ATTRS.map((a) => [a, root.getAttribute(a)]))
+  const clear = () => ATTRS.forEach((a) => root.removeAttribute(a))
+
+  it('seeds exactly the attributes the hooks write, for every stored value', () => {
+    const TEXT = [null, 'normal', 'large', 'larger', 'huge']
+    const DENSITY = [null, 'guided', 'standard', 'dense', 'touch', 'jumbo']
+    const bad: string[] = []
+    for (const t of TEXT) {
+      for (const den of DENSITY) {
+        localStorage.clear()
+        if (t !== null) localStorage.setItem('nexus-text-size', t)
+        if (den !== null) localStorage.setItem('nexus-density', den)
+        clear()
+        runPreseed()
+        const seeded = read()
+        clear()
+        const hooks = renderHook(() => {
+          useTextSize()
+          useDensity()
+        })
+        const written = read()
+        hooks.unmount()
+        if (JSON.stringify(seeded) !== JSON.stringify(written))
+          bad.push(`text=${t} density=${den}: seed ${JSON.stringify(seeded)} ≠ hooks ${JSON.stringify(written)}`)
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('Larger + Touch seeds the attributes the sheet keys on (the case the parity loop could share a bug with)', () => {
+    // Parity alone passes if seed and hooks are wrong the same way; this pins the values.
+    localStorage.setItem('nexus-text-size', 'larger')
+    localStorage.setItem('nexus-density', 'touch')
+    clear()
+    runPreseed()
+    expect(read()).toEqual({ 'data-text-size': 'larger', 'data-density': 'guided', 'data-touch': '1' })
+  })
+})
+
+describe('index.html preseed: the theme, System included', () => {
+  // System resolves through prefers-color-scheme, in the seed and in useTheme alike. A seed that
+  // disagreed would paint the first frame in one theme and snap to the other. The page's own
+  // <html data-theme="dark"> is the default when the seed writes nothing, so "what the seed
+  // leaves" is the attribute or, absent that, dark.
+  const QUERY = '(prefers-color-scheme: dark)'
+  const root = document.documentElement
+  const os = (setting: 'dark' | 'light' | 'none') => {
+    if (setting === 'none') {
+      delete (window as { matchMedia?: unknown }).matchMedia
+      return
+    }
+    window.matchMedia = ((q: string) => ({
+      matches: q === QUERY && setting === 'dark',
+      media: q,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+  }
+  const painted = () => root.getAttribute('data-theme') ?? 'dark'
+
+  it('seeds the theme useTheme paints, for every stored value and OS setting', () => {
+    const bad: string[] = []
+    for (const stored of [null, 'light', 'dark', 'system', 'amber', 'sepia']) {
+      for (const setting of ['dark', 'light', 'none'] as const) {
+        os(setting)
+        localStorage.clear()
+        if (stored !== null) localStorage.setItem('tempo-theme', stored)
+        root.removeAttribute('data-theme')
+        runPreseed()
+        const seeded = painted()
+        localStorage.clear()
+        if (stored !== null) localStorage.setItem('tempo-theme', stored)
+        root.removeAttribute('data-theme')
+        const hook = renderHook(() => useTheme())
+        const written = root.getAttribute('data-theme')
+        hook.unmount()
+        if (seeded !== written) bad.push(`stored=${stored} os=${setting}: seed ${seeded} ≠ hook ${written}`)
+      }
+    }
+    delete (window as { matchMedia?: unknown }).matchMedia
+    root.removeAttribute('data-theme')
+    expect(bad).toEqual([])
+  })
+
+  it('System seeds the OS setting (the case parity could share a bug with), and unset stays Dark', () => {
+    os('light')
+    localStorage.setItem('tempo-theme', 'system')
+    root.removeAttribute('data-theme')
+    runPreseed()
+    expect(root.getAttribute('data-theme')).toBe('light')
+    // New installs start Dark (the operator's pick), even on a computer set to light.
+    localStorage.clear()
+    root.removeAttribute('data-theme')
+    runPreseed()
+    expect(painted()).toBe('dark')
+    delete (window as { matchMedia?: unknown }).matchMedia
+    root.removeAttribute('data-theme')
+  })
+})
+
+describe('index.html preseed: colour roles', () => {
+  // The first-paint copy of usePaletteRoles (Settings ▸ Appearance ▸ Colours): one attribute per
+  // role, set only for a preset the table knows and never for the default, which is NO attribute.
+  // Without it every launch with a picked colour flashes the stock one first. The seed carries its
+  // own copy of the preset ids (it runs before any module loads), so it is compared to the hook's
+  // own answer — `attrValueOf` — for every preset of every role, a value no preset has, and none.
+  const clearRoles = () => {
+    for (const r of PALETTE_ROLES) document.documentElement.removeAttribute(r.attr)
+  }
+  beforeEach(clearRoles)
+
+  it('seeds exactly the attribute the hook would, role by role and preset by preset', () => {
+    const bad: string[] = []
+    for (const r of PALETTE_ROLES) {
+      for (const stored of [...r.presets.map((p) => p.id), 'no-such-preset', null]) {
+        localStorage.clear()
+        clearRoles()
+        if (stored !== null) localStorage.setItem(r.storage, stored)
+        setWin(1366, 768)
+        runPreseed()
+        const want = attrValueOf(r, stored ?? '')
+        const got = document.documentElement.getAttribute(r.attr)
+        if (got !== want) bad.push(`${r.id} stored ${JSON.stringify(stored)}: seed ${JSON.stringify(got)}, hook ${JSON.stringify(want)}`)
+        for (const other of PALETTE_ROLES) {
+          if (other !== r && document.documentElement.getAttribute(other.attr) !== null) {
+            bad.push(`${r.id} stored ${JSON.stringify(stored)} also seeded ${other.attr}`)
+          }
+        }
+      }
+    }
+    expect(bad).toEqual([])
+  })
+
+  it('seeds every role at once, and leaves the zoom exactly where it was', () => {
+    for (const r of PALETTE_ROLES) localStorage.setItem(r.storage, r.presets[r.presets.length - 1].id)
+    setWin(1366, 768)
+    runPreseed()
+    for (const r of PALETTE_ROLES) {
+      expect(document.documentElement.getAttribute(r.attr), r.id).toBe(r.presets[r.presets.length - 1].id)
+    }
+    expect(document.documentElement.style.getPropertyValue('--ui-zoom')).toBe(String(fitScale(1366, 768) / 100))
+  })
+})
+
+describe('index.html preseed: Night', () => {
+  // The first-paint copy of useNight (Settings ▸ Appearance ▸ Workspace ▸ Night). On paints Night
+  // from the first frame. Auto needs the station's grid square, which only the running app knows
+  // (it arrives with the first snapshot), so the seed leaves Auto to the hook: the page paints
+  // with Night off and the hook turns it on the moment the grid arrives, if the sun is down there.
+  // Parity is therefore against the hook as it stands before the grid is known.
+  const root = document.documentElement
+  beforeEach(() => root.removeAttribute('data-night'))
+
+  it('seeds exactly the attribute useNight writes before the grid is known, for every stored value', () => {
+    const bad: string[] = []
+    for (const stored of [null, 'off', 'on', 'auto', 'dim']) {
+      localStorage.clear()
+      if (stored !== null) localStorage.setItem('nexus-night', stored)
+      root.removeAttribute('data-night')
+      setWin(1366, 768)
+      runPreseed()
+      const seeded = root.getAttribute('data-night')
+      root.removeAttribute('data-night')
+      const hook = renderHook(() => useNight(''))
+      const written = root.getAttribute('data-night')
+      hook.unmount()
+      if (seeded !== written) bad.push(`stored=${stored}: seed ${JSON.stringify(seeded)} ≠ hook ${JSON.stringify(written)}`)
+    }
+    root.removeAttribute('data-night')
+    expect(bad).toEqual([])
+  })
+
+  it('On seeds data-night, Auto and Off do not (the case parity could share a bug with), and the zoom stays put', () => {
+    localStorage.setItem('nexus-night', 'on')
+    setWin(1366, 768)
+    runPreseed()
+    expect(root.getAttribute('data-night')).toBe('1')
+    expect(document.documentElement.style.getPropertyValue('--ui-zoom')).toBe(String(fitScale(1366, 768) / 100))
+    for (const stored of ['auto', 'off']) {
+      localStorage.clear()
+      localStorage.setItem('nexus-night', stored)
+      root.removeAttribute('data-night')
+      runPreseed()
+      expect(root.getAttribute('data-night'), stored).toBeNull()
+    }
   })
 })
