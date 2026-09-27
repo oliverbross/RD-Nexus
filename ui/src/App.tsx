@@ -4,6 +4,7 @@ import { StationDataContext, useStationCapability } from './stationAccess'
 import { publishBandConditions } from './bandConditions'
 import { QuickNavigation, useRemotePresentation } from './remote-web/presentation'
 import type { AppSnapshot, BandChannel, LoggedQso, ModeRequest, Settings, SourceKind, Tier } from './types'
+import { isOnAir } from './types'
 import { rigModeTransition, type RigMode } from './rigModeForView'
 import {
   callStation as apiCallStation,
@@ -91,6 +92,7 @@ import { Conversation } from './components/Conversation'
 import { TempoHeader } from './components/TempoHeader'
 import { Waterfall } from './components/Waterfall'
 import { FT_PALETTE_SCOPE } from './waterfallPalette'
+import { markerWidthHz } from './waterfall'
 import { LinkPill } from './components/LinkPill'
 import { ModeNav, type View, type DigitalMode } from './components/ModeNav'
 import { OperateCockpit } from './components/OperateCockpit'
@@ -163,6 +165,7 @@ import { checkSatAlarms, satAlarmMap } from './features/satAlarm'
 import { tickSatPassAlert } from './features/satPassAlert'
 import { tickIssAutoArm } from './features/issAutoArm'
 import { satElementsLane } from './features/satLane'
+import { parsecStopLane } from './features/parsecPresence'
 import { dxpedWorkMode } from './components/connect/paneFormat'
 import { setStatus } from './status'
 import type { PropagationSnapshot, FeedHealth, NeedAlert, SpotRow, DxpedWindow, WorkableCard, CatTestResult } from './types'
@@ -668,6 +671,14 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
       warn ? { tier: 'warning', message: t('shell.lane.recording.message'), detail: warn } : null,
     )
   }, [snap?.radio.recordingWarning])
+
+  // Parsec presence mode stopped a transmission because the operator's Parsec session dropped.
+  // The lane, not a toast: the operator was not there to see a toast, so the reason must still be
+  // on screen when they reconnect. The station keeps the report until they transmit again. Not on
+  // the Remote page, like the log notices above: a station-side feature, and that page is frozen.
+  useEffect(() => {
+    setStatus('parsecStop', remote ? null : parsecStopLane(snap?.parsecPresence))
+  }, [snap?.parsecPresence?.stoppedAt, snap?.parsecPresence?.stopped.join(','), remote])
 
   // Connector auto-upload outcomes (QRZ/ClubLog/eQSL) now happen in the backend
   // log funnel; the engine bumps uploadTick per outcome and we toast it here —
@@ -2592,9 +2603,11 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
     document.title = t('shell.windowTitle', { section: label })
     announce(label)
   }, [effectiveView])
-  // TX state → assertive announce + opt-in earcon. Snap-safe (null pre-connect).
+  // TX state → assertive announce + opt-in earcon. Snap-safe (null pre-connect). The arbiter the
+  // ON AIR sign shows, never the FT slot flag alone: that kept a voice over, CW and a tune silent
+  // for an operator who hears the TX state rather than sees it (operator, 2026-09-27).
   const prevTxRef = useRef<boolean | null>(null)
-  const txNow = snap?.radio.transmitting ?? false
+  const txNow = snap ? isOnAir(snap.radio) : false
   useEffect(() => {
     if (!snap) return
     if (prevTxRef.current !== null && prevTxRef.current !== txNow) {
@@ -2619,6 +2632,13 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
 
   // displayed tier is the authoritative link tier from the snapshot
   const tier = snap.link.tier
+  // How wide the FT waterfall draws its RX/TX markers on this tier: WSJT-X's bracket, or null for
+  // the single line. The submodes are settings; until they load, Q65 and JT65 keep the line.
+  const ftMarkerWidthHz = markerWidthHz(tier, {
+    periodS: snap.link.periodSecs,
+    q65Submode: settings?.q65Submode,
+    jt65Submode: settings?.jt65Submode,
+  })
 
   // First-run nudge: callsign unset / still the placeholder, and not dismissed.
   const needsOnboarding =
@@ -2733,6 +2753,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
         theme={theme}
         onTune={handleTune}
         paletteScope={FT_PALETTE_SCOPE}
+        markerWidthHz={ftMarkerWidthHz}
         txBlanks // FT surface — a 13 s over may go dark; see the prop's doc.
       />
       <OperateDecodes
@@ -3006,6 +3027,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
             target={settingsTarget?.where}
             targetSeq={settingsTarget?.seq}
             radio={snap.radio}
+            parsecPresence={snap.parsecPresence}
             activeRadioId={snap.activeRadioId}
             onProveTx={handleProveTx}
             scale={scale}
@@ -3462,6 +3484,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
               snap={snap}
               theme={theme}
               tier={tier}
+              markerWidthHz={ftMarkerWidthHz}
               onTierChange={handleTier}
               bandPlan={bandPlan}
               onSetFrequency={handleSetFrequency}
