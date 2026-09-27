@@ -401,7 +401,8 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.persist(path)
         .map(|_| ())
         .map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))?;
-    sync_parent(parent, "Groups.io attachment")
+    sync_parent_after_commit(parent);
+    Ok(())
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -470,21 +471,19 @@ fn try_store_transaction() -> Result<MutexGuard<'static, ()>, String> {
         .map_err(|_| "another Groups.io state operation is already running".to_string())
 }
 
-fn sync_parent(parent: &Path, label: &str) -> Result<(), String> {
-    #[cfg(windows)]
-    let directory = {
-        use std::os::windows::fs::OpenOptionsExt;
-        // FILE_FLAG_BACKUP_SEMANTICS is required to open a directory handle on Windows.
-        fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(0x0200_0000)
-            .open(parent)
-    };
-    #[cfg(not(windows))]
-    let directory = fs::File::open(parent);
-    directory
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| format!("couldn't sync the {label} directory: {error}"))
+fn sync_parent_after_commit(parent: &Path) {
+    // The temporary file itself is synced before persist. POSIX additionally supports syncing
+    // the containing directory so the rename survives power loss. That sync happens *after* the
+    // commit point and is therefore best-effort: returning an error here would tell the caller
+    // the write failed even though the new file is already visible. Windows does not provide a
+    // supported FlushFileBuffers contract for directory handles; NamedTempFile::persist uses the
+    // platform atomic replacement primitive and the pre-persist file sync is its durability bound.
+    #[cfg(unix)]
+    {
+        let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+    }
+    #[cfg(not(unix))]
+    let _ = parent;
 }
 
 fn mutate_store_at<T>(
@@ -544,7 +543,8 @@ fn write_store_to(path: &Path, store: &Store) -> Result<(), String> {
     file.persist(path)
         .map(|_| ())
         .map_err(|e| format!("couldn't commit Groups.io local data: {e}"))?;
-    sync_parent(parent, "Groups.io data")
+    sync_parent_after_commit(parent);
+    Ok(())
 }
 
 fn write_store(store: &Store) -> Result<(), String> {
@@ -775,7 +775,10 @@ fn post_final(client: &Client, key: &str, draft_id: String) -> Result<Value, Fin
 }
 
 fn classify_final_post_status(status: u16, detail: String) -> FinalPostError {
-    if (400..500).contains(&status) && !matches!(status, 408 | 425 | 429) {
+    // Only documented validation/auth/permission rejections prove /postdraft was not accepted.
+    // Missing/conflict/timeout/rate-limit and every undocumented status are fail-closed because
+    // they may describe a draft that was consumed by a successful post before the response.
+    if matches!(status, 400 | 401 | 403 | 422) {
         FinalPostError::Deterministic(detail)
     } else {
         FinalPostError::Ambiguous(detail)
@@ -836,11 +839,13 @@ fn merge_saved_draft(store: &mut Store, draft: Draft) -> Result<(), String> {
                 "Reconcile the uncertain Groups.io delivery before editing this draft".into(),
             );
         }
-        saved.group_id = draft.group_id;
-        saved.topic_id = draft.topic_id;
-        saved.reply_message_number = draft.reply_message_number;
-        saved.reply_api_message_id = draft.reply_api_message_id;
-        saved.kind = draft.kind;
+        if saved.remote_draft_id.is_none() {
+            saved.group_id = draft.group_id;
+            saved.topic_id = draft.topic_id;
+            saved.reply_message_number = draft.reply_message_number;
+            saved.reply_api_message_id = draft.reply_api_message_id;
+            saved.kind = draft.kind;
+        }
         saved.subject = draft.subject;
         saved.body = draft.body;
         saved.reply_destination = draft.reply_destination;
@@ -2631,7 +2636,7 @@ mod tests {
             classify_final_post_status(422, "rejected".into()),
             FinalPostError::Deterministic(_)
         ));
-        for status in [408, 425, 429, 500, 502, 503, 504] {
+        for status in [404, 408, 409, 425, 429, 500, 502, 503, 504] {
             assert!(matches!(
                 classify_final_post_status(status, format!("HTTP {status}")),
                 FinalPostError::Ambiguous(_)
@@ -2664,6 +2669,10 @@ mod tests {
         let mut store = Store::default();
         store.drafts.push(Draft {
             id: "draft-1".into(),
+            group_id: "original-group".into(),
+            topic_id: Some("original-topic".into()),
+            reply_message_number: Some("7".into()),
+            kind: "reply".into(),
             remote_draft_id: Some("remote-1".into()),
             state: "failed_retryable".into(),
             note: "retry".into(),
@@ -2673,6 +2682,10 @@ mod tests {
             &mut store,
             Draft {
                 id: "draft-1".into(),
+                group_id: "different-group".into(),
+                topic_id: Some("different-topic".into()),
+                reply_message_number: Some("99".into()),
+                kind: "new_topic".into(),
                 subject: "Edited".into(),
                 body: "New body".into(),
                 state: "draft_local".into(),
@@ -2683,6 +2696,10 @@ mod tests {
         let saved = &store.drafts[0];
         assert_eq!(saved.remote_draft_id.as_deref(), Some("remote-1"));
         assert_eq!(saved.state, "failed_retryable");
+        assert_eq!(saved.group_id, "original-group");
+        assert_eq!(saved.topic_id.as_deref(), Some("original-topic"));
+        assert_eq!(saved.reply_message_number.as_deref(), Some("7"));
+        assert_eq!(saved.kind, "reply");
         assert_eq!(saved.subject, "Edited");
         assert_eq!(saved.body, "New body");
     }
@@ -2788,6 +2805,13 @@ mod tests {
             assert!(!path.with_extension("json.tmp").exists());
         }
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn post_commit_parent_sync_cannot_turn_a_committed_write_into_an_error() {
+        // Unsupported/inaccessible directory flushing is deliberately best-effort after the
+        // atomic commit point, so the caller never receives a false failure for visible data.
+        sync_parent_after_commit(&temp_file("missing-parent"));
     }
 
     fn posting_store() -> Store {

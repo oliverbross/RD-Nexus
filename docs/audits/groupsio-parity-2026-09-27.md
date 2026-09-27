@@ -6,7 +6,7 @@
 - Source revision reviewed: `636d25c` (`codex/f17-resolution-20260923`); refreshed `origin/main` was `4fdb14c`.
 - Source implementation reviewed: `services/application/src/groupsio/service.ts`, `services/application/src/groupsio/routes.ts`, `web/src/groupsio/GroupsIoWorkspace.tsx`, `web/src/groupsio/groupsio.css`, the Groups.io node/web tests, and the two Groups.io QA scripts.
 - RD-Nexus base reviewed and merged initially at `68d89dd3`, then refreshed and merged again at `kd9taw/Nexus` `upstream/main` `35ec66ca` (Landing 61).
-- RD-Nexus Groups.io implementation revision: `8322c3ef`; refreshed-upstream merge revision: `12431d14`; final crash-safety review revision is recorded after the review gate below.
+- RD-Nexus Groups.io implementation series: `8ae2d3b0`, `8322c3ef`, refreshed-upstream merge `12431d14`, evidence `eb56ff2b`, crash-safety `d731ad28`, and nine-point remediation `b2aec7c1`; the current review-fix revision is recorded by the branch HEAD submitted at the final gate.
 - Provider contract carried forward: `https://groups.io/api/v1`, revision marker `2026-07-31`.
 
 `COMPLETE` below means the ShackCQ behavior has an RD-Nexus implementation and local executable or rendered evidence. `EXTERNAL` means implementation is present but proof requires an operator-owned Groups.io account/key and is deliberately not represented as local proof.
@@ -39,11 +39,11 @@
 | Server drafts | list/page/open local copy/delete | `/getdrafts`, `/deletedraft`; draft dialog | component UI; account call | EXTERNAL |
 | Server draft attachments | list and explicitly delete | `/getattachments`, `/deleteattachment`; draft dialog controls | native/UI implementation; account call | EXTERNAL |
 | Explicit posting | create/update draft, upload, review confirmation, foreground `/postdraft` | `groups_io_send_draft(confirmed)` and confirmation UI | native state-machine tests/source; account send deliberately not exercised | EXTERNAL |
-| Delivery ambiguity | Provider-proven 4xx rejection is retryable; timeout/rate-limit/5xx, transport or unreadable success is `delivery_unknown`; never auto-retry | `classify_final_post_status`, `FinalPostError`, `record_final_post_failure`; UI refreshes native state on failure | Rust status-boundary tests and UI stale-state regression | COMPLETE |
+| Delivery ambiguity | Only documented 400/401/403/422 rejection is retryable; missing/conflict/undocumented 4xx, timeout/rate-limit/5xx, transport or unreadable success is `delivery_unknown`; never auto-retry | explicit whitelist in `classify_final_post_status`; UI refreshes native state on failure | Rust status-boundary tests (including 404/409) and UI stale-state regression | COMPLETE |
 | Crash-safe final posting | Persist a stable final-post attempt before `/postdraft`; a restart or receipt-write failure must not make that attempt sendable | `final_post_attempt_id`, `posting`, startup recovery to `delivery_unknown` | Rust restart, provider-success-before-receipt and receipt-persistence-failure tests | COMPLETE |
 | Duplicate prevention | No retry after an interrupted or ambiguous final POST; operator must reconcile as delivered or confirmed-not-delivered | backend rejects edit/queue/delete/send while uncertain; explicit reconciliation command and UI controls | Rust recovery tests and `GroupsIoView.test.tsx` uncertain-delivery case | COMPLETE |
 | Outbox receipts | Persist posted, moderated and uncertain receipts | `Store.outbox`, drafts/outbox dialog | store persistence path; UI | COMPLETE |
-| Concurrent persistence | Independent settings, draft and attachment mutations cannot overwrite one another; replacement never exposes partial JSON | process-wide transaction lock plus same-directory `NamedTempFile` sync/persist | concurrent mutation and repeated atomic replacement Rust tests | COMPLETE |
+| Concurrent persistence | Independent mutations cannot overwrite one another and replacement never exposes partial JSON or reports failure after visible commit | transaction lock; same-directory temp is file-synced then atomically persisted; POSIX parent sync is best-effort after commit, while Windows relies on its atomic replacement primitive without unsupported directory flushing | concurrent mutation, 64 replacements and post-commit-result Rust tests | COMPLETE |
 | Outgoing attachments | private local staging, cap, SHA-256 identity, multipart upload, remove | `groups_io_add_attachment`, `groups_io_remove_attachment`, multipart send | native safety tests; account upload | COMPLETE / EXTERNAL network proof |
 | Incoming attachments | discover, preview, download, optional cache | incoming attachment commands and dialog | component pagination/attachment test; account download | EXTERNAL |
 | Attachment failure isolation | Auto-download failure never rolls back a complete message page | best-effort `cache_incoming_for_message` call after message upsert | native implementation inspection | COMPLETE |
@@ -65,7 +65,7 @@
 
 - `npm run build`: PASS after integration, upstream merge and crash-safety fixes.
 - Post-upstream UI selection (Groups.io components, i18n guards/runtime, feature registry): PASS (258 tests across 7 files).
-- Rust Groups.io tests with the CI-required `radio` feature: PASS (21 tests; 719 filtered), including HTTP ambiguity boundaries, lookback, identity-preserving edits, immutable uncertain attempts, archive start rejection, preview ordering, concurrent mutations, repeated atomic replacement and final-post crash/recovery boundaries.
+- Rust Groups.io tests with the CI-required `radio` feature: PASS (22 tests; 719 filtered), including HTTP ambiguity boundaries, remote-route immutability, lookback, identity-preserving edits, immutable uncertain attempts, archive start rejection, preview ordering, concurrent mutations, repeated atomic replacement, post-commit result semantics and final-post crash/recovery boundaries.
 - `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`: PASS.
 - A full UI-suite diagnostic run also exercised the Groups.io tests successfully, but it was not a repository-wide pass: eight failures were reported in unrelated stop-line, CW/phone cockpit density/keyer and phone-scope tests under concurrent shared-host builds. It is not counted as Groups.io acceptance evidence.
 - Real rendered browser evidence:
