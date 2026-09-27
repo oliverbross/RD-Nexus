@@ -1340,22 +1340,53 @@ pub(crate) fn dx_chaser_set_armed(
     chaser: State<'_, SharedDxChaser>,
 ) -> Result<Snapshot, String> {
     let now = now_unix().max(0) as u64;
-    let mut dx = chaser_lock(&chaser);
-    ensure_loaded(&mut dx);
-    if armed && !engine_lock(&state).tx_enabled() {
+    set_armed_transaction_with(
+        armed,
+        &chaser,
+        now,
+        || {
+            let engine = engine_lock(&state);
+            (engine.tx_enabled(), engine.tx_halt_generation())
+        },
+        || engine_lock(&state).halt_tx(),
+        || engine_lock(&state).tx_enabled(),
+    )
+}
+
+fn set_armed_transaction_with<Observe, Halt, TxEnabled>(
+    armed: bool,
+    chaser: &SharedDxChaser,
+    now: u64,
+    observe_tx: Observe,
+    halt_tx: Halt,
+    tx_enabled: TxEnabled,
+) -> Result<Snapshot, String>
+where
+    Observe: FnOnce() -> (bool, u64),
+    Halt: FnOnce(),
+    TxEnabled: FnOnce() -> bool,
+{
+    {
+        let mut dx = chaser_lock(chaser);
+        ensure_loaded(&mut dx);
+    }
+    // TX authority and its generation are one Engine observation. If Stop lands after this
+    // lock is released, the captured generation is stale and both sync and execution reject it.
+    let (enabled, generation) = observe_tx();
+    if armed && !enabled {
         return Err("Enable TX must be armed before DX Chaser automation".into());
     }
-    dx.engine.set_operator_arm(armed, now);
-    dx.active_attempt = None;
-    dx.arm_halt_generation = if armed {
-        Some(engine_lock(&state).tx_halt_generation())
-    } else {
-        None
-    };
-    if !armed {
-        engine_lock(&state).halt_tx();
+    {
+        let mut dx = chaser_lock(chaser);
+        dx.engine.set_operator_arm(armed, now);
+        dx.active_attempt = None;
+        dx.arm_halt_generation = dx.engine.automation_armed().then_some(generation);
     }
-    Ok(dx.engine.snapshot(now, engine_lock(&state).tx_enabled()))
+    if !armed {
+        halt_tx();
+    }
+    let enabled = tx_enabled();
+    Ok(chaser_lock(chaser).engine.snapshot(now, enabled))
 }
 
 #[tauri::command(async)]
@@ -1729,6 +1760,82 @@ mod matrix_tests {
         assert_eq!(saved.sms_min_interval_secs, 73);
         assert_eq!(saved, runtime);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stop_during_arm_observation_cannot_bind_authority_for_a_later_reenable() {
+        let engine: SharedEngine = Arc::new(Mutex::new(tempo_app::engine::Engine::new(
+            "W9XYZ", "EN37", 0,
+        )));
+        engine_lock(&engine).set_tx_enabled(true);
+        let chaser: SharedDxChaser = Arc::new(Mutex::new(ChaserState::default()));
+        {
+            let mut dx = chaser_lock(&chaser);
+            dx.engine.configure(Settings {
+                enabled: true,
+                ..Settings::default()
+            });
+            dx.loaded = true;
+        }
+        let observed = Arc::new(std::sync::Barrier::new(2));
+        let resume = Arc::new(std::sync::Barrier::new(2));
+        let arm_thread = {
+            let engine_for_observe = Arc::clone(&engine);
+            let engine_for_snapshot = Arc::clone(&engine);
+            let chaser = Arc::clone(&chaser);
+            let observed = Arc::clone(&observed);
+            let resume = Arc::clone(&resume);
+            std::thread::spawn(move || {
+                set_armed_transaction_with(
+                    true,
+                    &chaser,
+                    10,
+                    || {
+                        let binding = {
+                            let engine = engine_lock(&engine_for_observe);
+                            (engine.tx_enabled(), engine.tx_halt_generation())
+                        };
+                        observed.wait();
+                        resume.wait();
+                        binding
+                    },
+                    || unreachable!("arming never invokes halt"),
+                    || engine_lock(&engine_for_snapshot).tx_enabled(),
+                )
+                .unwrap()
+            })
+        };
+
+        observed.wait();
+        {
+            let mut engine = engine_lock(&engine);
+            engine.halt_tx();
+            engine.set_tx_enabled(true);
+        }
+        let current_generation = engine_lock(&engine).tx_halt_generation();
+        resume.wait();
+        let snapshot = arm_thread.join().unwrap();
+        assert!(snapshot.automation_armed, "the forced race applied its stale arm");
+        let stale_generation = chaser_lock(&chaser).arm_halt_generation.unwrap();
+        assert_ne!(stale_generation, current_generation);
+
+        {
+            let mut dx = chaser_lock(&chaser);
+            sync_arm_with_global_halt(&mut dx, &engine);
+            assert!(!dx.engine.automation_armed());
+            assert!(dx.arm_halt_generation.is_none());
+        }
+        assert!(engine_lock(&engine)
+            .dx_chaser_call_while_armed_ctx(
+                stale_generation,
+                "F4ABC",
+                Some("JN18"),
+                None,
+                None,
+                None,
+                1_500.0,
+            )
+            .is_err());
     }
 
     #[test]
