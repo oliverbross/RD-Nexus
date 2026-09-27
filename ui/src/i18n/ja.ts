@@ -21,8 +21,32 @@
 // be renamed, dropped or added.
 
 import type { PartialCatalog } from './index'
+import { EN } from './en'
 
 export const JA: PartialCatalog = {
+  ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  'groupsio.connected': '接続済み — メンバーシップとダウンロード済みメッセージを利用できます。',
+  'groupsio.offline': 'オフラインキャッシュを利用できます。ライブ同期には設定でAPIキーを接続してください。',
+  'groupsio.newTopic': '新しいトピック',
+  'groupsio.draftsOutbox': '下書きと送信箱',
+  'groupsio.settings': '設定',
+  'groupsio.syncAll': 'すべて同期',
+  'groupsio.keyRequired': 'ライブ同期にはAPIキーが必要です',
+  'groupsio.keyBoundary': 'キーはOSの資格情報保管庫に保存され、このプロジェクトや設定ファイルには保存されません。',
+  'groupsio.groups': 'グループ',
+  'groupsio.topics': 'トピック',
+  'groupsio.messages': 'メッセージ',
+  'groupsio.refresh': '更新',
+  'groupsio.reply': '返信',
+  'groupsio.search.local': 'ダウンロード済みメッセージを検索',
+  'groupsio.search.online': '選択したグループをオンライン検索',
+  'groupsio.search.action': '検索',
+  'groupsio.settings.account': 'アカウント',
+  'groupsio.settings.enabled': 'フォアグラウンド同期を有効化',
+  'groupsio.settings.refreshOnOpen': 'Groups.ioを開いたときに更新',
+  'groupsio.settings.save': 'Groups.io設定を保存',
+  'groupsio.settings.disconnect': '切断',
+  'groupsio.settings.overrides': 'グループごとの保存ポリシー',
   "remote.modeEntry.label": "このモードを使用",
   "remote.modeEntry.title": "局をこのモードと保存した周波数に切り替えます。送信は無効のままです。",
   "remote.workspaceEntry.title": "ステーションのモードとデコーダーをこのワークスペースに切り替えます。送信はオフのままです。",

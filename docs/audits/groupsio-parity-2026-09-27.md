@@ -1,0 +1,76 @@
+# Groups.io parity ledger — 2026-09-27
+
+## Scope and reviewed revisions
+
+- Source product: ShackCQ in `/Users/oliver/Documents/Projects/RigWeave/f17-resolution-20260923`.
+- Source revision reviewed: `636d25c` (`codex/f17-resolution-20260923`); refreshed `origin/main` was `4fdb14c`.
+- Source implementation reviewed: `services/application/src/groupsio/service.ts`, `services/application/src/groupsio/routes.ts`, `web/src/groupsio/GroupsIoWorkspace.tsx`, `web/src/groupsio/groupsio.css`, the Groups.io node/web tests, and the two Groups.io QA scripts.
+- RD-Nexus base reviewed and merged: `kd9taw/Nexus` `upstream/main` at `68d89dd3`; merge revision `b55880d4`.
+- RD-Nexus implementation revision: recorded in the handoff after the implementation commit (the ledger cannot contain its own Git object ID).
+- Provider contract carried forward: `https://groups.io/api/v1`, revision marker `2026-07-31`.
+
+`COMPLETE` below means the ShackCQ behavior has an RD-Nexus implementation and local executable or rendered evidence. `EXTERNAL` means implementation is present but proof requires an operator-owned Groups.io account/key and is deliberately not represented as local proof.
+
+## Behavior mapping
+
+| Capability | ShackCQ source behavior | RD-Nexus implementation | Evidence | Status |
+|---|---|---|---|---|
+| Navigation and screen | Groups.io workspace | `ModeNav.tsx`, `App.tsx`, `GroupsIoView.tsx`; entry immediately follows Memories | rendered desktop screenshot `groupsio-screen.png`; navigation registry tests | COMPLETE |
+| Settings surface | Provider/account and sync policy settings | `SettingsPanel.tsx`, settings registry, `GroupsIoSettings.tsx` | rendered `groupsio-settings.png`; component and hardcoded-string tests | COMPLETE |
+| Three-pane workspace | Memberships, topics, messages with cached empty/offline states | `GroupsIoView.tsx`, `groups-io.css` | `GroupsIoView.test.tsx` offline three-pane case | COMPLETE |
+| Credential entry | User supplies an API key; password is never requested | `groups_io_connect`; password input is cleared after connect | settings component test; Rust store serialization negative control | COMPLETE |
+| Credential storage | Secret must not enter settings/cache/logs | `keyring` service `tempo`, account `groupsio-api-key`; `Store` has no credential field | Rust `defaults_are_foreground_only_and_do_not_contain_a_credential`; UI stored-key negative test | COMPLETE |
+| Cross-platform secret backend | Keychain / Credential Manager / Secret Service | `keyring` Apple, Windows and sync-secret-service features | dependency/features inspection; platform package build remains required per target | COMPLETE |
+| Connect/verify/disconnect | Verify before persistence; remove only credential on disconnect | `groups_io_connect`, `groups_io_disconnect` | Rust error paths and settings UI actions | COMPLETE |
+| Membership discovery | Paginated `/getsubs`; repeated-token stop; permission enrichment | `sync_memberships_with`, `/getperms`, `/getsinglefeed` | parser/unit coverage; account call | EXTERNAL |
+| Membership policy | enabled/inherit/lookback/max/attachments/retention per group | `GroupsIoSettings`, `GroupsIoGroupPolicy`, `effective_policy` | bulk-selection component test; settings bound test | COMPLETE |
+| Bulk policy edit | apply and reset selected memberships | `selectedGroups`, `applySelected`, `resetSelected` | `GroupsIoSettings.test.tsx` | COMPLETE |
+| Topics | `/gettopics`, cached listing, older-page cursor | `groups_io_load_older_topics`, `topic_tokens` | pagination component test; account call | COMPLETE / EXTERNAL network proof |
+| Messages and threads | `/gettopic`/`getmessages`, chronological thread, more-page cursor | `groups_io_load_more_messages`, `message_tokens` | pagination component test; account call | COMPLETE / EXTERNAL network proof |
+| Local search | Offline body/subject/sender search | `groups_io_search(online=false)` | UI search state and native implementation inspection | COMPLETE |
+| Online search/open result | `/searcharchives`; cache returned results before opening | `groups_io_search(online=true)` and store upsert | implementation inspection; account call | EXTERNAL |
+| Offline cache | Read memberships/topics/messages with no credential | persisted `Store`; `groups_io_status`; offline UI boundary | offline component test and store round-trip test | COMPLETE |
+| Retention and caps | Per-group retention/max-message pruning and draft retention | `prune_store`, `effective_policy`, validated bounds | Rust settings-bound and store tests | COMPLETE |
+| Refresh on open | Refresh only when connected/enabled and stale | guarded `refreshedOnOpen` effect in `GroupsIoView` | component/source inspection | COMPLETE |
+| Foreground interval | Consume configured minutes only while the screen/app is mounted; no daemon poller | cancellable `setInterval` effect using `foregroundRefreshMinutes`; cleanup on unmount | component/source inspection; no native background scheduler exists | COMPLETE |
+| Muted groups | Skip muted groups unless include-muted is enabled; preview can mute | native sync filter; preview mute action | implementation inspection | COMPLETE |
+| New-message preview | Optional foreground preview with open/dismiss/mute | `showNewMessagePreview`, `newMessageIds`, preview aside | rendered/component source | COMPLETE |
+| Local drafts | save/edit/queue and survive restart | persisted `Store.drafts`; composer and queue actions | store round trip; component UI | COMPLETE |
+| Server drafts | list/page/open local copy/delete | `/getdrafts`, `/deletedraft`; draft dialog | component UI; account call | EXTERNAL |
+| Server draft attachments | list and explicitly delete | `/getattachments`, `/deleteattachment`; draft dialog controls | native/UI implementation; account call | EXTERNAL |
+| Explicit posting | create/update draft, upload, review confirmation, foreground `/postdraft` | `groups_io_send_draft(confirmed)` and confirmation UI | native state-machine tests/source; account send deliberately not exercised | EXTERNAL |
+| Delivery ambiguity | Deterministic HTTP rejection is retryable; transport/unreadable success is `delivery_unknown`; never auto-retry | `FinalPostError`, `record_final_post_failure`; receipt shown with server-draft/recent-message reconciliation surfaces | Rust state tests and source inspection | COMPLETE |
+| Duplicate prevention | No retry after ambiguous final POST; operator must reconcile | `delivery_unknown` state has no automatic retry path | native/UI implementation inspection | COMPLETE |
+| Outbox receipts | Persist posted, moderated and uncertain receipts | `Store.outbox`, drafts/outbox dialog | store persistence path; UI | COMPLETE |
+| Outgoing attachments | private local staging, cap, SHA-256 identity, multipart upload, remove | `groups_io_add_attachment`, `groups_io_remove_attachment`, multipart send | native safety tests; account upload | COMPLETE / EXTERNAL network proof |
+| Incoming attachments | discover, preview, download, optional cache | incoming attachment commands and dialog | component pagination/attachment test; account download | EXTERNAL |
+| Attachment failure isolation | Auto-download failure never rolls back a complete message page | best-effort `cache_incoming_for_message` call after message upsert | native implementation inspection | COMPLETE |
+| Attachment path safety | Provider/persisted IDs never become path components | fixed SHA-256 cache key over namespace identity; separate provider ID | traversal/absolute/backslash/Unicode/poisoned-store Rust test | COMPLETE |
+| Download bounds | Reject Content-Length overflow and stop streaming at limit+1; also cap chunked/missing/lying length | `read_limited`, `read_limited_response`; caps for JSON, attachments, previews and official ZIP | Rust missing/lying/declared length test | COMPLETE |
+| Bearer isolation | Redirects disabled and attachment-host requests never receive API Authorization | `Client` redirect policy `none`; `attachment_get` has no bearer | Rust request-header negative test | COMPLETE |
+| Archive sync | bounded descending pages, date cutoff, cursor resume, duplicate replacement | `groups_io_archive`, `ArchiveState` | native implementation and UI status | COMPLETE / EXTERNAL network proof |
+| Archive pause/cancel | foreground cancel, preserve completed pages and cursor | `ARCHIVE_CANCEL`, `groups_io_pause_archive` | native/UI implementation | COMPLETE |
+| Official archive | permission-gated `/downloadarchives` ZIP with hard stream cap | `groups_io_official_archive`; conditional UI action | native implementation; account permission/download | EXTERNAL |
+| Clear cache | remove downloaded/cache files, preserve drafts/outbox/key | confirmed Settings action; `groups_io_clear_cache(false)` | component/source inspection | COMPLETE |
+| Delete all local | remove downloads, drafts, receipts and staged files; preserve key until disconnect | confirmed Settings action; `groups_io_clear_cache(true)` | component/source inspection | COMPLETE |
+| Destructive remote actions | Server-draft and server-attachment deletion require confirmation | localized confirmation controls in `GroupsIoView` | component/source inspection | COMPLETE |
+| Error and empty states | offline, empty group/topic/message/search/draft/attachment, busy and archive state | localized `GroupsIoView`/`GroupsIoSettings` states | hardcoded-string guard and component tests | COMPLETE |
+| Accessibility | labelled region/search group, switch roles, current selection, live summary/preview, Radix dialog title+description | Groups.io components | hardcoded-string and component tests; rendered browser inspection | COMPLETE |
+| Localization | all operator prose through the catalog; core German/Spanish/French/Japanese Groups.io controls localized | `en.ts`, `de.ts`, `es.ts`, `fr.ts`, `ja.ts`; migrated-surface guard | i18n hardcoded and placeholder/completeness tests | COMPLETE |
+| Compact layout | panes remain horizontally usable; header/actions and override grid collapse | container queries in `groups-io.css` | rendered responsive inspection plus stylesheet | COMPLETE |
+
+## Verification record
+
+- `npm run build`: PASS after integration and upstream merge.
+- Groups.io component tests: PASS (3 tests).
+- i18n hardcoded/placeholder/runtime tests: PASS (236 tests).
+- Rust Groups.io tests: recorded in the final handoff after the feature-enabled native build completes.
+- `cargo fmt --all -- --check`: recorded in the final handoff.
+- Real rendered browser evidence:
+  - `/Users/oliver/.codex/visualizations/2026/09/27/01a0e2aa-3b8f-7b00-868d-80aba8311f7e/groupsio-screen.png`
+  - `/Users/oliver/.codex/visualizations/2026/09/27/01a0e2aa-3b8f-7b00-868d-80aba8311f7e/groupsio-settings.png`
+- The repository browser-probe wrapper could not find `google-chrome` on `PATH`; the installed Google Chrome application was instead used through the browser automation harness. This is not represented as a wrapper-script pass.
+
+## Explicit external evidence boundary
+
+No operator API key was supplied to this worktree. Consequently, real account membership discovery, permission reads, online archive search, remote draft mutation, attachment transfer, final posting/moderation, and official ZIP download remain `EXTERNAL`. Local mocks, parser tests and rendered screenshots do not convert those rows into live provider proof. No release should claim account-bound acceptance until an operator runs those cases with their own key and inspects the resulting Groups.io account state.

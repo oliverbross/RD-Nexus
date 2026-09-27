@@ -718,7 +718,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; labelKey?: MessageKey }[]
   { id: 'digital', label: 'Digital' },
   { id: 'spots', label: 'Spots & Alerts', labelKey: 'settings.tabs.spots' },
   { id: 'logging', label: 'Logging & Connectors', labelKey: 'settings.tabs.logging' },
-  { id: 'groupsio', label: 'Groups.io' },
+  { id: 'groupsio', label: 'Groups.io', labelKey: 'settings.tabs.groupsio' },
   { id: 'contesting', label: 'Contesting', labelKey: 'settings.tabs.contesting' },
   { id: 'appearance', label: 'Appearance', labelKey: 'settings.tabs.appearance' },
   { id: 'configurations', label: 'Config', labelKey: 'settings.tabs.configurations' },
@@ -3305,8 +3305,8 @@ export function SettingsPanel({
           {remote && <p className="settings-note" role="status">{remoteFollow.supported || remoteGain.supported || remotePrefs.supported ? t('remote.configurationControls') : t('remote.configurationObserver')}</p>}
           {remote && remotePrefs.supported && <p className="settings-note">{t('remote.settingsEditable')}</p>}
           {remote && (tab==='logging'||tab==='configurations') && <p className="settings-note">{t('remote.configurationLocal')}</p>}
-          {tab === 'groupsio' && !remote && <fieldset className="settings-section" id="settings-groups-io"><legend>Groups.io</legend><GroupsIoSettings onOpenGroupsIo={onOpenGroupsIo ?? (() => {})} /></fieldset>}
-          {tab === 'groupsio' && remote && <p className="settings-note" role="status">Groups.io account settings are local to the installed RD-Nexus application because its API key is held by that computer's credential vault.</p>}
+          {tab === 'groupsio' && !remote && <fieldset className="settings-section" id="settings-groups-io"><legend>{t('settings.tabs.groupsio')}</legend><GroupsIoSettings onOpenGroupsIo={onOpenGroupsIo ?? (() => {})} /></fieldset>}
+          {tab === 'groupsio' && remote && <p className="settings-note" role="status">{t('groupsio.settings.remoteLocal')}</p>}
           {/* ---- Workspace (UI-only prefs, applied live like the theme) ---- */}
           {tab === 'configurations' && !remote && (
             <fieldset className="settings-section" id="settings-data-folder">

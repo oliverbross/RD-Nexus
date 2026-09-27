@@ -16,8 +16,32 @@
 // renamed, dropped or added.
 
 import type { PartialCatalog } from './index'
+import { EN } from './en'
 
 export const DE: PartialCatalog = {
+  ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  'groupsio.connected': 'Verbunden — Mitgliedschaften und heruntergeladene Nachrichten sind hier verfügbar.',
+  'groupsio.offline': 'Der Offline-Cache ist verfügbar. Hinterlegen Sie unter Einstellungen einen API-Schlüssel für die Live-Synchronisierung.',
+  'groupsio.newTopic': 'Neues Thema',
+  'groupsio.draftsOutbox': 'Entwürfe & Ausgang',
+  'groupsio.settings': 'Einstellungen',
+  'groupsio.syncAll': 'Alles synchronisieren',
+  'groupsio.keyRequired': 'API-Schlüssel für Live-Synchronisierung erforderlich',
+  'groupsio.keyBoundary': 'Der Schlüssel liegt im Anmeldedatenspeicher des Betriebssystems, niemals in diesem Projekt oder seiner Konfigurationsdatei.',
+  'groupsio.groups': 'Gruppen',
+  'groupsio.topics': 'Themen',
+  'groupsio.messages': 'Nachrichten',
+  'groupsio.refresh': 'Aktualisieren',
+  'groupsio.reply': 'Antworten',
+  'groupsio.search.local': 'Heruntergeladene Nachrichten durchsuchen',
+  'groupsio.search.online': 'Ausgewählte Gruppe online durchsuchen',
+  'groupsio.search.action': 'Suchen',
+  'groupsio.settings.account': 'Konto',
+  'groupsio.settings.enabled': 'Synchronisierung im Vordergrund aktiviert',
+  'groupsio.settings.refreshOnOpen': 'Beim Öffnen von Groups.io aktualisieren',
+  'groupsio.settings.save': 'Groups.io-Einstellungen speichern',
+  'groupsio.settings.disconnect': 'Trennen',
+  'groupsio.settings.overrides': 'Speicherrichtlinie pro Gruppe',
   "remote.modeEntry.label": "Modus verwenden",
   "remote.modeEntry.title": "Station auf diesen Modus und die gespeicherte Frequenz umschalten. Senden bleibt ausgeschaltet.",
   "remote.workspaceEntry.title": "Betriebsart und Decoder der Station auf diesen Arbeitsbereich umstellen. Senden bleibt ausgeschaltet.",

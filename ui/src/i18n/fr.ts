@@ -31,8 +31,32 @@
 // machine check can confirm is whether a français-speaking operator would RECOGNISE the wording;
 // that wants a native pass, and the fallback above makes fixing it incremental.
 import type { PartialCatalog } from './index'
+import { EN } from './en'
 
 export const FR: PartialCatalog = {
+  ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  'groupsio.connected': 'Connecté — les abonnements et les messages téléchargés sont disponibles ici.',
+  'groupsio.offline': 'Le cache hors ligne est disponible. Ajoutez une clé API dans Réglages pour la synchronisation.',
+  'groupsio.newTopic': 'Nouveau sujet',
+  'groupsio.draftsOutbox': 'Brouillons et boîte d’envoi',
+  'groupsio.settings': 'Réglages',
+  'groupsio.syncAll': 'Tout synchroniser',
+  'groupsio.keyRequired': 'Clé API requise pour la synchronisation',
+  'groupsio.keyBoundary': 'La clé reste dans le coffre d’identifiants du système, jamais dans ce projet ni dans sa configuration.',
+  'groupsio.groups': 'Groupes',
+  'groupsio.topics': 'Sujets',
+  'groupsio.messages': 'Messages',
+  'groupsio.refresh': 'Actualiser',
+  'groupsio.reply': 'Répondre',
+  'groupsio.search.local': 'Rechercher dans les messages téléchargés',
+  'groupsio.search.online': 'Rechercher en ligne dans le groupe sélectionné',
+  'groupsio.search.action': 'Rechercher',
+  'groupsio.settings.account': 'Compte',
+  'groupsio.settings.enabled': 'Synchronisation au premier plan activée',
+  'groupsio.settings.refreshOnOpen': 'Actualiser à l’ouverture de Groups.io',
+  'groupsio.settings.save': 'Enregistrer les réglages Groups.io',
+  'groupsio.settings.disconnect': 'Déconnecter',
+  'groupsio.settings.overrides': 'Politique de stockage par groupe',
   "remote.modeEntry.label": "Utiliser ce mode",
   "remote.modeEntry.title": "Passe la station dans ce mode et sur la fréquence mémorisée. L’émission reste désactivée.",
   "remote.workspaceEntry.title": "Passer le mode et le décodeur de la station à cet espace de travail. L’émission reste désactivée.",

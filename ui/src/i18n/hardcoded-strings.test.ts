@@ -53,6 +53,8 @@ import { EN, type MessageKey } from './index'
  * proven on a real shipped sentence rather than on a fixture.
  */
 const MIGRATED = [
+  'components/GroupsIoView.tsx',
+  'components/GroupsIoSettings.tsx',
   'remote-web/ModeEntry.tsx',
   'remote-web/operations.tsx',
   'remote-web/collections.tsx',

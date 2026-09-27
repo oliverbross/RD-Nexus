@@ -6,13 +6,13 @@
 //! operator-triggered foreground work. In particular, an ambiguous `postdraft` result is never
 //! retried automatically.
 
-use reqwest::blocking::{Client, Response};
+use reqwest::blocking::{multipart, Client, Response};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -29,6 +29,8 @@ const PAGE_SIZE: usize = 50;
 const MAX_GROUPS_PER_REFRESH: usize = 50;
 const MAX_TOPICS_PER_GROUP: usize = 50;
 const MAX_ARCHIVE_PAGES: usize = 200;
+const MAX_API_RESPONSE_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_OFFICIAL_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
 static STORE_LOCK: Mutex<()> = Mutex::new(());
 static NETWORK_LOCK: Mutex<()> = Mutex::new(());
 static ARCHIVE_CANCEL: AtomicBool = AtomicBool::new(false);
@@ -154,6 +156,67 @@ pub struct Draft {
     pub updated_unix: u64,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Attachment {
+    pub id: String,
+    pub draft_id: String,
+    pub filename: String,
+    pub media_type: String,
+    pub byte_size: u64,
+    pub sha256: String,
+    pub remote_id: Option<String>,
+    pub upload_state: String,
+    pub created_unix: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct IncomingAttachment {
+    pub id: String,
+    pub group_id: String,
+    pub message_number: String,
+    pub filename: String,
+    pub media_type: String,
+    pub byte_size: u64,
+    pub cached: bool,
+    pub created_unix: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerDraft {
+    pub id: String,
+    pub group_id: String,
+    pub kind: String,
+    pub message_id: String,
+    pub subject: String,
+    pub body: String,
+    pub attachment_count: usize,
+    pub updated_unix: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAttachment {
+    pub id: String,
+    pub filename: String,
+    pub media_type: String,
+    pub byte_size: u64,
+    pub url: Option<String>,
+    pub preview_url: Option<String>,
+    pub cached: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePayload {
+    pub filename: String,
+    pub media_type: String,
+    pub byte_size: u64,
+    pub bytes: Vec<u8>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ArchiveState {
@@ -190,6 +253,8 @@ struct Store {
     messages: Vec<Message>,
     drafts: Vec<Draft>,
     outbox: Vec<Draft>,
+    attachments: Vec<Attachment>,
+    incoming_attachments: Vec<IncomingAttachment>,
     topic_tokens: BTreeMap<String, String>,
     message_tokens: BTreeMap<String, String>,
     archive: ArchiveState,
@@ -207,6 +272,8 @@ impl Default for Store {
             messages: Vec::new(),
             drafts: Vec::new(),
             outbox: Vec::new(),
+            attachments: Vec::new(),
+            incoming_attachments: Vec::new(),
             topic_tokens: BTreeMap::new(),
             message_tokens: BTreeMap::new(),
             archive: ArchiveState::default(),
@@ -224,6 +291,7 @@ pub struct Counts {
     messages: usize,
     drafts: usize,
     outbox: usize,
+    files: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -257,8 +325,74 @@ pub struct SearchPage {
     next_page_token: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerDraftPage {
+    items: Vec<ServerDraft>,
+    next_page_token: Option<String>,
+}
+
 fn store_path() -> PathBuf {
     crate::config_dir().join("groupsio.json")
+}
+
+fn files_dir() -> PathBuf {
+    crate::config_dir().join("groupsio-files")
+}
+
+fn cached_file_path(namespace: &str, identity: &str) -> PathBuf {
+    // Provider and persisted identifiers are untrusted. Only a fixed-width digest is ever used
+    // as a filesystem component, so even a poisoned store cannot escape the cache directory.
+    files_dir()
+        .join(namespace)
+        .join(sha256(identity.as_bytes()))
+}
+
+fn outgoing_attachment_path(id: &str) -> PathBuf {
+    cached_file_path("outgoing", id)
+}
+
+fn incoming_attachment_path(group_id: &str, message_number: &str, id: &str) -> PathBuf {
+    cached_file_path("incoming", &format!("{group_id}\0{message_number}\0{id}"))
+}
+
+fn safe_filename(value: &str) -> String {
+    let name = Path::new(value)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("attachment.bin");
+    let safe: String = name
+        .chars()
+        .filter(|ch| !ch.is_control() && !matches!(ch, '/' | '\\' | ':' | '\0'))
+        .take(255)
+        .collect();
+    if safe.trim().is_empty() {
+        "attachment.bin".into()
+    } else {
+        safe
+    }
+}
+
+fn sha256(bytes: &[u8]) -> String {
+    ring::digest::digest(&ring::digest::SHA256, bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("couldn't create Groups.io attachment storage: {e}"))?;
+    }
+    let tmp = path.with_extension("tmp");
+    let mut file = fs::File::create(&tmp)
+        .map_err(|e| format!("couldn't stage the Groups.io attachment: {e}"))?;
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|e| format!("couldn't write the Groups.io attachment: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -332,7 +466,17 @@ fn now() -> u64 {
 
 fn status_for(store: Store) -> Status {
     let connected = has_key();
-    let storage_bytes = fs::metadata(store_path()).map(|m| m.len()).unwrap_or(0);
+    let storage_bytes = fs::metadata(store_path()).map(|m| m.len()).unwrap_or(0)
+        + store
+            .attachments
+            .iter()
+            .map(|item| item.byte_size)
+            .sum::<u64>()
+        + store
+            .incoming_attachments
+            .iter()
+            .map(|item| item.byte_size)
+            .sum::<u64>();
     Status {
         enabled: store.settings.enabled,
         connected,
@@ -350,6 +494,7 @@ fn status_for(store: Store) -> Status {
             messages: store.messages.len(),
             drafts: store.drafts.len(),
             outbox: store.outbox.len(),
+            files: store.attachments.len() + store.incoming_attachments.len(),
         },
         storage_bytes,
         settings: store.settings,
@@ -397,13 +542,47 @@ fn checked(response: Response) -> Result<Response, String> {
 }
 
 fn response_json(response: Response) -> Result<Value, String> {
-    let bytes = response
-        .bytes()
-        .map_err(|_| "Groups.io returned an unreadable response")?;
+    let bytes = read_limited_response(response, MAX_API_RESPONSE_BYTES, "Groups.io API response")?;
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(json!({}));
     }
     serde_json::from_slice(&bytes).map_err(|_| "Groups.io returned an unreadable response".into())
+}
+
+fn read_limited<R: Read>(
+    reader: R,
+    declared_length: Option<u64>,
+    limit: u64,
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    if declared_length.is_some_and(|length| length > limit) {
+        return Err(format!("{label} exceeds the {limit} byte safety limit"));
+    }
+    let mut bytes = Vec::with_capacity(
+        declared_length
+            .unwrap_or_default()
+            .min(limit)
+            .try_into()
+            .unwrap_or(0),
+    );
+    reader
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|_| format!("{label} is unreadable"))?;
+    if bytes.len() as u64 > limit {
+        return Err(format!("{label} exceeds the {limit} byte safety limit"));
+    }
+    Ok(bytes)
+}
+
+fn read_limited_response(response: Response, limit: u64, label: &str) -> Result<Vec<u8>, String> {
+    let declared_length = response.content_length();
+    read_limited(response, declared_length, limit, label)
+}
+
+fn attachment_get(client: &Client, url: &str) -> reqwest::blocking::RequestBuilder {
+    // Deliberately no Authorization header: attachment URLs may be hosted away from groups.io.
+    client.get(url).header(ACCEPT, "application/octet-stream")
 }
 
 fn get(client: &Client, key: &str, path: &str, query: &[(&str, String)]) -> Result<Value, String> {
@@ -429,6 +608,84 @@ fn post(client: &Client, key: &str, path: &str, form: &[(&str, String)]) -> Resu
             .send()
             .map_err(|e| format!("Groups.io request failed: {e}"))?,
     )?)
+}
+
+fn post_multipart(
+    client: &Client,
+    key: &str,
+    path: &str,
+    form: multipart::Form,
+) -> Result<Value, String> {
+    response_json(checked(
+        client
+            .post(format!("{API_BASE}{path}"))
+            .header(AUTHORIZATION, bearer(key))
+            .header(ACCEPT, "application/json")
+            .multipart(form)
+            .send()
+            .map_err(|e| format!("Groups.io request failed: {e}"))?,
+    )?)
+}
+
+#[derive(Debug)]
+enum FinalPostError {
+    Deterministic(String),
+    Ambiguous(String),
+}
+
+fn record_final_post_failure(
+    store: &mut Store,
+    index: usize,
+    mut draft: Draft,
+    failure: FinalPostError,
+) -> String {
+    let (state, note, error) = match failure {
+        FinalPostError::Deterministic(error) => (
+            "failed_retryable",
+            format!("Groups.io proved the message was not accepted: {error}"),
+            error,
+        ),
+        FinalPostError::Ambiguous(error) => (
+            "delivery_unknown",
+            format!("Delivery must be reconciled before retry: {error}"),
+            "Groups.io delivery is unknown; inspect recent messages and server drafts before retrying"
+                .into(),
+        ),
+    };
+    draft.state = state.into();
+    draft.note = note;
+    draft.updated_unix = now();
+    store.drafts[index] = draft;
+    error
+}
+
+fn post_final(client: &Client, key: &str, draft_id: String) -> Result<Value, FinalPostError> {
+    let response = client
+        .post(format!("{API_BASE}/postdraft"))
+        .header(AUTHORIZATION, bearer(key))
+        .header(ACCEPT, "application/json")
+        .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .form(&[("draft_id", draft_id)])
+        .send()
+        .map_err(|e| FinalPostError::Ambiguous(format!("Groups.io request failed: {e}")))?;
+    if !response.status().is_success() {
+        return Err(FinalPostError::Deterministic(
+            checked(response).unwrap_err(),
+        ));
+    }
+    response_json(response).map_err(FinalPostError::Ambiguous)
+}
+
+fn safe_html(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .lines()
+        .map(|line| format!("<p>{line}</p>"))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 fn object(value: &Value) -> Option<&Map<String, Value>> {
@@ -488,8 +745,22 @@ fn next_token(value: &Value) -> Option<String> {
     (!token.trim().is_empty()).then_some(token)
 }
 fn parse_unix(value: &Value) -> u64 {
-    field(value, &["created", "date", "updated"])
-        .and_then(Value::as_u64)
+    let Some(value) = field(value, &["created", "date", "updated"]) else {
+        return 0;
+    };
+    if let Some(number) = value.as_u64() {
+        return number;
+    }
+    let Some(raw) = value.as_str() else {
+        return 0;
+    };
+    raw.parse::<u64>()
+        .ok()
+        .or_else(|| {
+            chrono::DateTime::parse_from_rfc3339(raw)
+                .ok()
+                .and_then(|date| u64::try_from(date.timestamp()).ok())
+        })
         .unwrap_or(0)
 }
 fn plain_text(input: &str) -> String {
@@ -590,6 +861,57 @@ fn message_from(group_id: &str, topic_id: &str, value: &Value) -> Option<Message
     })
 }
 
+fn server_draft_from(value: &Value) -> Option<ServerDraft> {
+    let id = text(value, &["id", "draft_id"]);
+    if id.is_empty() {
+        return None;
+    }
+    Some(ServerDraft {
+        id,
+        group_id: text(value, &["group_id"]),
+        kind: text(value, &["draft_type", "type"]),
+        message_id: text(value, &["message_id"]),
+        subject: text(value, &["subject"]),
+        body: plain_text(&text(value, &["body"])),
+        attachment_count: number(value, &["num_attachments", "attachment_count"]),
+        updated_unix: parse_unix(value),
+    })
+}
+
+fn remote_attachment_from(value: &Value, index: usize) -> Option<RemoteAttachment> {
+    let filename = safe_filename(&text(value, &["filename", "name"]));
+    let id = {
+        let provider = text(value, &["id", "attachment_id"]);
+        if provider.is_empty() {
+            format!("attachment-{index}")
+        } else {
+            provider
+        }
+    };
+    Some(RemoteAttachment {
+        id,
+        filename,
+        media_type: {
+            let media = text(value, &["content_type", "media_type", "type"]);
+            if media.is_empty() {
+                "application/octet-stream".into()
+            } else {
+                media
+            }
+        },
+        byte_size: number(value, &["size", "byte_size"]) as u64,
+        url: field(value, &["download_url", "url"])
+            .and_then(Value::as_str)
+            .filter(|url| url.starts_with("https://"))
+            .map(str::to_string),
+        preview_url: field(value, &["preview_url", "thumbnail_url"])
+            .and_then(Value::as_str)
+            .filter(|url| url.starts_with("https://"))
+            .map(str::to_string),
+        cached: false,
+    })
+}
+
 fn upsert<T, F>(items: &mut Vec<T>, item: T, same: F)
 where
     F: Fn(&T, &T) -> bool,
@@ -617,11 +939,26 @@ fn validate_settings(mut value: GroupsIoSettings) -> GroupsIoSettings {
 }
 
 fn sync_memberships_with(store: &mut Store, client: &Client, key: &str) -> Result<(), String> {
-    let root = get(client, key, "/getsubs", &[("limit", "100".into())])?;
     let mut active = HashSet::new();
-    for group in rows(&root).iter().filter_map(group_from) {
-        active.insert(group.id.clone());
-        upsert(&mut store.groups, group, |a, b| a.id == b.id);
+    let mut token: Option<String> = None;
+    let mut seen = HashSet::new();
+    for _ in 0..20 {
+        let mut params = vec![("limit", "100".into())];
+        if let Some(value) = token.clone() {
+            params.push(("page_token", value));
+        }
+        let root = get(client, key, "/getsubs", &params)?;
+        for group in rows(&root).iter().filter_map(group_from) {
+            active.insert(group.id.clone());
+            upsert(&mut store.groups, group, |a, b| a.id == b.id);
+        }
+        token = next_token(&root);
+        let Some(next) = token.as_ref() else {
+            break;
+        };
+        if !seen.insert(next.clone()) {
+            return Err("Groups.io returned a repeated membership page token".into());
+        }
     }
     for group in &mut store.groups {
         group.active = active.contains(&group.id);
@@ -663,6 +1000,24 @@ fn sync_group_with(
             group.download_archives = flag(&perms, &["download_archives", "downloadArchives"]);
         }
     }
+    if let Ok(feed) = get(
+        client,
+        key,
+        "/getsinglefeed",
+        &[("group_id", group_id.into())],
+    ) {
+        let info = field(&feed, &["group", "group_info"]).unwrap_or(&feed);
+        let member = field(&feed, &["member_info"]).unwrap_or(&feed);
+        if let Some(group) = store.groups.iter_mut().find(|group| group.id == group_id) {
+            let title = text(info, &["title", "nice_group_name", "display_name"]);
+            if !title.is_empty() {
+                group.title = title;
+            }
+            group.can_post |= flag(member, &["can_post", "post"]);
+            group.can_reply |= flag(member, &["can_reply", "reply"]);
+            group.download_archives |= flag(member, &["download_archives"]);
+        }
+    }
     let root = get(
         client,
         key,
@@ -685,6 +1040,7 @@ fn sync_group_with(
         .filter(|m| m.group_id == group_id)
         .map(|m| m.id.clone())
         .collect();
+    let mut attachment_messages = Vec::new();
     for topic_value in topics.iter().take(MAX_TOPICS_PER_GROUP) {
         let Some(topic) = topic_from(group_id, topic_value) else {
             continue;
@@ -716,9 +1072,36 @@ fn sync_group_with(
             if !prior.is_empty() && !prior.contains(&message.id) {
                 store.new_message_ids.push(message.id.clone());
             }
+            if policy.attachments && message.attachment_count > 0 {
+                attachment_messages.push(message.clone());
+            }
             upsert(&mut store.messages, message, |a, b| a.id == b.id);
         }
     }
+    if policy.attachments {
+        for message in &attachment_messages {
+            let _ = cache_incoming_for_message(client, key, store, message);
+        }
+    }
+    let cutoff = now().saturating_sub(u64::from(policy.retention_days) * 86_400);
+    store.messages.retain(|message| {
+        message.group_id != group_id || message.created_unix == 0 || message.created_unix >= cutoff
+    });
+    let mut group_messages: Vec<(String, u64)> = store
+        .messages
+        .iter()
+        .filter(|message| message.group_id == group_id)
+        .map(|message| (message.id.clone(), message.created_unix))
+        .collect();
+    group_messages.sort_by_key(|(_, created)| std::cmp::Reverse(*created));
+    let keep: HashSet<String> = group_messages
+        .into_iter()
+        .take(policy.maximum_messages)
+        .map(|(id, _)| id)
+        .collect();
+    store
+        .messages
+        .retain(|message| message.group_id != group_id || keep.contains(&message.id));
     store.new_message_ids.sort();
     store.new_message_ids.dedup();
     if store.new_message_ids.len() > 20 {
@@ -806,6 +1189,93 @@ pub fn groups_io_sync(group_id: Option<String>) -> Result<Status, String> {
             sync_group_with(&mut store, &client, &key, &id)?;
         }
     }
+    let draft_cutoff =
+        now().saturating_sub(u64::from(store.settings.draft_retention_days) * 86_400);
+    store
+        .outbox
+        .retain(|draft| draft.updated_unix == 0 || draft.updated_unix >= draft_cutoff);
+    write_store(&store)?;
+    Ok(status_for(store))
+}
+
+#[tauri::command(async)]
+pub fn groups_io_load_older_topics(
+    group_id: String,
+    page_token: Option<String>,
+) -> Result<Status, String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let key = api_key()?;
+    let client = client()?;
+    let mut store = read_store()?;
+    let token = page_token
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| store.topic_tokens.get(&group_id).cloned())
+        .ok_or_else(|| "No older Groups.io topic page is available".to_string())?;
+    let root = get(
+        &client,
+        &key,
+        "/gettopics",
+        &[
+            ("group_id", group_id.clone()),
+            ("sort_dir", "desc".into()),
+            ("limit", PAGE_SIZE.to_string()),
+            ("page_token", token),
+        ],
+    )?;
+    for topic in rows(&root)
+        .iter()
+        .filter_map(|value| topic_from(&group_id, value))
+    {
+        upsert(&mut store.topics, topic, |a, b| {
+            a.id == b.id && a.group_id == b.group_id
+        });
+    }
+    if let Some(next) = next_token(&root) {
+        store.topic_tokens.insert(group_id, next);
+    } else {
+        store.topic_tokens.remove(&group_id);
+    }
+    write_store(&store)?;
+    Ok(status_for(store))
+}
+
+#[tauri::command(async)]
+pub fn groups_io_load_more_messages(
+    group_id: String,
+    topic_id: String,
+    page_token: Option<String>,
+) -> Result<Status, String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let key = api_key()?;
+    let client = client()?;
+    let mut store = read_store()?;
+    let token = page_token
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| store.message_tokens.get(&topic_id).cloned());
+    let mut params = vec![
+        ("topic_id", topic_id.clone()),
+        ("sort_dir", "asc".into()),
+        ("limit", PAGE_SIZE.to_string()),
+    ];
+    if let Some(value) = token {
+        params.push(("page_token", value));
+    }
+    let root = get(&client, &key, "/gettopic", &params)?;
+    for message in rows(&root)
+        .iter()
+        .filter_map(|value| message_from(&group_id, &topic_id, value))
+    {
+        upsert(&mut store.messages, message, |a, b| a.id == b.id);
+    }
+    if let Some(next) = next_token(&root) {
+        store.message_tokens.insert(topic_id, next);
+    } else {
+        store.message_tokens.remove(&topic_id);
+    }
     write_store(&store)?;
     Ok(status_for(store))
 }
@@ -859,13 +1329,32 @@ pub fn groups_io_search(
         params.push(("page_token", token));
     }
     let root = get(&client, &key, "/searcharchives", &params)?;
-    let items = rows(&root)
+    let items: Vec<Message> = rows(&root)
         .iter()
         .filter_map(|v| {
             let topic = text(v, &["topic_id"]);
             message_from(&group_id, &topic, v)
         })
         .collect();
+    let mut store = read_store()?;
+    for message in &items {
+        if !store
+            .topics
+            .iter()
+            .any(|topic| topic.id == message.topic_id)
+        {
+            store.topics.push(Topic {
+                id: message.topic_id.clone(),
+                group_id: group_id.clone(),
+                subject: message.subject.clone(),
+                message_count: 1,
+                last_message_unix: message.created_unix,
+                closed: false,
+            });
+        }
+        upsert(&mut store.messages, message.clone(), |a, b| a.id == b.id);
+    }
+    write_store(&store)?;
     Ok(SearchPage {
         items,
         next_page_token: next_token(&root),
@@ -893,8 +1382,494 @@ pub fn groups_io_save_draft(mut draft: Draft) -> Result<Status, String> {
 pub fn groups_io_delete_draft(id: String) -> Result<Status, String> {
     let mut store = read_store()?;
     store.drafts.retain(|d| d.id != id);
+    let removed: Vec<String> = store
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.draft_id == id)
+        .map(|attachment| attachment.id.clone())
+        .collect();
+    store
+        .attachments
+        .retain(|attachment| attachment.draft_id != id);
+    for attachment_id in removed {
+        let _ = fs::remove_file(outgoing_attachment_path(&attachment_id));
+    }
     write_store(&store)?;
     Ok(status_for(store))
+}
+
+#[tauri::command(async)]
+pub fn groups_io_queue_draft(id: String) -> Result<Status, String> {
+    let mut store = read_store()?;
+    let draft = store
+        .drafts
+        .iter_mut()
+        .find(|draft| draft.id == id)
+        .ok_or_else(|| "Groups.io draft was not found".to_string())?;
+    if draft.subject.trim().is_empty() || draft.body.trim().is_empty() {
+        return Err("A Groups.io subject and message are required".into());
+    }
+    draft.state = "queued".into();
+    draft.note = "Queued locally; it can leave only after an explicit foreground action.".into();
+    draft.updated_unix = now();
+    write_store(&store)?;
+    Ok(status_for(store))
+}
+
+#[tauri::command(async)]
+pub fn groups_io_draft_attachments(draft_id: String) -> Result<Vec<Attachment>, String> {
+    let store = read_store()?;
+    Ok(store
+        .attachments
+        .into_iter()
+        .filter(|attachment| attachment.draft_id == draft_id)
+        .collect())
+}
+
+#[tauri::command(async)]
+pub fn groups_io_add_attachment(
+    draft_id: String,
+    filename: String,
+    media_type: String,
+    bytes: Vec<u8>,
+) -> Result<Vec<Attachment>, String> {
+    let mut store = read_store()?;
+    if !store.drafts.iter().any(|draft| draft.id == draft_id) {
+        return Err("Save the Groups.io draft before adding attachments".into());
+    }
+    if bytes.is_empty() || bytes.len() as u64 > store.settings.maximum_attachment_bytes {
+        return Err(format!(
+            "Groups.io attachment exceeds the configured {} byte limit",
+            store.settings.maximum_attachment_bytes
+        ));
+    }
+    let digest = sha256(&bytes);
+    let id = format!("{}-{}", now(), &digest[..24]);
+    write_private_file(&outgoing_attachment_path(&id), &bytes)?;
+    let requested = safe_filename(&filename);
+    let existing: HashSet<String> = store
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.draft_id == draft_id)
+        .map(|attachment| attachment.filename.clone())
+        .collect();
+    let mut stored_name = requested.clone();
+    let path = Path::new(&requested);
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("attachment");
+    let extension = path.extension().and_then(|value| value.to_str());
+    let mut suffix = 1;
+    while existing.contains(&stored_name) {
+        stored_name = match extension {
+            Some(extension) => format!("{stem}-{suffix}.{extension}"),
+            None => format!("{stem}-{suffix}"),
+        };
+        suffix += 1;
+    }
+    store.attachments.push(Attachment {
+        id,
+        draft_id: draft_id.clone(),
+        filename: stored_name,
+        media_type: if media_type.trim().is_empty() {
+            "application/octet-stream".into()
+        } else {
+            media_type.chars().take(160).collect()
+        },
+        byte_size: bytes.len() as u64,
+        sha256: digest,
+        remote_id: None,
+        upload_state: "queued".into(),
+        created_unix: now(),
+    });
+    write_store(&store)?;
+    Ok(store
+        .attachments
+        .into_iter()
+        .filter(|attachment| attachment.draft_id == draft_id)
+        .collect())
+}
+
+#[tauri::command(async)]
+pub fn groups_io_remove_attachment(
+    draft_id: String,
+    attachment_id: String,
+) -> Result<Vec<Attachment>, String> {
+    let mut store = read_store()?;
+    let attachment = store
+        .attachments
+        .iter()
+        .find(|attachment| attachment.id == attachment_id && attachment.draft_id == draft_id)
+        .cloned()
+        .ok_or_else(|| "Groups.io attachment was not found".to_string())?;
+    if let Some(remote_id) = attachment.remote_id.as_ref() {
+        let remote_draft = store
+            .drafts
+            .iter()
+            .find(|draft| draft.id == draft_id)
+            .and_then(|draft| draft.remote_draft_id.clone())
+            .ok_or_else(|| "Groups.io remote draft id is unavailable".to_string())?;
+        let _network = NETWORK_LOCK
+            .try_lock()
+            .map_err(|_| "another Groups.io operation is already running".to_string())?;
+        post(
+            &client()?,
+            &api_key()?,
+            "/deleteattachment",
+            &[
+                ("draft_id", remote_draft),
+                ("attachment_id", remote_id.clone()),
+            ],
+        )?;
+    }
+    store
+        .attachments
+        .retain(|value| !(value.id == attachment_id && value.draft_id == draft_id));
+    let _ = fs::remove_file(outgoing_attachment_path(&attachment_id));
+    write_store(&store)?;
+    Ok(store
+        .attachments
+        .into_iter()
+        .filter(|attachment| attachment.draft_id == draft_id)
+        .collect())
+}
+
+#[tauri::command(async)]
+pub fn groups_io_server_drafts(page_token: Option<String>) -> Result<ServerDraftPage, String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let mut params = vec![("limit", PAGE_SIZE.to_string())];
+    if let Some(token) = page_token.filter(|value| !value.trim().is_empty()) {
+        params.push(("page_token", token));
+    }
+    let root = get(&client()?, &api_key()?, "/getdrafts", &params)?;
+    Ok(ServerDraftPage {
+        items: rows(&root).iter().filter_map(server_draft_from).collect(),
+        next_page_token: next_token(&root),
+    })
+}
+
+#[tauri::command(async)]
+pub fn groups_io_server_draft_attachments(
+    draft_id: String,
+) -> Result<Vec<RemoteAttachment>, String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let root = get(
+        &client()?,
+        &api_key()?,
+        "/getattachments",
+        &[("draft_id", draft_id)],
+    )?;
+    Ok(rows(&root)
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| remote_attachment_from(value, index))
+        .collect())
+}
+
+#[tauri::command(async)]
+pub fn groups_io_delete_server_draft(draft_id: String) -> Result<(), String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    post(
+        &client()?,
+        &api_key()?,
+        "/deletedraft",
+        &[("draft_id", draft_id)],
+    )?;
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn groups_io_delete_server_attachment(
+    draft_id: String,
+    attachment_id: String,
+) -> Result<(), String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    post(
+        &client()?,
+        &api_key()?,
+        "/deleteattachment",
+        &[("draft_id", draft_id), ("attachment_id", attachment_id)],
+    )?;
+    Ok(())
+}
+
+fn live_incoming_attachments(
+    client: &Client,
+    key: &str,
+    group_id: &str,
+    message_number: &str,
+) -> Result<Vec<RemoteAttachment>, String> {
+    let root = get(
+        client,
+        key,
+        "/getmessage",
+        &[
+            ("group_id", group_id.into()),
+            ("msg_num", message_number.into()),
+        ],
+    )?;
+    let message = field(&root, &["message", "data"]).unwrap_or(&root);
+    let values = field(message, &["attachments"])
+        .or_else(|| field(&root, &["attachments"]))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok(values
+        .iter()
+        .enumerate()
+        .filter_map(|(index, value)| remote_attachment_from(value, index))
+        .collect())
+}
+
+fn cache_incoming_for_message(
+    client: &Client,
+    key: &str,
+    store: &mut Store,
+    message: &Message,
+) -> Result<(), String> {
+    let items = live_incoming_attachments(client, key, &message.group_id, &message.message_number)?;
+    for item in items {
+        if store.incoming_attachments.iter().any(|saved| {
+            saved.id == item.id
+                && saved.group_id == message.group_id
+                && saved.message_number == message.message_number
+        }) {
+            continue;
+        }
+        let Some(url) = item.url.clone() else {
+            continue;
+        };
+        let response = checked(
+            attachment_get(client, &url)
+                .send()
+                .map_err(|e| format!("Groups.io attachment download failed: {e}"))?,
+        )?;
+        let media_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or(&item.media_type)
+            .to_string();
+        let bytes = match read_limited_response(
+            response,
+            store.settings.maximum_attachment_bytes,
+            "Groups.io attachment",
+        ) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        write_private_file(
+            &incoming_attachment_path(&message.group_id, &message.message_number, &item.id),
+            &bytes,
+        )?;
+        store.incoming_attachments.push(IncomingAttachment {
+            id: item.id,
+            group_id: message.group_id.clone(),
+            message_number: message.message_number.clone(),
+            filename: item.filename,
+            media_type,
+            byte_size: bytes.len() as u64,
+            cached: true,
+            created_unix: now(),
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn groups_io_incoming_attachments(
+    group_id: String,
+    message_number: String,
+) -> Result<Vec<RemoteAttachment>, String> {
+    let store = read_store()?;
+    let cached: Vec<IncomingAttachment> = store
+        .incoming_attachments
+        .iter()
+        .filter(|item| item.group_id == group_id && item.message_number == message_number)
+        .cloned()
+        .collect();
+    if !has_key() || !store.settings.enabled {
+        return Ok(cached
+            .into_iter()
+            .map(|item| RemoteAttachment {
+                id: item.id,
+                filename: item.filename,
+                media_type: item.media_type,
+                byte_size: item.byte_size,
+                cached: true,
+                ..RemoteAttachment::default()
+            })
+            .collect());
+    }
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let mut live = live_incoming_attachments(&client()?, &api_key()?, &group_id, &message_number)?;
+    for item in &mut live {
+        item.cached = cached.iter().any(|saved| saved.id == item.id);
+    }
+    for saved in cached {
+        if !live.iter().any(|item| item.id == saved.id) {
+            live.push(RemoteAttachment {
+                id: saved.id,
+                filename: saved.filename,
+                media_type: saved.media_type,
+                byte_size: saved.byte_size,
+                cached: true,
+                ..RemoteAttachment::default()
+            });
+        }
+    }
+    Ok(live)
+}
+
+#[tauri::command(async)]
+pub fn groups_io_download_incoming_attachment(
+    group_id: String,
+    message_number: String,
+    attachment_id: String,
+    preview: bool,
+) -> Result<FilePayload, String> {
+    let mut store = read_store()?;
+    if let Some(saved) = store
+        .incoming_attachments
+        .iter()
+        .find(|item| {
+            item.id == attachment_id
+                && item.group_id == group_id
+                && item.message_number == message_number
+        })
+        .cloned()
+    {
+        let bytes = fs::read(incoming_attachment_path(
+            &saved.group_id,
+            &saved.message_number,
+            &saved.id,
+        ))
+        .map_err(|e| format!("couldn't read the cached Groups.io attachment: {e}"))?;
+        return Ok(FilePayload {
+            filename: saved.filename,
+            media_type: saved.media_type,
+            byte_size: bytes.len() as u64,
+            bytes,
+        });
+    }
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let client = client()?;
+    let items = live_incoming_attachments(&client, &api_key()?, &group_id, &message_number)?;
+    let item = items
+        .into_iter()
+        .find(|item| item.id == attachment_id)
+        .ok_or_else(|| "Groups.io attachment was not found".to_string())?;
+    let url = if preview {
+        item.preview_url.clone().or(item.url.clone())
+    } else {
+        item.url.clone()
+    }
+    .ok_or_else(|| "Groups.io attachment URL is unavailable".to_string())?;
+    if !url.starts_with("https://") {
+        return Err("Groups.io attachment URL must use HTTPS".into());
+    }
+    let response = checked(
+        attachment_get(&client, &url)
+            .send()
+            .map_err(|e| format!("Groups.io attachment download failed: {e}"))?,
+    )?;
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or(&item.media_type)
+        .to_string();
+    let limit = if preview {
+        8 * 1024 * 1024
+    } else {
+        store.settings.maximum_attachment_bytes as usize
+    };
+    let bytes = read_limited_response(response, limit as u64, "Groups.io attachment")?;
+    if !preview {
+        write_private_file(
+            &incoming_attachment_path(&group_id, &message_number, &item.id),
+            &bytes,
+        )?;
+        upsert(
+            &mut store.incoming_attachments,
+            IncomingAttachment {
+                id: item.id.clone(),
+                group_id,
+                message_number,
+                filename: item.filename.clone(),
+                media_type: content_type.clone(),
+                byte_size: bytes.len() as u64,
+                cached: true,
+                created_unix: now(),
+            },
+            |a, b| a.id == b.id && a.group_id == b.group_id && a.message_number == b.message_number,
+        );
+        write_store(&store)?;
+    }
+    Ok(FilePayload {
+        filename: item.filename,
+        media_type: content_type,
+        byte_size: bytes.len() as u64,
+        bytes,
+    })
+}
+
+#[tauri::command(async)]
+pub fn groups_io_official_archive(
+    group_id: String,
+    start_message_number: Option<String>,
+) -> Result<FilePayload, String> {
+    let _network = NETWORK_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io operation is already running".to_string())?;
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("RD-Nexus/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|_| "could not create the Groups.io archive client")?;
+    let mut query = vec![("group_id", group_id.clone())];
+    if let Some(start) = start_message_number.filter(|value| !value.trim().is_empty()) {
+        query.push(("start_msg_num", start));
+    }
+    let response = checked(
+        client
+            .get(format!("{API_BASE}/downloadarchives"))
+            .header(AUTHORIZATION, bearer(&api_key()?))
+            .query(&query)
+            .send()
+            .map_err(|e| format!("Groups.io official archive download failed: {e}"))?,
+    )?;
+    let media_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/zip")
+        .to_string();
+    let bytes = read_limited_response(
+        response,
+        MAX_OFFICIAL_ARCHIVE_BYTES,
+        "Groups.io official archive",
+    )?;
+    Ok(FilePayload {
+        filename: format!("groupsio-{group_id}-archive.zip"),
+        media_type,
+        byte_size: bytes.len() as u64,
+        bytes,
+    })
 }
 
 #[tauri::command(async)]
@@ -917,45 +1892,156 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
     if draft.subject.trim().is_empty() || draft.body.trim().is_empty() {
         return Err("A Groups.io subject and message are required".into());
     }
-    draft.state = "creating_remote".into();
-    store.drafts[index] = draft.clone();
-    write_store(&store)?;
-    let kind = if draft.kind == "reply" {
-        "reply"
-    } else {
-        "post"
+    let fail = |store: &mut Store, index: usize, draft: &mut Draft, error: String| {
+        draft.state = "failed_retryable".into();
+        draft.note = error.clone();
+        draft.updated_unix = now();
+        store.drafts[index] = draft.clone();
+        let _ = write_store(store);
+        error
     };
-    let mut create = vec![
-        ("group_id", draft.group_id.clone()),
-        ("draft_type", format!("draft_type_{kind}")),
-    ];
-    if let Some(message_id) = draft.reply_api_message_id.clone().filter(|v| !v.is_empty()) {
-        create.push(("message_id", message_id));
-    }
-    let created = post(&client, &key, "/newdraft", &create)?;
-    let remote_id = text(&created, &["draft_id", "id"]);
-    if remote_id.is_empty() {
-        return Err("Groups.io did not return a draft id".into());
-    }
+    let remote_id = if let Some(existing) = draft
+        .remote_draft_id
+        .clone()
+        .filter(|value| !value.is_empty())
+    {
+        existing
+    } else {
+        draft.state = "creating_remote".into();
+        store.drafts[index] = draft.clone();
+        write_store(&store)?;
+        let kind = if draft.kind == "reply" {
+            "reply"
+        } else {
+            "post"
+        };
+        let mut create = vec![
+            ("group_id", draft.group_id.clone()),
+            ("draft_type", format!("draft_type_{kind}")),
+        ];
+        if draft.kind == "reply" {
+            let mut message_id = draft.reply_api_message_id.clone().unwrap_or_default();
+            if message_id.is_empty() {
+                let message_number = draft.reply_message_number.clone().unwrap_or_default();
+                let fetched = get(
+                    &client,
+                    &key,
+                    "/getmessage",
+                    &[
+                        ("group_id", draft.group_id.clone()),
+                        ("msg_num", message_number),
+                    ],
+                )
+                .map_err(|error| fail(&mut store, index, &mut draft, error))?;
+                let provider = field(&fetched, &["message", "data"]).unwrap_or(&fetched);
+                message_id = text(provider, &["id", "message_id"]);
+            }
+            if message_id.is_empty() {
+                return Err(fail(
+                    &mut store,
+                    index,
+                    &mut draft,
+                    "Groups.io reply message id is unavailable".into(),
+                ));
+            }
+            create.push(("message_id", message_id));
+        }
+        let created = post(&client, &key, "/newdraft", &create)
+            .map_err(|error| fail(&mut store, index, &mut draft, error))?;
+        let created_id = text(&created, &["draft_id", "id"]);
+        if created_id.is_empty() {
+            return Err(fail(
+                &mut store,
+                index,
+                &mut draft,
+                "Groups.io did not return a draft id".into(),
+            ));
+        }
+        created_id
+    };
     draft.remote_draft_id = Some(remote_id.clone());
     draft.state = "updating_remote".into();
     store.drafts[index] = draft.clone();
     write_store(&store)?;
-    post(
+    if let Err(error) = post(
         &client,
         &key,
         "/updatedraft",
         &[
             ("draft_id", remote_id.clone()),
             ("subject", draft.subject.clone()),
-            ("body", draft.body.clone()),
+            ("body", safe_html(&draft.body)),
+            ("body_type", "html".into()),
             ("reply_to", draft.reply_destination.clone()),
         ],
-    )?;
+    ) {
+        return Err(fail(&mut store, index, &mut draft, error));
+    }
+    let outgoing: Vec<Attachment> = store
+        .attachments
+        .iter()
+        .filter(|attachment| attachment.draft_id == draft.id && attachment.remote_id.is_none())
+        .cloned()
+        .collect();
+    for attachment in outgoing {
+        draft.state = "uploading".into();
+        store.drafts[index] = draft.clone();
+        write_store(&store)?;
+        let bytes = fs::read(outgoing_attachment_path(&attachment.id)).map_err(|error| {
+            fail(
+                &mut store,
+                index,
+                &mut draft,
+                format!("couldn't read the queued Groups.io attachment: {error}"),
+            )
+        })?;
+        let part = multipart::Part::bytes(bytes)
+            .file_name(attachment.filename.clone())
+            .mime_str(&attachment.media_type)
+            .map_err(|_| {
+                fail(
+                    &mut store,
+                    index,
+                    &mut draft,
+                    "Groups.io attachment media type is invalid".into(),
+                )
+            })?;
+        let form = multipart::Form::new()
+            .text("draft_id", remote_id.clone())
+            .text("inline", "false")
+            .part("fileupload", part);
+        let uploaded = post_multipart(&client, &key, "/uploadattachments", form)
+            .map_err(|error| fail(&mut store, index, &mut draft, error))?;
+        let confirmation = rows(&uploaded)
+            .into_iter()
+            .find(|value| text(value, &["filename"]) == attachment.filename)
+            .or_else(|| rows(&uploaded).into_iter().next());
+        let remote_attachment_id = confirmation
+            .as_ref()
+            .map(|value| text(value, &["id", "attachment_id"]))
+            .unwrap_or_default();
+        if remote_attachment_id.is_empty() {
+            return Err(fail(
+                &mut store,
+                index,
+                &mut draft,
+                "Groups.io did not confirm the attachment upload".into(),
+            ));
+        }
+        if let Some(saved) = store
+            .attachments
+            .iter_mut()
+            .find(|value| value.id == attachment.id)
+        {
+            saved.remote_id = Some(remote_attachment_id);
+            saved.upload_state = "uploaded".into();
+        }
+        write_store(&store)?;
+    }
     draft.state = "posting".into();
     store.drafts[index] = draft.clone();
     write_store(&store)?;
-    match post(&client, &key, "/postdraft", &[("draft_id", remote_id)]) {
+    match post_final(&client, &key, remote_id) {
         Ok(value) => {
             draft.state = if text(&value, &["extra"]).to_lowercase().contains("pending") {
                 "pending_moderation".into()
@@ -967,13 +2053,10 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
             store.drafts.remove(index);
             store.outbox.push(draft);
         }
-        Err(error) => {
-            draft.state = "delivery_unknown".into();
-            draft.note = format!("Delivery must be reconciled before retry: {error}");
-            draft.updated_unix = now();
-            store.drafts[index] = draft;
+        Err(failure) => {
+            let error = record_final_post_failure(&mut store, index, draft, failure);
             write_store(&store)?;
-            return Err("Groups.io delivery is unknown; inspect recent messages and server drafts before retrying".into());
+            return Err(error);
         }
     }
     write_store(&store)?;
@@ -989,6 +2072,7 @@ pub fn groups_io_archive(group_id: String, range_days: Option<u32>) -> Result<St
     let key = api_key()?;
     let client = client()?;
     let mut store = read_store()?;
+    let cutoff = range_days.map(|days| now().saturating_sub(u64::from(days) * 86_400));
     let mut token = if store.archive.group_id.as_deref() == Some(group_id.as_str())
         && store.archive.range_days == range_days
     {
@@ -1015,21 +2099,40 @@ pub fn groups_io_archive(group_id: String, range_days: Option<u32>) -> Result<St
         let mut params = vec![
             ("group_id", group_id.clone()),
             ("limit", "100".into()),
-            ("sort_dir", "asc".into()),
+            ("sort_dir", "desc".into()),
         ];
         if let Some(value) = token.clone() {
             params.push(("page_token", value));
         }
-        let root = get(&client, &key, "/getmessages", &params)?;
+        let root = match get(&client, &key, "/getmessages", &params) {
+            Ok(root) => root,
+            Err(error) => {
+                store.archive.state = "failed".into();
+                store.archive.message = error.clone();
+                write_store(&store)?;
+                return Err(error);
+            }
+        };
         let values = rows(&root);
+        let mut reached_cutoff = false;
         for message in values.iter().filter_map(|v| {
             let topic = text(v, &["topic_id"]);
             message_from(&group_id, &topic, v)
         }) {
+            if cutoff
+                .is_some_and(|minimum| message.created_unix > 0 && message.created_unix < minimum)
+            {
+                reached_cutoff = true;
+                break;
+            }
             upsert(&mut store.messages, message, |a, b| a.id == b.id);
             store.archive.downloaded += 1;
         }
-        token = next_token(&root);
+        token = if reached_cutoff {
+            None
+        } else {
+            next_token(&root)
+        };
         store.archive.page_token = token.clone();
         write_store(&store)?;
         if token.is_none() || store.archive.downloaded >= store.settings.default_archive_depth {
@@ -1060,6 +2163,14 @@ pub fn groups_io_pause_archive() -> Result<Status, String> {
 #[tauri::command(async)]
 pub fn groups_io_clear_cache(delete_all: bool) -> Result<Status, String> {
     let mut store = read_store()?;
+    for attachment in &store.incoming_attachments {
+        let _ = fs::remove_file(incoming_attachment_path(
+            &attachment.group_id,
+            &attachment.message_number,
+            &attachment.id,
+        ));
+    }
+    store.incoming_attachments.clear();
     store.groups.clear();
     store.topics.clear();
     store.messages.clear();
@@ -1068,6 +2179,10 @@ pub fn groups_io_clear_cache(delete_all: bool) -> Result<Status, String> {
     store.archive = ArchiveState::default();
     store.new_message_ids.clear();
     if delete_all {
+        for attachment in &store.attachments {
+            let _ = fs::remove_file(outgoing_attachment_path(&attachment.id));
+        }
+        store.attachments.clear();
         store.drafts.clear();
         store.outbox.clear();
     }
@@ -1093,10 +2208,17 @@ mod tests {
 
     #[test]
     fn defaults_are_foreground_only_and_do_not_contain_a_credential() {
-        let encoded = serde_json::to_string(&Store::default()).unwrap();
+        let mut store = Store::default();
+        store.drafts.push(Draft {
+            body: "positive-control-visible-content".into(),
+            ..Draft::default()
+        });
+        let encoded = serde_json::to_string(&store).unwrap();
         assert!(GroupsIoSettings::default().refresh_on_open);
+        assert!(encoded.contains("positive-control-visible-content"));
         assert!(!encoded.to_lowercase().contains("api_key"));
         assert!(!encoded.to_lowercase().contains("apikey"));
+        assert!(!encoded.contains("sentinel-user-api-secret"));
     }
 
     #[test]
@@ -1151,5 +2273,89 @@ mod tests {
         .unwrap();
         assert_eq!(message.id, "7:11");
         assert_eq!(message.body, "Safe");
+        assert_eq!(
+            parse_unix(&json!({"created":"2026-09-27T12:00:00Z"})),
+            1_790_510_400
+        );
+    }
+
+    #[test]
+    fn untrusted_attachment_ids_never_become_path_components() {
+        let root = files_dir().join("incoming");
+        for id in [
+            "../settings.json",
+            "/tmp/escape",
+            r"..\escape",
+            "..∕escape",
+            "..⁄escape",
+        ] {
+            let path = incoming_attachment_path("../group", "/message", id);
+            assert_eq!(path.parent(), Some(root.as_path()));
+            let name = path.file_name().and_then(|value| value.to_str()).unwrap();
+            assert_eq!(name.len(), 64);
+            assert!(name.chars().all(|value| value.is_ascii_hexdigit()));
+        }
+        let poisoned = IncomingAttachment {
+            id: "../../groupsio.json".into(),
+            group_id: "/absolute".into(),
+            message_number: r"..\message".into(),
+            ..IncomingAttachment::default()
+        };
+        let path =
+            incoming_attachment_path(&poisoned.group_id, &poisoned.message_number, &poisoned.id);
+        assert!(path.starts_with(root));
+    }
+
+    #[test]
+    fn streaming_limit_rejects_declared_missing_and_lying_lengths() {
+        let payload = vec![7_u8; 17];
+        assert!(read_limited(payload.as_slice(), Some(17), 16, "payload").is_err());
+        assert!(read_limited(payload.as_slice(), None, 16, "payload").is_err());
+        assert!(read_limited(payload.as_slice(), Some(4), 16, "payload").is_err());
+        assert_eq!(
+            read_limited(&payload[..16], None, 16, "payload")
+                .unwrap()
+                .len(),
+            16
+        );
+    }
+
+    #[test]
+    fn attachment_requests_never_carry_the_groups_io_bearer() {
+        let request = attachment_get(&client().unwrap(), "https://attachments.example/file")
+            .build()
+            .unwrap();
+        assert!(!request.headers().contains_key(AUTHORIZATION));
+    }
+
+    #[test]
+    fn final_post_failures_distinguish_retryable_from_delivery_unknown() {
+        let draft = Draft {
+            id: "draft-1".into(),
+            state: "posting".into(),
+            ..Draft::default()
+        };
+        let mut deterministic = Store::default();
+        deterministic.drafts.push(draft.clone());
+        let error = record_final_post_failure(
+            &mut deterministic,
+            0,
+            draft.clone(),
+            FinalPostError::Deterministic("HTTP 422".into()),
+        );
+        assert_eq!(error, "HTTP 422");
+        assert_eq!(deterministic.drafts[0].state, "failed_retryable");
+
+        let mut ambiguous = Store::default();
+        ambiguous.drafts.push(draft.clone());
+        let error = record_final_post_failure(
+            &mut ambiguous,
+            0,
+            draft,
+            FinalPostError::Ambiguous("connection closed after send".into()),
+        );
+        assert!(error.contains("delivery is unknown"));
+        assert_eq!(ambiguous.drafts[0].state, "delivery_unknown");
+        assert!(ambiguous.drafts[0].note.contains("reconciled before retry"));
     }
 }

@@ -3060,6 +3060,46 @@ export interface GroupsIoDraft {
   updatedUnix: number
 }
 
+export interface GroupsIoAttachment {
+  id: string
+  draftId: string
+  filename: string
+  mediaType: string
+  byteSize: number
+  sha256: string
+  remoteId: string | null
+  uploadState: string
+  createdUnix: number
+}
+
+export interface GroupsIoRemoteAttachment {
+  id: string
+  filename: string
+  mediaType: string
+  byteSize: number
+  url: string | null
+  previewUrl: string | null
+  cached: boolean
+}
+
+export interface GroupsIoServerDraft {
+  id: string
+  groupId: string
+  kind: string
+  messageId: string
+  subject: string
+  body: string
+  attachmentCount: number
+  updatedUnix: number
+}
+
+export interface GroupsIoFilePayload {
+  filename: string
+  mediaType: string
+  byteSize: number
+  bytes: number[]
+}
+
 export interface GroupsIoStatus {
   enabled: boolean
   connected: boolean
@@ -3067,7 +3107,7 @@ export interface GroupsIoStatus {
   endpoint: string
   providerState: string
   deliveryPolicy: string
-  counts: { groups: number; topics: number; messages: number; drafts: number; outbox: number }
+  counts: { groups: number; topics: number; messages: number; drafts: number; outbox: number; files: number }
   storageBytes: number
   settings: GroupsIoSettings
   lastSyncUnix: number
@@ -3098,6 +3138,10 @@ export const connectGroupsIo = (apiKey: string): Promise<GroupsIoStatus> =>
 export const disconnectGroupsIo = (): Promise<GroupsIoStatus> => invoke('groups_io_disconnect')
 export const syncGroupsIo = (groupId?: string): Promise<GroupsIoStatus> =>
   invoke('groups_io_sync', { groupId: groupId ?? null })
+export const loadOlderGroupsIoTopics = (groupId: string, pageToken?: string): Promise<GroupsIoStatus> =>
+  invoke('groups_io_load_older_topics', { groupId, pageToken: pageToken ?? null })
+export const loadMoreGroupsIoMessages = (groupId: string, topicId: string, pageToken?: string): Promise<GroupsIoStatus> =>
+  invoke('groups_io_load_more_messages', { groupId, topicId, pageToken: pageToken ?? null })
 export const searchGroupsIo = (
   groupId: string,
   query: string,
@@ -3109,6 +3153,28 @@ export const saveGroupsIoDraft = (draft: GroupsIoDraft): Promise<GroupsIoStatus>
   invoke('groups_io_save_draft', { draft })
 export const deleteGroupsIoDraft = (id: string): Promise<GroupsIoStatus> =>
   invoke('groups_io_delete_draft', { id })
+export const queueGroupsIoDraft = (id: string): Promise<GroupsIoStatus> =>
+  invoke('groups_io_queue_draft', { id })
+export const getGroupsIoDraftAttachments = (draftId: string): Promise<GroupsIoAttachment[]> =>
+  invoke('groups_io_draft_attachments', { draftId })
+export const addGroupsIoAttachment = (draftId: string, filename: string, mediaType: string, bytes: number[]): Promise<GroupsIoAttachment[]> =>
+  invoke('groups_io_add_attachment', { draftId, filename, mediaType, bytes })
+export const removeGroupsIoAttachment = (draftId: string, attachmentId: string): Promise<GroupsIoAttachment[]> =>
+  invoke('groups_io_remove_attachment', { draftId, attachmentId })
+export const getGroupsIoServerDrafts = (pageToken?: string): Promise<{ items: GroupsIoServerDraft[]; nextPageToken: string | null }> =>
+  invoke('groups_io_server_drafts', { pageToken: pageToken ?? null })
+export const getGroupsIoServerDraftAttachments = (draftId: string): Promise<GroupsIoRemoteAttachment[]> =>
+  invoke('groups_io_server_draft_attachments', { draftId })
+export const deleteGroupsIoServerDraft = (draftId: string): Promise<void> =>
+  invoke('groups_io_delete_server_draft', { draftId })
+export const deleteGroupsIoServerAttachment = (draftId: string, attachmentId: string): Promise<void> =>
+  invoke('groups_io_delete_server_attachment', { draftId, attachmentId })
+export const getGroupsIoIncomingAttachments = (groupId: string, messageNumber: string): Promise<GroupsIoRemoteAttachment[]> =>
+  invoke('groups_io_incoming_attachments', { groupId, messageNumber })
+export const downloadGroupsIoIncomingAttachment = (groupId: string, messageNumber: string, attachmentId: string, preview: boolean): Promise<GroupsIoFilePayload> =>
+  invoke('groups_io_download_incoming_attachment', { groupId, messageNumber, attachmentId, preview })
+export const downloadGroupsIoOfficialArchive = (groupId: string, startMessageNumber?: string): Promise<GroupsIoFilePayload> =>
+  invoke('groups_io_official_archive', { groupId, startMessageNumber: startMessageNumber ?? null })
 export const sendGroupsIoDraft = (id: string, confirmed: boolean): Promise<GroupsIoStatus> =>
   invoke('groups_io_send_draft', { id, confirmed })
 export const archiveGroupsIo = (groupId: string, rangeDays: number | null): Promise<GroupsIoStatus> =>
