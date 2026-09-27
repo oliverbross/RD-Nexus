@@ -400,7 +400,8 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .map_err(|e| format!("couldn't sync the Groups.io attachment: {e}"))?;
     file.persist(path)
         .map(|_| ())
-        .map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))
+        .map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))?;
+    sync_parent(parent, "Groups.io attachment")
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -463,6 +464,29 @@ fn store_transaction() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|error| error.into_inner())
 }
 
+fn try_store_transaction() -> Result<MutexGuard<'static, ()>, String> {
+    STORE_TRANSACTION_LOCK
+        .try_lock()
+        .map_err(|_| "another Groups.io state operation is already running".to_string())
+}
+
+fn sync_parent(parent: &Path, label: &str) -> Result<(), String> {
+    #[cfg(windows)]
+    let directory = {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_BACKUP_SEMANTICS is required to open a directory handle on Windows.
+        fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(0x0200_0000)
+            .open(parent)
+    };
+    #[cfg(not(windows))]
+    let directory = fs::File::open(parent);
+    directory
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("couldn't sync the {label} directory: {error}"))
+}
+
 fn mutate_store_at<T>(
     path: &Path,
     mutation: impl FnOnce(&mut Store) -> Result<T, String>,
@@ -519,7 +543,8 @@ fn write_store_to(path: &Path, store: &Store) -> Result<(), String> {
         .map_err(|e| format!("couldn't sync Groups.io local data: {e}"))?;
     file.persist(path)
         .map(|_| ())
-        .map_err(|e| format!("couldn't commit Groups.io local data: {e}"))
+        .map_err(|e| format!("couldn't commit Groups.io local data: {e}"))?;
+    sync_parent(parent, "Groups.io data")
 }
 
 fn write_store(store: &Store) -> Result<(), String> {
@@ -742,11 +767,19 @@ fn post_final(client: &Client, key: &str, draft_id: String) -> Result<Value, Fin
         .send()
         .map_err(|e| FinalPostError::Ambiguous(format!("Groups.io request failed: {e}")))?;
     if !response.status().is_success() {
-        return Err(FinalPostError::Deterministic(
-            checked(response).unwrap_err(),
-        ));
+        let status = response.status();
+        let detail = checked(response).unwrap_err();
+        return Err(classify_final_post_status(status.as_u16(), detail));
     }
     response_json(response).map_err(FinalPostError::Ambiguous)
+}
+
+fn classify_final_post_status(status: u16, detail: String) -> FinalPostError {
+    if (400..500).contains(&status) && !matches!(status, 408 | 425 | 429) {
+        FinalPostError::Deterministic(detail)
+    } else {
+        FinalPostError::Ambiguous(detail)
+    }
 }
 
 fn begin_final_post(store: &mut Store, index: usize, mut draft: Draft, remote_id: &str) -> Draft {
@@ -781,6 +814,62 @@ fn complete_final_post(store: &mut Store, index: usize, mut draft: Draft, respon
 
 fn requires_delivery_reconciliation(draft: &Draft) -> bool {
     matches!(draft.state.as_str(), "posting" | "delivery_unknown")
+}
+
+fn ensure_draft_mutable(store: &Store, draft_id: &str) -> Result<(), String> {
+    let draft = store
+        .drafts
+        .iter()
+        .find(|draft| draft.id == draft_id)
+        .ok_or_else(|| "Save the Groups.io draft before changing it".to_string())?;
+    if requires_delivery_reconciliation(draft) {
+        Err("Reconcile the uncertain Groups.io delivery before changing this draft".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn merge_saved_draft(store: &mut Store, draft: Draft) -> Result<(), String> {
+    if let Some(saved) = store.drafts.iter_mut().find(|saved| saved.id == draft.id) {
+        if requires_delivery_reconciliation(saved) {
+            return Err(
+                "Reconcile the uncertain Groups.io delivery before editing this draft".into(),
+            );
+        }
+        saved.group_id = draft.group_id;
+        saved.topic_id = draft.topic_id;
+        saved.reply_message_number = draft.reply_message_number;
+        saved.reply_api_message_id = draft.reply_api_message_id;
+        saved.kind = draft.kind;
+        saved.subject = draft.subject;
+        saved.body = draft.body;
+        saved.reply_destination = draft.reply_destination;
+        saved.updated_unix = draft.updated_unix;
+    } else {
+        store.drafts.push(draft);
+    }
+    Ok(())
+}
+
+fn message_within_lookback(message: &Message, cutoff: u64) -> bool {
+    message.created_unix == 0 || message.created_unix >= cutoff
+}
+
+fn normalize_new_message_ids(ids: &mut Vec<String>) {
+    let mut seen = HashSet::new();
+    ids.retain(|id| seen.insert(id.clone()));
+    if ids.len() > 20 {
+        ids.drain(..ids.len() - 20);
+    }
+}
+
+fn uncertain_draft_ids(store: &Store) -> HashSet<String> {
+    store
+        .drafts
+        .iter()
+        .filter(|draft| requires_delivery_reconciliation(draft))
+        .map(|draft| draft.id.clone())
+        .collect()
 }
 
 fn safe_html(input: &str) -> String {
@@ -1147,6 +1236,7 @@ fn sync_group_with(
         .filter(|m| m.group_id == group_id)
         .map(|m| m.id.clone())
         .collect();
+    let lookback_cutoff = now().saturating_sub(u64::from(policy.lookback_days) * 86_400);
     let mut attachment_messages = Vec::new();
     for topic_value in topics.iter().take(MAX_TOPICS_PER_GROUP) {
         let Some(topic) = topic_from(group_id, topic_value) else {
@@ -1174,6 +1264,7 @@ fn sync_group_with(
         for message in rows(&messages_root)
             .iter()
             .filter_map(|v| message_from(group_id, &topic_id, v))
+            .filter(|message| message_within_lookback(message, lookback_cutoff))
             .take(policy.maximum_messages)
         {
             if !prior.is_empty() && !prior.contains(&message.id) {
@@ -1209,13 +1300,7 @@ fn sync_group_with(
     store
         .messages
         .retain(|message| message.group_id != group_id || keep.contains(&message.id));
-    store.new_message_ids.sort();
-    store.new_message_ids.dedup();
-    if store.new_message_ids.len() > 20 {
-        store
-            .new_message_ids
-            .drain(..store.new_message_ids.len() - 20);
-    }
+    normalize_new_message_ids(&mut store.new_message_ids);
     if let Some(group) = store.groups.iter_mut().find(|g| g.id == group_id) {
         group.last_sync_unix = now();
     }
@@ -1280,6 +1365,9 @@ pub fn groups_io_sync(group_id: Option<String>) -> Result<Status, String> {
     let key = api_key()?;
     let client = client()?;
     let mut store = read_store()?;
+    if group_id.is_none() {
+        store.new_message_ids.clear();
+    }
     if let Some(id) = group_id.filter(|id| !id.trim().is_empty()) {
         sync_group_with(&mut store, &client, &key, id.trim())?;
     } else {
@@ -1485,19 +1573,7 @@ pub fn groups_io_save_draft(mut draft: Draft) -> Result<Status, String> {
     if draft.state.is_empty() {
         draft.state = "draft_local".into();
     }
-    let (store, ()) = mutate_store(|store| {
-        if store
-            .drafts
-            .iter()
-            .any(|saved| saved.id == draft.id && requires_delivery_reconciliation(saved))
-        {
-            return Err(
-                "Reconcile the uncertain Groups.io delivery before editing this draft".into(),
-            );
-        }
-        upsert(&mut store.drafts, draft, |a, b| a.id == b.id);
-        Ok(())
-    })?;
+    let (store, ()) = mutate_store(|store| merge_saved_draft(store, draft))?;
     Ok(status_for(store))
 }
 
@@ -1572,9 +1648,7 @@ pub fn groups_io_add_attachment(
 ) -> Result<Vec<Attachment>, String> {
     let _transaction = store_transaction();
     let mut store = read_store()?;
-    if !store.drafts.iter().any(|draft| draft.id == draft_id) {
-        return Err("Save the Groups.io draft before adding attachments".into());
-    }
+    ensure_draft_mutable(&store, &draft_id)?;
     if bytes.is_empty() || bytes.len() as u64 > store.settings.maximum_attachment_bytes {
         return Err(format!(
             "Groups.io attachment exceeds the configured {} byte limit",
@@ -1636,6 +1710,7 @@ pub fn groups_io_remove_attachment(
 ) -> Result<Vec<Attachment>, String> {
     let _transaction = store_transaction();
     let mut store = read_store()?;
+    ensure_draft_mutable(&store, &draft_id)?;
     let attachment = store
         .attachments
         .iter()
@@ -2238,7 +2313,9 @@ pub fn groups_io_reconcile_draft(id: String, resolution: String) -> Result<Statu
 
 #[tauri::command(async)]
 pub fn groups_io_archive(group_id: String, range_days: Option<u32>) -> Result<Status, String> {
-    let _transaction = store_transaction();
+    // Never queue an archive behind another transaction: a queued start could otherwise clear a
+    // pause signal that belongs to the currently running archive.
+    let _transaction = try_store_transaction()?;
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -2357,11 +2434,20 @@ pub fn groups_io_clear_cache(delete_all: bool) -> Result<Status, String> {
     store.archive = ArchiveState::default();
     store.new_message_ids.clear();
     if delete_all {
-        for attachment in &store.attachments {
+        let protected = uncertain_draft_ids(&store);
+        for attachment in store
+            .attachments
+            .iter()
+            .filter(|attachment| !protected.contains(&attachment.draft_id))
+        {
             let _ = fs::remove_file(outgoing_attachment_path(&attachment.id));
         }
-        store.attachments.clear();
-        store.drafts.clear();
+        store
+            .attachments
+            .retain(|attachment| protected.contains(&attachment.draft_id));
+        store
+            .drafts
+            .retain(|draft| requires_delivery_reconciliation(draft));
         store.outbox.clear();
     }
     write_store(&store)?;
@@ -2537,6 +2623,109 @@ mod tests {
         assert!(error.contains("delivery is unknown"));
         assert_eq!(ambiguous.drafts[0].state, "delivery_unknown");
         assert!(ambiguous.drafts[0].note.contains("reconciled before retry"));
+    }
+
+    #[test]
+    fn final_post_http_boundaries_fail_closed() {
+        assert!(matches!(
+            classify_final_post_status(422, "rejected".into()),
+            FinalPostError::Deterministic(_)
+        ));
+        for status in [408, 425, 429, 500, 502, 503, 504] {
+            assert!(matches!(
+                classify_final_post_status(status, format!("HTTP {status}")),
+                FinalPostError::Ambiguous(_)
+            ));
+        }
+    }
+
+    #[test]
+    fn lookback_filters_old_messages_but_keeps_unknown_dates() {
+        let cutoff = 1_000;
+        assert!(!message_within_lookback(
+            &Message {
+                created_unix: 999,
+                ..Message::default()
+            },
+            cutoff
+        ));
+        assert!(message_within_lookback(
+            &Message {
+                created_unix: 1_000,
+                ..Message::default()
+            },
+            cutoff
+        ));
+        assert!(message_within_lookback(&Message::default(), cutoff));
+    }
+
+    #[test]
+    fn retryable_draft_edit_preserves_remote_identity_and_state() {
+        let mut store = Store::default();
+        store.drafts.push(Draft {
+            id: "draft-1".into(),
+            remote_draft_id: Some("remote-1".into()),
+            state: "failed_retryable".into(),
+            note: "retry".into(),
+            ..Draft::default()
+        });
+        merge_saved_draft(
+            &mut store,
+            Draft {
+                id: "draft-1".into(),
+                subject: "Edited".into(),
+                body: "New body".into(),
+                state: "draft_local".into(),
+                ..Draft::default()
+            },
+        )
+        .unwrap();
+        let saved = &store.drafts[0];
+        assert_eq!(saved.remote_draft_id.as_deref(), Some("remote-1"));
+        assert_eq!(saved.state, "failed_retryable");
+        assert_eq!(saved.subject, "Edited");
+        assert_eq!(saved.body, "New body");
+    }
+
+    #[test]
+    fn uncertain_attempts_are_immutable_and_protected_from_delete_all() {
+        let mut store = posting_store();
+        store.attachments.push(Attachment {
+            id: "file-1".into(),
+            draft_id: "crash-draft".into(),
+            ..Attachment::default()
+        });
+        assert!(ensure_draft_mutable(&store, "crash-draft").is_err());
+        let protected = uncertain_draft_ids(&store);
+        assert!(protected.contains("crash-draft"));
+        store
+            .attachments
+            .retain(|file| protected.contains(&file.draft_id));
+        store
+            .drafts
+            .retain(|draft| requires_delivery_reconciliation(draft));
+        assert_eq!(store.drafts.len(), 1);
+        assert_eq!(store.attachments.len(), 1);
+    }
+
+    #[test]
+    fn archive_start_never_queues_behind_an_existing_transaction() {
+        let transaction = store_transaction();
+        assert!(try_store_transaction().is_err());
+        drop(transaction);
+        assert!(try_store_transaction().is_ok());
+    }
+
+    #[test]
+    fn new_message_ids_keep_provider_order_and_only_the_latest_twenty() {
+        let mut ids = (0..25)
+            .map(|index| format!("m-{index}"))
+            .collect::<Vec<_>>();
+        ids.push("m-24".into());
+        normalize_new_message_ids(&mut ids);
+        assert_eq!(ids.len(), 20);
+        assert_eq!(ids.first().map(String::as_str), Some("m-5"));
+        assert_eq!(ids.last().map(String::as_str), Some("m-24"));
     }
 
     #[test]

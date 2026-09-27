@@ -12,6 +12,8 @@ const api = vi.hoisted(() => ({
   incoming: vi.fn(),
   serverDrafts: vi.fn(),
   reconcile: vi.fn(),
+  saveDraft: vi.fn(),
+  sendDraft: vi.fn(),
 }))
 
 vi.mock('../api', async (importOriginal) => ({
@@ -22,6 +24,8 @@ vi.mock('../api', async (importOriginal) => ({
   getGroupsIoIncomingAttachments: api.incoming,
   getGroupsIoServerDrafts: api.serverDrafts,
   reconcileGroupsIoDraft: api.reconcile,
+  saveGroupsIoDraft: api.saveDraft,
+  sendGroupsIoDraft: api.sendDraft,
   getGroupsIoDraftAttachments: vi.fn(async () => []),
 }))
 
@@ -52,6 +56,7 @@ describe('GroupsIoView', () => {
     vi.clearAllMocks()
     api.serverDrafts.mockResolvedValue({ items: [], nextPageToken: null })
     api.incoming.mockResolvedValue([])
+    api.saveDraft.mockImplementation(async () => status(true))
   })
 
   it('renders the three-pane cached workspace while disconnected', async () => {
@@ -93,5 +98,29 @@ describe('GroupsIoView', () => {
     expect(await screen.findByText('Mark delivered')).toBeTruthy()
     expect(screen.getByText('Mark not delivered / allow retry')).toBeTruthy()
     expect(screen.getByText('Open').hasAttribute('disabled')).toBe(true)
+  })
+
+  it('refreshes native state after an ambiguous final post failure', async () => {
+    const initial = status(true)
+    const uncertain = status(true)
+    uncertain.drafts = [{
+      id: 'draft-new', groupId: 'g1', topicId: null, replyMessageNumber: null,
+      replyApiMessageId: null, remoteDraftId: 'remote-1', finalPostAttemptId: 'post-1',
+      kind: 'new_topic', subject: 'Possibly sent', body: 'Body', replyDestination: '',
+      state: 'delivery_unknown', note: 'Reconcile first', updatedUnix: 2,
+    }]
+    api.getStatus.mockResolvedValueOnce(initial).mockResolvedValue(uncertain)
+    api.saveDraft.mockResolvedValue(initial)
+    api.sendDraft.mockRejectedValue('delivery unknown')
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<GroupsIoView onOpenSettings={() => {}} />)
+    await screen.findByText('Nexus Users')
+    fireEvent.click(screen.getByText('New topic'))
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Possibly sent' } })
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Body' } })
+    fireEvent.click(screen.getByText('Review & send now'))
+    await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByText('Drafts & outbox'))
+    expect(await screen.findByText('Mark delivered')).toBeTruthy()
   })
 })

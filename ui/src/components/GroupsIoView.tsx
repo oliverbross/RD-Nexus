@@ -154,6 +154,10 @@ export function GroupsIoView({ onOpenSettings }: Props) {
       pushToast(t('groupsio.action.complete', { label }), 'success')
       return next
     } catch (error) {
+      // Native state may have advanced even when an operation returns an error (notably an
+      // ambiguous final post). Refresh immediately so reconciliation controls are never hidden
+      // behind stale pre-send state.
+      try { setStatus(await getGroupsIoStatus()) } catch { /* preserve the actionable error */ }
       pushToast(typeof error === 'string' ? error : error instanceof Error ? error.message : t('groupsio.action.failed', { label }), 'error')
       return null
     } finally {

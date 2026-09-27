@@ -109,6 +109,20 @@
 @container app-shell (max-width: 920px) {
   .groupsio-view-header { grid-template-columns: 1fr; }
   .groupsio-header-actions { justify-content: flex-start; }
-  .groupsio-panes { grid-template-columns: minmax(10rem, .7fr) minmax(13rem, 1fr) minmax(19rem, 1.5fr); }
+  .groupsio-panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(12rem, .7fr) minmax(14rem, 1fr) minmax(20rem, 1.5fr);
+    overflow: auto;
+  }
+  .groupsio-pane { min-height: 12rem; border-right: 0; border-bottom: 1px solid var(--border); }
+  .groupsio-pane.messages { min-height: 20rem; border-bottom: 0; }
   .groupsio-settings-overrides article { grid-template-columns: 1fr 1fr; }
+}
+
+@container app-shell (max-width: 560px) {
+  .groupsio-searchbar { align-items: stretch; flex-direction: column; }
+  .groupsio-searchbar label { grid-template-columns: 1fr; }
+  .groupsio-boundary { align-items: flex-start; flex-wrap: wrap; }
+  .groupsio-drafts article { align-items: flex-start; flex-direction: column; }
+  .groupsio-new-preview { top: 1rem; }
 }
