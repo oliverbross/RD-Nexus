@@ -36,6 +36,71 @@ const twilioFields = [
   { key: 'accountSid', labelKey: 'dxChaser.twilio.accountSid' }, { key: 'authToken', labelKey: 'dxChaser.twilio.authToken' }, { key: 'fromNumber', labelKey: 'dxChaser.twilio.fromNumber' }, { key: 'toNumber', labelKey: 'dxChaser.twilio.toNumber' },
 ] as const
 
+// Keep these calls literal so the catalog/call-site guard can prove every placeholder contract.
+// The field arrays remain data-driven, but no computed `t(labelKey)` call hides them from CI.
+const DX_CHASER_LABELS: Partial<Record<TranslationKey, () => string>> = {
+  'dxChaser.autoBand': () => t('dxChaser.autoBand'),
+  'dxChaser.dxcc.all': () => t('dxChaser.dxcc.all'),
+  'dxChaser.dxcc.spottedUnworked': () => t('dxChaser.dxcc.spottedUnworked'),
+  'dxChaser.dxcc.unworked': () => t('dxChaser.dxcc.unworked'),
+  'dxChaser.dxcc.worked': () => t('dxChaser.dxcc.worked'),
+  'dxChaser.feed.usSpottersOnly': () => t('dxChaser.feed.usSpottersOnly'),
+  'dxChaser.feed.useDxCluster': () => t('dxChaser.feed.useDxCluster'),
+  'dxChaser.feed.usePskReporter': () => t('dxChaser.feed.usePskReporter'),
+  'dxChaser.feed.useRbn': () => t('dxChaser.feed.useRbn'),
+  'dxChaser.field.atnoCooldownSecs': () => t('dxChaser.field.atnoCooldownSecs'),
+  'dxChaser.field.atnoHardMaxCycles': () => t('dxChaser.field.atnoHardMaxCycles'),
+  'dxChaser.field.cooldownSecs': () => t('dxChaser.field.cooldownSecs'),
+  'dxChaser.field.crossBandAlertCooldownSecs': () => t('dxChaser.field.crossBandAlertCooldownSecs'),
+  'dxChaser.field.decodeHistoryRetentionCycles': () => t('dxChaser.field.decodeHistoryRetentionCycles'),
+  'dxChaser.field.decodeTtlSecs': () => t('dxChaser.field.decodeTtlSecs'),
+  'dxChaser.field.deferredPounceExpireSecs': () => t('dxChaser.field.deferredPounceExpireSecs'),
+  'dxChaser.field.enabled': () => t('dxChaser.field.enabled'),
+  'dxChaser.field.hunterMode': () => t('dxChaser.field.hunterMode'),
+  'dxChaser.field.hysteresis': () => t('dxChaser.field.hysteresis'),
+  'dxChaser.field.localVerificationSecs': () => t('dxChaser.field.localVerificationSecs'),
+  'dxChaser.field.maxDeferredPounces': () => t('dxChaser.field.maxDeferredPounces'),
+  'dxChaser.field.minDwellSecs': () => t('dxChaser.field.minDwellSecs'),
+  'dxChaser.field.minExternalSpotters': () => t('dxChaser.field.minExternalSpotters'),
+  'dxChaser.field.minSnr': () => t('dxChaser.field.minSnr'),
+  'dxChaser.field.missedCycles': () => t('dxChaser.field.missedCycles'),
+  'dxChaser.field.nonstandardQsyCooldownSecs': () => t('dxChaser.field.nonstandardQsyCooldownSecs'),
+  'dxChaser.field.nonstandardThresholdHz': () => t('dxChaser.field.nonstandardThresholdHz'),
+  'dxChaser.field.pounceCooldownSecs': () => t('dxChaser.field.pounceCooldownSecs'),
+  'dxChaser.field.quietSpotThreshold': () => t('dxChaser.field.quietSpotThreshold'),
+  'dxChaser.field.scarceMissedCycles': () => t('dxChaser.field.scarceMissedCycles'),
+  'dxChaser.field.scarceMode': () => t('dxChaser.field.scarceMode'),
+  'dxChaser.field.scarceThreshold': () => t('dxChaser.field.scarceThreshold'),
+  'dxChaser.field.scoreCallingMe': () => t('dxChaser.field.scoreCallingMe'),
+  'dxChaser.field.scoreCq': () => t('dxChaser.field.scoreCq'),
+  'dxChaser.field.scoreNewBand': () => t('dxChaser.field.scoreNewBand'),
+  'dxChaser.field.scoreNewDxcc': () => t('dxChaser.field.scoreNewDxcc'),
+  'dxChaser.field.scoreNewGrid': () => t('dxChaser.field.scoreNewGrid'),
+  'dxChaser.field.scoreRepeat': () => t('dxChaser.field.scoreRepeat'),
+  'dxChaser.field.scoreSnrPerDb': () => t('dxChaser.field.scoreSnrPerDb'),
+  'dxChaser.field.scoreSpotter': () => t('dxChaser.field.scoreSpotter'),
+  'dxChaser.field.slotMaxHz': () => t('dxChaser.field.slotMaxHz'),
+  'dxChaser.field.slotMinHz': () => t('dxChaser.field.slotMinHz'),
+  'dxChaser.field.slotWidthHz': () => t('dxChaser.field.slotWidthHz'),
+  'dxChaser.field.spotTtlSecs': () => t('dxChaser.field.spotTtlSecs'),
+  'dxChaser.field.timeBasedExclusions': () => t('dxChaser.field.timeBasedExclusions'),
+  'dxChaser.field.txOffsetDeltaHz': () => t('dxChaser.field.txOffsetDeltaHz'),
+  'dxChaser.field.utcOffsetHours': () => t('dxChaser.field.utcOffsetHours'),
+  'dxChaser.nonstandard': () => t('dxChaser.nonstandard'),
+  'dxChaser.ownCountry': () => t('dxChaser.ownCountry'),
+  'dxChaser.twilio.accountSid': () => t('dxChaser.twilio.accountSid'),
+  'dxChaser.twilio.authToken': () => t('dxChaser.twilio.authToken'),
+  'dxChaser.twilio.fromNumber': () => t('dxChaser.twilio.fromNumber'),
+  'dxChaser.twilio.toNumber': () => t('dxChaser.twilio.toNumber'),
+  'dxChaser.usGrid': () => t('dxChaser.usGrid'),
+}
+
+function dxChaserLabel(key: TranslationKey): string {
+  const label = DX_CHASER_LABELS[key]
+  if (!label) throw new Error(`missing literal DX Chaser label binding: ${key}`)
+  return label()
+}
+
 export function DxChaserView({ initialModel }: { initialModel?: DxChaserSnapshot } = {}) {
   const [model, setModel] = useState<DxChaserSnapshot | null>(initialModel ?? null)
   const [draft, setDraft] = useState<DxChaserSettings | null>(initialModel?.settings ?? null)
@@ -134,10 +199,10 @@ export function DxChaserView({ initialModel }: { initialModel?: DxChaserSnapshot
       {tab === 'bands' && <><div className="dx-chaser-grid">{model.bands.map(band => <article key={band.band} className="dx-chaser-card band"><RadioTower /><strong>{band.band}</strong><dl><div><dt>{t('dxChaser.decodes')}</dt><dd>{band.decodes}</dd></div><div><dt>{t('dxChaser.spotters')}</dt><dd>{band.spots}</dd></div><div><dt>{t('dxChaser.score')}</dt><dd>{band.score}</dd></div></dl></article>)}</div><h3>{t('dxChaser.bandHistory')}</h3><div className="dx-chaser-list">{(model.bandHistory ?? []).map((history, index) => <div key={`${history.endedAt}-${index}`}><time>{new Date(history.endedAt * 1000).toLocaleTimeString()}</time><b>{history.band}</b><span>{history.decodeCount} / {history.uniqueCalls} · {history.averageSnr.toFixed(1)} {DB_UNIT}</span></div>)}</div></>}
       {tab === 'log' && <div className="dx-chaser-list">{model.log.map((entry, index) => <div key={`${entry.at}-${index}`}><time>{new Date(entry.at * 1000).toLocaleTimeString()}</time><b>{entry.call ?? entry.kind}</b><span>{entry.detail}</span></div>)}</div>}
       {tab === 'statistics' && <section><h2>{t('dxChaser.sessionStatistics')}</h2><StatisticsGrid statistics={model.sessionStatistics} includeRate /><button onClick={() => run(resetDxChaserStatistics)}>{t('dxChaser.resetSession')}</button><h2>{t('dxChaser.allTimeStatistics')}</h2><StatisticsGrid statistics={model.allTimeStatistics} /></section>}
-      {tab === 'settings' && <section className="dx-chaser-settings"><h2><Settings2 size={18} />{t('dxChaser.settings')}</h2><div className="dx-chaser-setting-group"><h3>{t('dxChaser.general')}</h3>{generalSettings.map(({ key, labelKey }) => <label key={key}><span>{t(labelKey)}</span><input type="checkbox" checked={Boolean(draft[key])} onChange={event => setSetting(key, event.target.checked as never)} /></label>)}</div><div className="dx-chaser-setting-group"><h3>{t('dxChaser.feed.sources')}</h3>{feedSettings.map(({ key, labelKey }) => <label key={key}><span>{t(labelKey)}</span><input type="checkbox" checked={Boolean(draft[key])} onChange={event => setSetting(key, event.target.checked as never)} /></label>)}<p>{t('dxChaser.feed.sharedAuthority')}</p></div>
+      {tab === 'settings' && <section className="dx-chaser-settings"><h2><Settings2 size={18} />{t('dxChaser.settings')}</h2><div className="dx-chaser-setting-group"><h3>{t('dxChaser.general')}</h3>{generalSettings.map(({ key, labelKey }) => <label key={key}><span>{dxChaserLabel(labelKey)}</span><input type="checkbox" checked={Boolean(draft[key])} onChange={event => setSetting(key, event.target.checked as never)} /></label>)}</div><div className="dx-chaser-setting-group"><h3>{t('dxChaser.feed.sources')}</h3>{feedSettings.map(({ key, labelKey }) => <label key={key}><span>{dxChaserLabel(labelKey)}</span><input type="checkbox" checked={Boolean(draft[key])} onChange={event => setSetting(key, event.target.checked as never)} /></label>)}<p>{t('dxChaser.feed.sharedAuthority')}</p></div>
         <div className="dx-chaser-setting-group"><h3>{t('dxChaser.enabledBands')}</h3><div className="dx-chaser-band-picker">{BANDS.map(band => <label key={band}><span>{band}</span><input type="checkbox" checked={draft.enabledBands.includes(band)} onChange={event => setSetting('enabledBands', event.target.checked ? [...draft.enabledBands, band] : draft.enabledBands.filter(item => item !== band))} /></label>)}</div></div>
-        <div className="dx-chaser-setting-group"><h3>{t('dxChaser.advanced')}</h3><div className="dx-chaser-number-grid">{numberFields.map(({ key, labelKey, step, min, max }) => <label key={key}><span>{t(labelKey)}</span><input type="number" step={step} min={min} max={max} value={draft[key]} onChange={event => setSetting(key, Number(event.target.value) as never)} /></label>)}<label><span>{t('dxChaser.field.atnoChasePolicy')}</span><select value={draft.atnoChasePolicy} onChange={event => setSetting('atnoChasePolicy', event.target.value as DxChaserSettings['atnoChasePolicy'])}><option value="disabled">{t('dxChaser.atno.disabled')}</option><option value="allTime">{t('dxChaser.atno.allTime')}</option><option value="bandSlot">{t('dxChaser.atno.bandSlot')}</option><option value="both">{t('dxChaser.atno.both')}</option></select></label><label><span>{t('dxChaser.field.quietHoursStart')}</span><input type="number" min="0" max="23" value={draft.quietHoursStart ?? ''} onChange={event => setSetting('quietHoursStart', event.target.value === '' ? null : Number(event.target.value))} /></label><label><span>{t('dxChaser.field.quietHoursEnd')}</span><input type="number" min="0" max="23" value={draft.quietHoursEnd ?? ''} onChange={event => setSetting('quietHoursEnd', event.target.value === '' ? null : Number(event.target.value))} /></label></div></div>
-        <div className="dx-chaser-setting-group"><h3>{t('dxChaser.sms')}</h3><label><span>{t('dxChaser.smsMode')}</span><select value={draft.smsMode} onChange={event => setSetting('smsMode', event.target.value as DxChaserSettings['smsMode'])}><option value="disabled">{t('dxChaser.smsDisabled')}</option><option value="everyTx">{t('dxChaser.smsEveryTx')}</option><option value="qsoCompleteOnly">{t('dxChaser.smsComplete')}</option></select></label><label><span>{t('dxChaser.field.smsMinIntervalSecs')}</span><input type="number" min="10" max="3600" step="1" value={draft.smsMinIntervalSecs} onChange={event => setSetting('smsMinIntervalSecs', Number(event.target.value))} /></label>{twilioFields.map(({ key, labelKey }) => <label key={key}><span>{t(labelKey)}</span><input type={key === 'authToken' ? 'password' : 'text'} autoComplete="off" value={twilio[key]} onChange={event => setTwilio({ ...twilio, [key]: event.target.value })} /></label>)}<div className="dx-chaser-actions"><button onClick={async () => { try { await setDxChaserTwilio(twilio); setNotice(t('dxChaser.twilioSaved')) } catch (reason) { setError(String(reason)) } }}>{t('dxChaser.twilioSave')}</button><button onClick={async () => { try { await testDxChaserTwilio(); setNotice(t('dxChaser.twilioTested')) } catch (reason) { setError(String(reason)) } }}>{t('dxChaser.twilioTest')}</button><button onClick={async () => { try { await clearDxChaserTwilio(); setTwilio({ accountSid: '', authToken: '', fromNumber: '', toNumber: '' }); setNotice(t('dxChaser.twilioCleared')) } catch (reason) { setError(String(reason)) } }}>{t('dxChaser.twilioClear')}</button></div></div>
+        <div className="dx-chaser-setting-group"><h3>{t('dxChaser.advanced')}</h3><div className="dx-chaser-number-grid">{numberFields.map(({ key, labelKey, step, min, max }) => <label key={key}><span>{dxChaserLabel(labelKey)}</span><input type="number" step={step} min={min} max={max} value={draft[key]} onChange={event => setSetting(key, Number(event.target.value) as never)} /></label>)}<label><span>{t('dxChaser.field.atnoChasePolicy')}</span><select value={draft.atnoChasePolicy} onChange={event => setSetting('atnoChasePolicy', event.target.value as DxChaserSettings['atnoChasePolicy'])}><option value="disabled">{t('dxChaser.atno.disabled')}</option><option value="allTime">{t('dxChaser.atno.allTime')}</option><option value="bandSlot">{t('dxChaser.atno.bandSlot')}</option><option value="both">{t('dxChaser.atno.both')}</option></select></label><label><span>{t('dxChaser.field.quietHoursStart')}</span><input type="number" min="0" max="23" value={draft.quietHoursStart ?? ''} onChange={event => setSetting('quietHoursStart', event.target.value === '' ? null : Number(event.target.value))} /></label><label><span>{t('dxChaser.field.quietHoursEnd')}</span><input type="number" min="0" max="23" value={draft.quietHoursEnd ?? ''} onChange={event => setSetting('quietHoursEnd', event.target.value === '' ? null : Number(event.target.value))} /></label></div></div>
+        <div className="dx-chaser-setting-group"><h3>{t('dxChaser.sms')}</h3><label><span>{t('dxChaser.smsMode')}</span><select value={draft.smsMode} onChange={event => setSetting('smsMode', event.target.value as DxChaserSettings['smsMode'])}><option value="disabled">{t('dxChaser.smsDisabled')}</option><option value="everyTx">{t('dxChaser.smsEveryTx')}</option><option value="qsoCompleteOnly">{t('dxChaser.smsComplete')}</option></select></label><label><span>{t('dxChaser.field.smsMinIntervalSecs')}</span><input type="number" min="10" max="3600" step="1" value={draft.smsMinIntervalSecs} onChange={event => setSetting('smsMinIntervalSecs', Number(event.target.value))} /></label>{twilioFields.map(({ key, labelKey }) => <label key={key}><span>{dxChaserLabel(labelKey)}</span><input type={key === 'authToken' ? 'password' : 'text'} autoComplete="off" value={twilio[key]} onChange={event => setTwilio({ ...twilio, [key]: event.target.value })} /></label>)}<div className="dx-chaser-actions"><button onClick={async () => { try { await setDxChaserTwilio(twilio); setNotice(t('dxChaser.twilioSaved')) } catch (reason) { setError(String(reason)) } }}>{t('dxChaser.twilioSave')}</button><button onClick={async () => { try { await testDxChaserTwilio(); setNotice(t('dxChaser.twilioTested')) } catch (reason) { setError(String(reason)) } }}>{t('dxChaser.twilioTest')}</button><button onClick={async () => { try { await clearDxChaserTwilio(); setTwilio({ accountSid: '', authToken: '', fromNumber: '', toNumber: '' }); setNotice(t('dxChaser.twilioCleared')) } catch (reason) { setError(String(reason)) } }}>{t('dxChaser.twilioClear')}</button></div></div>
         <div className="dx-chaser-actions sticky"><button className="primary" disabled={saving || !dirty} onClick={save}>{t('dxChaser.save')}</button><button disabled={!dirty} onClick={() => { setDraft(model.settings); setDirty(false) }}>{t('dxChaser.cancel')}</button>{dirty && <span>{t('dxChaser.unsaved')}</span>}</div></section>}
     </div>
   </main>
@@ -199,7 +264,7 @@ function DxccBrowser({ matrix, loading, error, search, filter, onSearch, onFilte
     <div className="dx-chaser-dxcc-heading"><div><h2 id="dx-chaser-dxcc-heading"><Map size={18} />{t('dxChaser.dxcc.title')}</h2><p>{t('dxChaser.dxcc.help')}</p></div><button onClick={() => void onRefresh()} disabled={loading}><RefreshCw size={15} className={loading ? 'spinning' : ''} />{t('dxChaser.dxcc.refresh')}</button></div>
     <div className="dx-chaser-dxcc-tools">
       <label className="dx-chaser-dxcc-search"><span>{t('dxChaser.dxcc.search')}</span><div><Search size={15} /><input type="search" value={search} onChange={event => onSearch(event.target.value)} placeholder={t('dxChaser.dxcc.searchPlaceholder')} /></div></label>
-      <div className="dx-chaser-dxcc-filters" role="group" aria-label={t('dxChaser.dxcc.filters')}>{filters.map(({ id, labelKey, count }) => <button key={id} className={filter === id ? 'active' : ''} aria-pressed={filter === id} onClick={() => onFilter(id)}>{t(labelKey)} <span>{count}</span></button>)}</div>
+      <div className="dx-chaser-dxcc-filters" role="group" aria-label={t('dxChaser.dxcc.filters')}>{filters.map(({ id, labelKey, count }) => <button key={id} className={filter === id ? 'active' : ''} aria-pressed={filter === id} onClick={() => onFilter(id)}>{dxChaserLabel(labelKey)} <span>{count}</span></button>)}</div>
     </div>
     {error && <div className="dx-chaser-error compact" role="alert">{t('dxChaser.dxcc.error', { error })}</div>}
     {!matrix && loading && <div className="dx-chaser-loading" role="status">{t('dxChaser.dxcc.loading')}</div>}

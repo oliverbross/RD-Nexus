@@ -35,6 +35,11 @@ import { EN } from './en'
 
 export const ES: PartialCatalog = {
   ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  // DX Chaser is ported from an English-only upstream surface. Keep a complete intentional
+  // source-language overlay until reviewed Spanish wording replaces these entries.
+  ...Object.fromEntries(Object.entries(EN).filter(([key]) =>
+    key.startsWith('dxChaser.') || key.startsWith('features.dxChaser.') || key.startsWith('nav.dxChaser.'),
+  )),
   'settings.tabs.groupsio': 'Groups.io',
   'groupsio.connected': 'Conectado: aquí están disponibles las membresías y los mensajes descargados.',
   'groupsio.offline': 'La caché sin conexión está disponible. Añade una clave API en Ajustes para sincronizar.',

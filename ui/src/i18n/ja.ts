@@ -25,6 +25,11 @@ import { EN } from './en'
 
 export const JA: PartialCatalog = {
   ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  // DX Chaser is ported from an English-only upstream surface. Keep a complete intentional
+  // source-language overlay until reviewed Japanese wording replaces these entries.
+  ...Object.fromEntries(Object.entries(EN).filter(([key]) =>
+    key.startsWith('dxChaser.') || key.startsWith('features.dxChaser.') || key.startsWith('nav.dxChaser.'),
+  )),
   'settings.tabs.groupsio': 'Groups.io',
   'groupsio.connected': '接続済み — メンバーシップとダウンロード済みメッセージを利用できます。',
   'groupsio.offline': 'オフラインキャッシュを利用できます。ライブ同期には設定でAPIキーを接続してください。',
