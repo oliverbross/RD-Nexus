@@ -1306,6 +1306,11 @@ fn a_question_is_parsed_exactly() {
     );
     assert!(parse(json!({"kind": "logSize", "extra": 1})).is_err());
     assert!(parse(json!({"kind": "statistics", "extra": 1})).is_err());
+    assert_eq!(
+        parse(json!({"kind": "neuralDxSummary"})).unwrap(),
+        LogQuestion::NeuralDxSummary {}
+    );
+    assert!(parse(json!({"kind": "neuralDxSummary", "extra": 1})).is_err());
     assert!(
         parse(json!({"kind": "gridPoints"})).is_err(),
         "the globe's dots need their band"
@@ -1325,6 +1330,30 @@ fn a_question_is_parsed_exactly() {
             match_mode: true
         }
     );
+}
+
+/// A large station log crosses the native boundary once as a bounded aggregate. The UI must not
+/// page 67,000 QSO records into JavaScript merely to refresh Neural DX's worked/confirmed sets.
+#[test]
+fn neural_dx_summary_folds_67000_qsos_into_one_bounded_answer() {
+    let (golden, _) = golden_log();
+    assert!(!golden.is_empty());
+    let started = std::time::Instant::now();
+    let mut fold = NeuralDxFold::default();
+    for index in 0..67_000 {
+        fold.add(&golden[index % golden.len()]);
+    }
+    let answer = fold.finish();
+    let encoded = serde_json::to_vec(&answer).expect("summary JSON");
+    eprintln!(
+        "Neural DX 67k summary: {} bytes in {:?}",
+        encoded.len(),
+        started.elapsed()
+    );
+    assert_eq!(answer.total_qso, 67_000);
+    assert!(answer.total_confirmed <= answer.total_qso);
+    assert!(encoded.len() < 2 * 1024 * 1024, "{} bytes", encoded.len());
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
 }
 
 /// A JavaScript index names a row only when it is an integer in range.

@@ -1,7 +1,23 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const api = vi.hoisted(() => ({
+  askLog: vi.fn(async () => ({
+    confirmedCalls: [], confirmedDxcc: [], workedCalls: [], workedDxcc: [],
+    dxccByBand: {}, totalQso: 0, totalConfirmed: 0,
+  })),
+  getNeuralDxActions: vi.fn(async () => []),
+  getNeuralDxStatus: vi.fn(async () => ({ phase: 'ready', url: 'http://127.0.0.1:9000', version: '12.7', detail: null })),
+  restartNeuralDx: vi.fn(async () => undefined),
+  syncNeuralDx: vi.fn(async () => undefined),
+  executeNeuralDxAction: vi.fn(),
+  ackNeuralDxActions: vi.fn(),
+  resolveNeuralDxAction: vi.fn(),
+}))
+
+vi.mock('../api', () => api)
 import { NeuralDxView, scoreHuntTargets } from './NeuralDxView'
 import { FEATURES } from '../features/registry'
 import type { NeedAlert, SpotRow } from '../types'
@@ -24,6 +40,10 @@ const spot = (overrides: Partial<SpotRow> = {}): SpotRow => ({
 })
 
 describe('NeuralDxView', () => {
+  beforeEach(() => {
+    for (const mock of Object.values(api)) mock.mockClear()
+  })
+
   it('is registered immediately below Spots in the main menu', () => {
     const spotsIndex = FEATURES.findIndex((feature) => feature.id === 'spots')
     expect(FEATURES[spotsIndex + 1]?.id).toBe('neuralDx')
@@ -63,5 +83,33 @@ describe('NeuralDxView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Satellites' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open satellite console' }))
     expect(navigate).toHaveBeenCalledWith('sats')
+  })
+
+  it('folds the log once per log revision and does not rescan it on spot updates', async () => {
+    const props = {
+      needs: [], myCall: 'F1TEST', myGrid: 'JN23', logTick: 7, selectedCall: null,
+      onSelect: vi.fn(), onWork: vi.fn(), onNavigate: vi.fn(),
+    }
+    const view = render(<NeuralDxView {...props} spots={[spot()]} />)
+    await waitFor(() => expect(api.askLog).toHaveBeenCalledWith({ kind: 'neuralDxSummary' }))
+    expect(api.askLog).toHaveBeenCalledTimes(1)
+    view.rerender(<NeuralDxView {...props} spots={[spot(), spot({ call: 'W1AW' })]} />)
+    await waitFor(() => expect(api.syncNeuralDx).toHaveBeenCalled())
+    expect(api.askLog).toHaveBeenCalledTimes(1)
+    expect(api.askLog.mock.calls.some(([question]) => question.kind === 'page')).toBe(false)
+  })
+
+  it('stops automatic replay and requires an operator decision for delivery-unknown', async () => {
+    const action = { id: '0123456789abcdef0123456789abcdef', type: 'postSpot' as const,
+      freqMhz: 14.195, call: 'VK9DX', comment: 'UP 5' }
+    api.getNeuralDxActions.mockResolvedValueOnce([action])
+    api.executeNeuralDxAction.mockResolvedValueOnce({ id: action.id, state: 'deliveryUnknown', detail: null })
+    api.resolveNeuralDxAction.mockResolvedValueOnce({ id: action.id, state: 'delivered', detail: null })
+    render(<NeuralDxView spots={[]} needs={[]} myCall="F1TEST" myGrid="JN23" logTick={0}
+      selectedCall={null} onSelect={vi.fn()} onWork={vi.fn()} onNavigate={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark delivered' }))
+    await waitFor(() => expect(api.resolveNeuralDxAction).toHaveBeenCalledWith(action.id, 'delivered'))
+    expect(api.ackNeuralDxActions).toHaveBeenCalledWith([action.id])
+    expect(api.executeNeuralDxAction).toHaveBeenCalledTimes(1)
   })
 })

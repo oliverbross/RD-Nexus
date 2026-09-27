@@ -25813,6 +25813,8 @@ tr.sel .aprs-sym {
 }
 
 .neural-dx-tabs button.active { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+.neural-dx-action-warning { display: grid; grid-template-columns: minmax(10rem, auto) minmax(12rem, 1fr) auto auto; align-items: center; gap: .65rem; padding: .75rem; border-color: var(--state-warn); }
+.neural-dx-action-warning span { color: var(--muted); }
 .neural-dx-hunt { min-width: 0; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(20rem, .85fr); gap: .85rem; }
 .neural-dx-hero { position: relative; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; padding: 1.2rem; overflow: hidden; }
 .neural-dx-hero::after { content: ''; position: absolute; width: 16rem; height: 16rem; right: -8rem; top: -9rem; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent); }
@@ -25867,6 +25869,12 @@ tr.sel .aprs-sym {
 [data-viewport='sm'] .neural-dx-bridge .btn,
 [data-viewport='xs'] .neural-dx-bridge .btn { grid-column: 1 / -1; justify-self: start; }
 [data-viewport='xs'] .neural-dx-header { display: grid; }
+[data-viewport='sm'] .neural-dx-action-warning,
+[data-viewport='xs'] .neural-dx-action-warning { grid-template-columns: 1fr auto auto; }
+[data-viewport='sm'] .neural-dx-action-warning strong,
+[data-viewport='sm'] .neural-dx-action-warning span,
+[data-viewport='xs'] .neural-dx-action-warning strong,
+[data-viewport='xs'] .neural-dx-action-warning span { grid-column: 1 / -1; }
 [data-viewport='xs'] .neural-dx-hero { grid-template-columns: minmax(0, 1fr); }
 [data-viewport='xs'] .neural-dx-hero-actions { justify-items: start; }
 [data-viewport='xs'] .neural-dx-target-list button { grid-template-columns: 1.2rem minmax(5rem, 1fr) 3rem 2.4rem; }

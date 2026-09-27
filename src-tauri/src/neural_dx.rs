@@ -9,7 +9,8 @@
 use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::Read;
+use std::collections::BTreeMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
@@ -48,11 +49,28 @@ struct ReadyFile {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeuralDxAction {
+    id: String,
     #[serde(rename = "type")]
     kind: String,
     freq_mhz: f64,
     call: String,
     comment: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActionReceipt {
+    action: NeuralDxAction,
+    phase: String,
+    detail: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeuralDxExecution {
+    id: String,
+    state: String,
+    detail: Option<String>,
 }
 
 pub struct NeuralDxState(Mutex<Runtime>);
@@ -185,6 +203,157 @@ fn limited_body(mut response: reqwest::blocking::Response) -> Result<Vec<u8>, St
         return Err("Neural DX response exceeded the safety limit".into());
     }
     Ok(body)
+}
+
+fn valid_action(action: &NeuralDxAction) -> bool {
+    action.id.len() == 32
+        && action.id.chars().all(|char| char.is_ascii_hexdigit())
+        && action.kind == "postSpot"
+        && action.freq_mhz.is_finite()
+        && (0.1..=1300.0).contains(&action.freq_mhz)
+        && (3..=16).contains(&action.call.len())
+        && action
+            .call
+            .chars()
+            .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '/')
+        && action.comment.len() <= 120
+        && !action
+            .comment
+            .chars()
+            .any(|char| char.is_control() && char != '\t')
+}
+
+fn journal_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_local_data_dir()
+        .map_err(|error| format!("resolve Neural DX action journal: {error}"))?
+        .join("neural-dx")
+        .join("action-journal.json"))
+}
+
+fn read_journal(path: &Path) -> Result<BTreeMap<String, ActionReceipt>, String> {
+    let backup = path.with_extension("json.bak");
+    if !path.exists() && backup.exists() {
+        std::fs::rename(&backup, path)
+            .map_err(|error| format!("recover Neural DX action journal: {error}"))?;
+    }
+    match std::fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map_err(|error| format!("read Neural DX action journal: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(error) => Err(format!("read Neural DX action journal: {error}")),
+    }
+}
+
+fn write_journal(path: &Path, journal: &BTreeMap<String, ActionReceipt>) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or("Neural DX action journal has no parent directory")?;
+    std::fs::create_dir_all(parent)
+        .map_err(|error| format!("create Neural DX action journal directory: {error}"))?;
+    let pending = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let bytes = serde_json::to_vec(journal)
+        .map_err(|error| format!("encode Neural DX action journal: {error}"))?;
+    let mut file = std::fs::File::create(&pending)
+        .map_err(|error| format!("create Neural DX action journal: {error}"))?;
+    file.write_all(&bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|error| format!("persist Neural DX action journal: {error}"))?;
+    // Windows rename does not replace an existing destination. The backup dance keeps every
+    // crash point recoverable: read_journal restores it when the installed path is absent.
+    let backup = path.with_extension("json.bak");
+    let _ = std::fs::remove_file(&backup);
+    let had_previous = path.exists();
+    if had_previous {
+        std::fs::rename(path, &backup)
+            .map_err(|error| format!("prepare Neural DX action journal replacement: {error}"))?;
+    }
+    if let Err(error) = std::fs::rename(&pending, path) {
+        if had_previous {
+            let _ = std::fs::rename(&backup, path);
+        }
+        return Err(format!("install Neural DX action journal: {error}"));
+    }
+    let _ = std::fs::remove_file(backup);
+    Ok(())
+}
+
+fn execute_with(
+    path: &Path,
+    action: NeuralDxAction,
+    transmit: impl FnOnce(&NeuralDxAction) -> Result<(), String>,
+) -> Result<NeuralDxExecution, String> {
+    if !valid_action(&action) {
+        return Err("Neural DX returned an invalid action".into());
+    }
+    let mut journal = read_journal(path)?;
+    if let Some(receipt) = journal.get_mut(&action.id) {
+        if receipt.action.kind != action.kind
+            || receipt.action.freq_mhz != action.freq_mhz
+            || receipt.action.call != action.call
+            || receipt.action.comment != action.comment
+        {
+            return Err("Neural DX reused an action id with different content".into());
+        }
+        match receipt.phase.as_str() {
+            "success" => {
+                return Ok(NeuralDxExecution {
+                    id: action.id,
+                    state: "delivered".into(),
+                    detail: receipt.detail.clone(),
+                });
+            }
+            "transmitting" | "deliveryUnknown" => {
+                receipt.phase = "deliveryUnknown".into();
+                receipt.detail = Some(
+                    "Delivery may have occurred before Nexus restarted; automatic retry is disabled"
+                        .into(),
+                );
+                let detail = receipt.detail.clone();
+                write_journal(path, &journal)?;
+                return Ok(NeuralDxExecution {
+                    id: action.id,
+                    state: "deliveryUnknown".into(),
+                    detail,
+                });
+            }
+            "prepared" => {}
+            _ => return Err("Neural DX action journal contains an invalid phase".into()),
+        }
+    } else {
+        journal.insert(
+            action.id.clone(),
+            ActionReceipt {
+                action: action.clone(),
+                phase: "prepared".into(),
+                detail: None,
+            },
+        );
+        write_journal(path, &journal)?;
+    }
+    {
+        let receipt = journal.get_mut(&action.id).expect("inserted action receipt");
+        receipt.phase = "transmitting".into();
+        receipt.detail = None;
+    }
+    write_journal(path, &journal)?;
+    if let Err(error) = transmit(&action) {
+        let receipt = journal.get_mut(&action.id).expect("existing action receipt");
+        receipt.phase = "prepared".into();
+        receipt.detail = Some(error.clone());
+        write_journal(path, &journal)?;
+        return Err(error);
+    }
+    let receipt = journal.get_mut(&action.id).expect("existing action receipt");
+    receipt.phase = "success".into();
+    receipt.detail = None;
+    write_journal(path, &journal)?;
+    Ok(NeuralDxExecution {
+        id: action.id,
+        state: "delivered".into(),
+        detail: None,
+    })
 }
 
 fn set_unavailable(state: &NeuralDxState, detail: String) {
@@ -386,18 +555,248 @@ pub fn neural_dx_actions(state: State<'_, NeuralDxState>) -> Result<Vec<NeuralDx
         .map(|value| {
             let action: NeuralDxAction = serde_json::from_value(value)
                 .map_err(|_| "Neural DX returned an invalid action".to_string())?;
-            if action.kind != "postSpot"
-                || !action.freq_mhz.is_finite()
-                || !(0.1..=1300.0).contains(&action.freq_mhz)
-                || action.call.len() < 3
-                || action.call.len() > 16
-                || !action.call.chars().all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '/')
-                || action.comment.len() > 120
-                || action.comment.chars().any(|char| char.is_control() && char != '\t')
-            {
+            if !valid_action(&action) {
                 return Err("Neural DX returned an invalid action".into());
             }
             Ok(action)
         })
         .collect()
+}
+
+/// Execute a companion request through Nexus's sole cluster-post authority. The action id and
+/// outcome are durable, so an acknowledgement failure cannot retransmit it automatically.
+#[tauri::command]
+pub fn neural_dx_execute_action(
+    app: AppHandle,
+    state: State<'_, NeuralDxState>,
+    action: NeuralDxAction,
+) -> Result<NeuralDxExecution, String> {
+    let _serial = state.0.lock().unwrap_or_else(|error| error.into_inner());
+    execute_with(&journal_path(&app)?, action, |action| {
+        crate::post_spot(
+            action.freq_mhz,
+            action.call.clone(),
+            action.comment.clone(),
+        )
+    })
+}
+
+/// Resolve the deliberately fail-closed state left by a restart during transmission. Only an
+/// operator can declare the spot delivered or authorize one retry.
+#[tauri::command]
+pub fn neural_dx_resolve_action(
+    app: AppHandle,
+    state: State<'_, NeuralDxState>,
+    id: String,
+    resolution: String,
+) -> Result<NeuralDxExecution, String> {
+    if id.len() != 32 || !id.chars().all(|char| char.is_ascii_hexdigit()) {
+        return Err("invalid Neural DX action id".into());
+    }
+    let _serial = state.0.lock().unwrap_or_else(|error| error.into_inner());
+    let path = journal_path(&app)?;
+    let mut journal = read_journal(&path)?;
+    let receipt = journal
+        .get_mut(&id)
+        .ok_or("Neural DX action is not present in the journal")?;
+    if receipt.phase != "deliveryUnknown" && receipt.phase != "transmitting" {
+        return Err("Neural DX action does not need operator resolution".into());
+    }
+    match resolution.as_str() {
+        "delivered" => {
+            receipt.phase = "success".into();
+            receipt.detail = Some("Operator marked the delivery as complete".into());
+        }
+        "retry" => {
+            receipt.phase = "prepared".into();
+            receipt.detail = Some("Operator authorised one retry".into());
+        }
+        _ => return Err("invalid Neural DX action resolution".into()),
+    }
+    let state = if resolution == "delivered" {
+        "delivered"
+    } else {
+        "retry"
+    };
+    let detail = receipt.detail.clone();
+    write_journal(&path, &journal)?;
+    Ok(NeuralDxExecution {
+        id,
+        state: state.into(),
+        detail,
+    })
+}
+
+#[tauri::command]
+pub fn neural_dx_ack_actions(
+    state: State<'_, NeuralDxState>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    if ids.len() > 100
+        || ids
+            .iter()
+            .any(|id| id.len() != 32 || !id.chars().all(|char| char.is_ascii_hexdigit()))
+    {
+        return Err("invalid Neural DX action ids".into());
+    }
+    let (url, secret) = {
+        let runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
+        if runtime.status.phase != "ready" {
+            return Err("Neural DX is not ready".into());
+        }
+        (
+            runtime
+                .status
+                .url
+                .clone()
+                .ok_or("Neural DX URL is unavailable")?,
+            runtime.token.clone(),
+        )
+    };
+    let body = serde_json::to_vec(&serde_json::json!({ "ids": ids }))
+        .map_err(|error| format!("encode Neural DX action acknowledgement: {error}"))?;
+    let response = client()?
+        .post(format!("{url}/api/nexus/actions/ack"))
+        .header("X-Nexus-Token", secret)
+        .header("Content-Type", "application/json")
+        .body(body)
+        .send()
+        .map_err(|error| format!("acknowledge Neural DX actions: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Neural DX bridge returned HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let _ = limited_body(response)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn action() -> NeuralDxAction {
+        NeuralDxAction {
+            id: "0123456789abcdef0123456789abcdef".into(),
+            kind: "postSpot".into(),
+            freq_mhz: 14.195,
+            call: "VK9DX".into(),
+            comment: "UP 5".into(),
+        }
+    }
+
+    fn path(tag: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "nexus-neural-dx-{tag}-{}-{:?}.json",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    #[test]
+    fn success_is_idempotent_across_ack_failure_and_restart() {
+        let path = path("success");
+        let sends = Cell::new(0);
+        let first = execute_with(&path, action(), |_| {
+            sends.set(sends.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(first.state, "delivered");
+        let again = execute_with(&path, action(), |_| {
+            sends.set(sends.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(again.state, "delivered");
+        assert_eq!(sends.get(), 1, "a failed child ack cannot retransmit");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn prepared_before_post_is_recoverable_but_transmitting_is_not_retried() {
+        let prepared_path = path("prepared");
+        let mut journal = BTreeMap::new();
+        journal.insert(
+            action().id.clone(),
+            ActionReceipt {
+                action: action(),
+                phase: "prepared".into(),
+                detail: None,
+            },
+        );
+        write_journal(&prepared_path, &journal).unwrap();
+        let sends = Cell::new(0);
+        execute_with(&prepared_path, action(), |_| {
+            sends.set(sends.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(sends.get(), 1, "crash before post resumes the prepared intent");
+
+        let unknown_path = path("unknown");
+        sends.set(sends.get() + 1); // the external transmission happened
+        let mut interrupted = BTreeMap::new();
+        interrupted.insert(
+            action().id.clone(),
+            ActionReceipt {
+                action: action(),
+                phase: "transmitting".into(), // process ended before the success receipt
+                detail: None,
+            },
+        );
+        write_journal(&unknown_path, &interrupted).unwrap();
+        let after_restart = execute_with(&unknown_path, action(), |_| {
+            sends.set(sends.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(after_restart.state, "deliveryUnknown");
+        assert_eq!(sends.get(), 2, "delivery-unknown was not retransmitted");
+        let _ = std::fs::remove_file(prepared_path);
+        let _ = std::fs::remove_file(unknown_path);
+    }
+
+    #[test]
+    fn definite_pretransmit_failure_remains_safe_to_retry() {
+        let path = path("retry");
+        assert!(execute_with(&path, action(), |_| Err("no cluster".into())).is_err());
+        let sends = Cell::new(0);
+        assert_eq!(
+            execute_with(&path, action(), |_| {
+                sends.set(sends.get() + 1);
+                Ok(())
+            })
+            .unwrap()
+            .state,
+            "delivered"
+        );
+        assert_eq!(sends.get(), 1);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn interrupted_cross_platform_journal_replacement_recovers_backup() {
+        let path = path("backup");
+        let mut journal = BTreeMap::new();
+        journal.insert(
+            action().id.clone(),
+            ActionReceipt {
+                action: action(),
+                phase: "success".into(),
+                detail: None,
+            },
+        );
+        write_journal(&path, &journal).unwrap();
+        let backup = path.with_extension("json.bak");
+        std::fs::rename(&path, &backup).unwrap();
+        assert_eq!(read_journal(&path).unwrap().len(), 1);
+        assert!(path.exists());
+        assert!(!backup.exists());
+        let _ = std::fs::remove_file(path);
+    }
 }

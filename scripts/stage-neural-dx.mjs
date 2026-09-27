@@ -99,7 +99,7 @@ if __name__ == "__main__":
   run(python, [join(work, 'test_nexus_bridge.py')], work)
   const separator = process.platform === 'win32' ? ';' : ':'
   run(python, [
-    '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--name', 'neural-dx-watcher',
+    '-m', 'PyInstaller', '--log-level', 'WARN', '--noconfirm', '--clean', '--onefile', '--name', 'neural-dx-watcher',
     '--add-data', `${join(work, 'templates')}${separator}templates`,
     '--add-data', `${join(work, 'static')}${separator}static`,
     '--add-data', `${join(work, 'version.json')}${separator}.`,

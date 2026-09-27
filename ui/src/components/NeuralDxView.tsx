@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Activity, BrainCircuit, CloudLightning, Crosshair, MonitorUp, Newspaper, Orbit, RadioTower, RotateCcw } from 'lucide-react'
 import { gridToLatLon, haversineKm } from '../grid'
 import { t } from '../i18n'
-import { askLog, getNeuralDxActions, getNeuralDxStatus, postSpot, restartNeuralDx, syncNeuralDx, type NeuralDxStatus } from '../api'
-import { DEFAULT_LOG_QUERY } from '../features/logQuery'
-import type { LoggedQso, NeedAlert, SpotRow } from '../types'
+import { ackNeuralDxActions, askLog, executeNeuralDxAction, getNeuralDxActions, getNeuralDxStatus, resolveNeuralDxAction, restartNeuralDx, syncNeuralDx, type NeuralDxAction, type NeuralDxStatus } from '../api'
+import type { NeuralDxQsoSummary } from '../features/logAnswers'
+import type { NeedAlert, SpotRow } from '../types'
 import type { View } from '../features/registry'
 
 type NeuralTab = 'watcher' | 'hunt' | 'insight' | 'propagation' | 'weather' | 'satellites' | 'briefing'
@@ -33,21 +33,6 @@ interface HuntTarget {
   distanceKm: number | null
   score: number
   need: NeedAlert | null
-}
-
-interface WatcherQsoSummary {
-  confirmedCalls: string[]
-  confirmedDxcc: string[]
-  workedCalls: string[]
-  workedDxcc: string[]
-  dxccByBand: Record<string, string[]>
-  totalQso: number
-  totalConfirmed: number
-}
-
-const EMPTY_QSO_SUMMARY: WatcherQsoSummary = {
-  confirmedCalls: [], confirmedDxcc: [], workedCalls: [], workedDxcc: [],
-  dxccByBand: {}, totalQso: 0, totalConfirmed: 0,
 }
 
 const HISTORY_KEY = 'nexus.neuralDx.history.v1'
@@ -168,53 +153,14 @@ function toWatcherSpot(spot: SpotRow, need: NeedAlert | undefined, myGrid: strin
   }
 }
 
-async function loadQsoSummary(): Promise<WatcherQsoSummary> {
-  const confirmedCalls = new Set<string>()
-  const confirmedDxcc = new Set<string>()
-  const workedCalls = new Set<string>()
-  const workedDxcc = new Set<string>()
-  const dxccByBand = new Map<string, Set<string>>()
-  let totalQso = 0
-  let totalConfirmed = 0
-  let offset = 0
-  while (true) {
-    const page = await askLog({ kind: 'page', query: DEFAULT_LOG_QUERY, offset, limit: 1000 })
-    totalQso = page.total
-    for (const row of page.rows as LoggedQso[]) {
-      const call = row.call.trim().toUpperCase()
-      const entity = row.entity ?? row.country ?? ''
-      const confirmed = row.awardConfirmed || row.confirmed
-      if (call) workedCalls.add(call)
-      if (entity) workedDxcc.add(entity)
-      if (confirmed) {
-        totalConfirmed += 1
-        if (call) confirmedCalls.add(call)
-        if (entity) {
-          confirmedDxcc.add(entity)
-          if (!dxccByBand.has(row.band)) dxccByBand.set(row.band, new Set())
-          dxccByBand.get(row.band)?.add(entity)
-        }
-      }
-    }
-    offset += page.rows.length
-    if (offset >= page.total || page.rows.length === 0) {
-      return {
-        confirmedCalls: [...confirmedCalls], confirmedDxcc: [...confirmedDxcc],
-        workedCalls: [...workedCalls], workedDxcc: [...workedDxcc],
-        dxccByBand: Object.fromEntries([...dxccByBand].map(([band, values]) => [band, [...values]])),
-        totalQso, totalConfirmed,
-      }
-    }
-  }
-}
-
 export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCall, onSelect, onWork, onNavigate }: Props) {
   const [tab, setTab] = useState<NeuralTab>('watcher')
   const [history, setHistory] = useState<HistoryPoint[]>(() => loadJson(HISTORY_KEY, []))
   const [watch, setWatch] = useState<string[]>(() => loadJson(WATCH_KEY, []))
   const [runtime, setRuntime] = useState<NeuralDxStatus | null>(null)
   const [runtimeError, setRuntimeError] = useState('')
-  const [qsoSummary, setQsoSummary] = useState<WatcherQsoSummary>(EMPTY_QSO_SUMMARY)
+  const [qsoSummary, setQsoSummary] = useState<NeuralDxQsoSummary | null>(null)
+  const [unknownAction, setUnknownAction] = useState<NeuralDxAction | null>(null)
 
   useEffect(() => {
     setHistory((current) => {
@@ -239,7 +185,7 @@ export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCa
   useEffect(() => {
     if (runtime?.phase !== 'ready') return
     let live = true
-    loadQsoSummary().then((summary) => {
+    askLog({ kind: 'neuralDxSummary' }).then((summary) => {
       if (live) setQsoSummary(summary)
     }).catch((error) => { if (live) setRuntimeError(String(error)) })
     return () => { live = false }
@@ -252,10 +198,17 @@ export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCa
     syncNeuralDx({
       station: { callsign: myCall, grid: myGrid },
       spots: spots.map((spot) => toWatcherSpot(spot, needByCall.get(`${spot.call.toUpperCase()}|${spot.band}`), myGrid)),
-      qsoSummary,
     }).catch((error) => { if (live) setRuntimeError(String(error)) })
     return () => { live = false }
-  }, [runtime?.phase, spots, needs, myCall, myGrid, qsoSummary])
+  }, [runtime?.phase, spots, needs, myCall, myGrid])
+
+  useEffect(() => {
+    if (runtime?.phase !== 'ready' || !qsoSummary) return
+    let live = true
+    syncNeuralDx({ station: { callsign: myCall, grid: myGrid }, qsoSummary })
+      .catch((error) => { if (live) setRuntimeError(String(error)) })
+    return () => { live = false }
+  }, [runtime?.phase, myCall, myGrid, qsoSummary])
 
   useEffect(() => {
     if (runtime?.phase !== 'ready') return
@@ -263,7 +216,14 @@ export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCa
     const forwardActions = async () => {
       const actions = await getNeuralDxActions()
       for (const action of actions) {
-        if (action.type === 'postSpot') await postSpot(action.freqMhz, action.call, action.comment)
+        if (action.type === 'postSpot') {
+          const result = await executeNeuralDxAction(action)
+          if (result.state === 'deliveryUnknown') {
+            setUnknownAction(action)
+            return
+          }
+          if (result.state === 'delivered') await ackNeuralDxActions([action.id])
+        }
       }
     }
     const tick = () => void forwardActions().catch((error) => { if (live) setRuntimeError(String(error)) })
@@ -271,6 +231,14 @@ export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCa
     const timer = window.setInterval(tick, 1000)
     return () => { live = false; window.clearInterval(timer) }
   }, [runtime?.phase])
+
+  const resolveUnknown = async (resolution: 'delivered' | 'retry') => {
+    if (!unknownAction) return
+    const action = unknownAction
+    const result = await resolveNeuralDxAction(action.id, resolution)
+    if (result.state === 'delivered') await ackNeuralDxActions([action.id])
+    setUnknownAction(null)
+  }
 
   const targets = useMemo(() => scoreHuntTargets(spots, needs, myGrid), [spots, needs, myGrid])
   const bandCounts = useMemo(() => {
@@ -339,10 +307,27 @@ export function NeuralDxView({ spots, needs, myCall, myGrid, logTick, selectedCa
         ))}
       </nav>
 
+      {unknownAction && (
+        <section className="neural-dx-action-warning panel" role="alert">
+          <strong>{t('neuralDx.action.unknown.title')}</strong>
+          <span>{t('neuralDx.action.unknown.body', { call: unknownAction.call, freq: unknownAction.freqMhz.toFixed(3) })}</span>
+          <button type="button" className="btn" onClick={() => void resolveUnknown('delivered')}>
+            {t('neuralDx.action.unknown.delivered')}
+          </button>
+          <button type="button" className="btn danger" onClick={() => void resolveUnknown('retry')}>
+            {t('neuralDx.action.unknown.retry')}
+          </button>
+        </section>
+      )}
+
       {tab === 'watcher' && (
         <section className="neural-dx-watcher panel">
           {runtime?.phase === 'ready' && runtime.url ? (
-            <iframe title={t('neuralDx.product')} src={runtime.url} />
+            <iframe
+              title={t('neuralDx.product')}
+              src={runtime.url}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-downloads allow-popups"
+            />
           ) : (
             <div role="status">
               <BrainCircuit size={34} aria-hidden="true" />

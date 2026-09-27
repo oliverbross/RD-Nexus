@@ -1403,6 +1403,7 @@ export async function syncNeuralDx(payload: Record<string, unknown>): Promise<vo
 }
 
 export interface NeuralDxAction {
+  id: string
   type: 'postSpot'
   freqMhz: number
   call: string
@@ -1411,6 +1412,24 @@ export interface NeuralDxAction {
 
 export async function getNeuralDxActions(): Promise<NeuralDxAction[]> {
   return invoke<NeuralDxAction[]>('neural_dx_actions')
+}
+
+export async function ackNeuralDxActions(ids: string[]): Promise<void> {
+  return invoke<void>('neural_dx_ack_actions', { ids })
+}
+
+export interface NeuralDxExecution {
+  id: string
+  state: 'delivered' | 'deliveryUnknown' | 'retry'
+  detail: string | null
+}
+
+export async function executeNeuralDxAction(action: NeuralDxAction): Promise<NeuralDxExecution> {
+  return invoke<NeuralDxExecution>('neural_dx_execute_action', { action })
+}
+
+export async function resolveNeuralDxAction(id: string, resolution: 'delivered' | 'retry'): Promise<NeuralDxExecution> {
+  return invoke<NeuralDxExecution>('neural_dx_resolve_action', { id, resolution })
 }
 
 /** Check the release feed (hamradiotools.io, SourceForge as fallback) for a newer Nexus
