@@ -119,6 +119,21 @@ const STATISTICS: Narrow = Narrow {
     uploads: false,
 };
 
+/// Neural DX's worked/confirmed knowledge. One cached native fold replaces 67+ page IPC calls for
+/// a large log and never sends individual QSOs to the webview or companion.
+const NEURAL_DX_SUMMARY: Narrow = Narrow {
+    columns: &[
+        "call",
+        "country",
+        "band",
+        "qsl_card_rcvd_raw",
+        "lotw_rcvd_raw",
+        "eqsl_rcvd_raw",
+        "qrz_status_raw",
+    ],
+    uploads: false,
+};
+
 /// Everything the UI asks of the log (`LogQuestion`).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(
@@ -152,6 +167,7 @@ pub enum LogQuestion {
     },
     BandsInLog {},
     Statistics {},
+    NeuralDxSummary {},
     LotwBacklog {},
     LogSize {},
     /// Rows by LOG POSITION — the Awards diagnosis's addressing, until each diagnosis carries its
@@ -324,10 +340,90 @@ struct Inner {
     bands: Tally<(), Vec<String>>,
     backlog: Tally<(), LotwBacklog>,
     statistics: Tally<(), LogStatCounts>,
+    neural_dx: Tally<(), NeuralDxQsoSummary>,
     #[cfg(test)]
     built: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     folded: std::sync::atomic::AtomicUsize,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeuralDxQsoSummary {
+    confirmed_calls: Vec<String>,
+    confirmed_dxcc: Vec<String>,
+    worked_calls: Vec<String>,
+    worked_dxcc: Vec<String>,
+    dxcc_by_band: HashMap<String, Vec<String>>,
+    total_qso: usize,
+    total_confirmed: usize,
+}
+
+#[derive(Default)]
+struct NeuralDxFold {
+    confirmed_calls: HashSet<String>,
+    confirmed_dxcc: HashSet<String>,
+    worked_calls: HashSet<String>,
+    worked_dxcc: HashSet<String>,
+    dxcc_by_band: HashMap<String, HashSet<String>>,
+    entities: HashMap<String, Option<String>>,
+    total_qso: usize,
+    total_confirmed: usize,
+}
+
+impl LogFold for NeuralDxFold {
+    type Answer = NeuralDxQsoSummary;
+
+    fn add(&mut self, r: &QsoRecord) {
+        self.total_qso += 1;
+        let call = r.call.trim().to_uppercase();
+        if call.is_empty() {
+            return;
+        }
+        self.worked_calls.insert(call.clone());
+        let entity = r.country.clone().or_else(|| {
+            self.entities
+                .entry(call.clone())
+                .or_insert_with(|| cty(&call))
+                .clone()
+        });
+        if let Some(entity) = entity.filter(|entity| !entity.is_empty()) {
+            self.worked_dxcc.insert(entity.clone());
+            if r.award_confirmed {
+                self.confirmed_dxcc.insert(entity.clone());
+                self.dxcc_by_band
+                    .entry(r.band.clone())
+                    .or_default()
+                    .insert(entity);
+            }
+        }
+        if r.award_confirmed {
+            self.total_confirmed += 1;
+            self.confirmed_calls.insert(call);
+        }
+    }
+
+    fn finish(self) -> Self::Answer {
+        fn sorted(values: HashSet<String>) -> Vec<String> {
+            let mut values: Vec<_> = values.into_iter().collect();
+            values.sort_unstable();
+            values
+        }
+        let mut dxcc_by_band: Vec<_> = self.dxcc_by_band.into_iter().collect();
+        dxcc_by_band.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+        NeuralDxQsoSummary {
+            confirmed_calls: sorted(self.confirmed_calls),
+            confirmed_dxcc: sorted(self.confirmed_dxcc),
+            worked_calls: sorted(self.worked_calls),
+            worked_dxcc: sorted(self.worked_dxcc),
+            dxcc_by_band: dxcc_by_band
+                .into_iter()
+                .map(|(band, values)| (band, sorted(values)))
+                .collect(),
+            total_qso: self.total_qso,
+            total_confirmed: self.total_confirmed,
+        }
+    }
 }
 
 /// The answers' kept state — the order vectors, the log-order vector, the entity index, the odd
@@ -336,6 +432,18 @@ struct Inner {
 pub struct LogQueries(Arc<Inner>);
 
 impl LogQueries {
+    /// Build the bounded Neural DX knowledge summary without crossing the webview boundary.
+    pub(crate) fn neural_dx_summary(&self, engine: &SharedEngine) -> Result<Value, String> {
+        json(&*self.fold(
+            engine,
+            &self.0.neural_dx,
+            (),
+            Engine::log_content_rev,
+            NEURAL_DX_SUMMARY,
+            NeuralDxFold::default(),
+        )?)
+    }
+
     /// Answer `q`: take what it needs under the Engine lock, release it, read, answer. `resolve`
     /// is a call's live DXCC entity (cty.dat in the app).
     pub(crate) fn answer(
@@ -428,6 +536,7 @@ impl LogQueries {
                 STATISTICS,
                 LogStatCounter::new(resolve),
             )?),
+            LogQuestion::NeuralDxSummary {} => self.neural_dx_summary(engine),
             // The backlog reads the LoTW stamp — a Stamp moves `content_rev`, and a contact
             // imported with its stamp is an Append, which moves `index_rev` — so it is kept
             // against `revision`, which every change moves.

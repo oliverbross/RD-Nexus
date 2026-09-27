@@ -38,6 +38,7 @@ export type View =
   | 'sats'
   | 'needed'
   | 'spots'
+  | 'neuralDx'
   | 'chat'
   | 'fieldDay'
   | 'logbook'
@@ -48,6 +49,11 @@ export type View =
   | 'groupsio'
   | 'program'
   | 'settings'
+
+/** Desktop-only companion surfaces are not available in the hosted Remote transport. */
+export function isHostedRemoteFeature(view: View): boolean {
+  return view !== 'neuralDx'
+}
 
 /** Every section id is a `View`; capabilities add a few cross-cutting ids. */
 export type FeatureId = View | 'nowBar' | 'gamification'
@@ -385,6 +391,17 @@ export const FEATURES: FeatureDef[] = [
     view: 'spots',
     // global (no workspace): every spot on the air (all modes), filter client-side.
     oneLineKey: 'features.spots.oneLine',
+  }),
+  feature({
+    id: 'neuralDx',
+    labelKey: 'features.neuralDx.label',
+    kind: 'section',
+    category: 'DX & Awards',
+    core: true,
+    dependsOn: [],
+    intents: ['casual', 'dx', 'contest', 'pota', 'vhf'],
+    view: 'neuralDx',
+    oneLineKey: 'features.neuralDx.oneLine',
   }),
   feature({
     id: 'dxped',

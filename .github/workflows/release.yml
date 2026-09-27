@@ -114,6 +114,16 @@ jobs:
           echo "$MODEL_SHA  $model_dir/model.onnx" | sha256sum -c -
           echo "$MODEL_JSON_SHA  $model_dir/model.onnx.json" | sha256sum -c -
 
+  neural-dx-license:
+    name: Gate — Neural DX redistribution evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/check-neural-dx-redistribution.mjs
+
   # ---------------------------------------------------------------------------------------
   # THE CI-EVIDENCE GATE — nothing here publishes until ci.yml has actually passed on the
   # commit the tag points at.
@@ -157,6 +167,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Require a completed, successful ci.yml run on this exact commit
         env:
@@ -188,7 +199,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   linux-x86:
     name: Linux x86_64 (.deb + AppImage)
-    needs: release-prerequisites
+    needs: [release-prerequisites, neural-dx-license]
     # PINNED, not `ubuntu-latest`. The build host's glibc IS the floor of every published
     # x86_64 artifact, so an unpinned label makes the supported-distro list move on GitHub's
     # schedule rather than ours. The arm64 jobs below have always been pinned AND containerised
@@ -200,6 +211,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # EVERY job that builds or names an artifact stamps, and it stamps FIRST: a prerelease tag
       # must produce artifacts and an app that say 1.11.0-beta.3, not 1.11.0. A stable tag is a
@@ -228,6 +240,7 @@ jobs:
             build-essential cmake ninja-build gfortran \
             libfftw3-dev libboost-dev libasound2-dev libudev-dev \
             libusb-1.0-0-dev \
+            python3 python3-venv \
             libfuse2
 
       - uses: dtolnay/rust-toolchain@master
@@ -266,6 +279,8 @@ jobs:
           # The model must be IN the package — the failure that shipped on 2026-07-20 is
           # invisible to every check except looking inside the artifact.
           dpkg-deb -x "$deb" /tmp/dc
+          neural=/tmp/dc/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher
+          [ -x "$neural" ] || { echo "Neural DX sidecar missing from the .deb"; exit 1; }
           m=/tmp/dc/usr/lib/Nexus/resources/deepcw/model.onnx
           [ -s "$m" ] || { echo "DeepCW model missing from the .deb"; exit 1; }
           echo "$MODEL_SHA  $m" | sha256sum -c -
@@ -287,6 +302,8 @@ jobs:
           "$app" --appimage-extract >/dev/null
           hl=squashfs-root/usr/lib/Nexus/resources/hamlib
           [ -s "$hl/rigctld" ] || { echo "rigctld missing from the AppImage"; exit 1; }
+          neural="$appdir/squashfs-root/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher"
+          [ -x "$neural" ] || { echo "Neural DX sidecar missing from the AppImage"; exit 1; }
           # GSTREAMER PLUGINS, or every alert tone in the app is silently dead. linuxdeploy
           # bundles GStreamer's core libraries and no plugins, then points the plugin search
           # path INSIDE the AppImage at a directory it never created — which also suppresses
@@ -439,12 +456,37 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  neural-dx-windows-sidecar:
+    name: Neural DX Windows sidecar
+    needs: [release-prerequisites, neural-dx-license]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Build the self-contained Neural DX companion
+        run: node scripts/stage-neural-dx.mjs
+      - name: Verify the staged executable and provenance
+        run: node scripts/check-neural-dx-staged.mjs && node scripts/check-neural-dx-consumer.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neural-dx-windows-sidecar
+          path: src-tauri/resources/neural-dx/*
+          if-no-files-found: error
+
   # ---------------------------------------------------------------------------------------
   # Windows — cross-compiled NSIS installer (offline WebView2 + Hamlib bundled).
   # ---------------------------------------------------------------------------------------
   windows:
     name: Windows (NSIS installer)
-    needs: release-prerequisites
+    needs: [release-prerequisites, neural-dx-license, neural-dx-windows-sidecar]
     runs-on: ubuntu-latest
     env:
       # Baked into the binary via option_env! (build.rs). Only referenced in this
@@ -457,6 +499,12 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: neural-dx-windows-sidecar
+          path: src-tauri/resources/neural-dx
 
       # See linux-x86: every artifact-producing job stamps, first, or this platform's installer
       # carries a different version from its siblings.
@@ -525,6 +573,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends p7zip-full >/dev/null
           7z l "$exe" | grep -qi 'WebView2.*\.exe' \
             || { echo "NSIS listing has no WebView2 payload — webviewInstallMode broke"; 7z l "$exe" | tail -40; exit 1; }
+          7z l "$exe" | grep -qi 'neural-dx-watcher\.exe' \
+            || { echo "NSIS listing has no Neural DX sidecar"; exit 1; }
           [ "$sz" -gt 190000000 ] || { echo "installer only $sz bytes — too small to contain the ~150 MB offline WebView2 runtime"; exit 1; }
           mkdir -p out && cp "$exe" out/
           # The updater signature. THE KEY DECIDES WHETHER IT IS REQUIRED — same change, same
@@ -600,7 +650,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   macos:
     name: macOS (Apple Silicon .dmg)
-    needs: release-prerequisites
+    needs: [release-prerequisites, neural-dx-license]
     runs-on: macos-14
     env:
       CLUBLOG_API_KEY: ${{ secrets.CLUBLOG_API_KEY }}
@@ -609,6 +659,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # See linux-x86: every artifact-producing job stamps, first. The DMG, the .app's
       # CFBundleShortVersionString and the updater tarball all take their version from here.
@@ -637,6 +688,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
 
       - name: Import the signing certificate into an ephemeral keychain
         env:
@@ -670,6 +725,22 @@ jobs:
         run: |
           npm --prefix ui ci
           npm --prefix ui run build
+
+      - name: Stage Neural DX (bundled — no system Python for the user)
+        run: node scripts/stage-neural-dx.mjs
+
+      - name: Verify Neural DX native knowledge consumer
+        run: node scripts/check-neural-dx-staged.mjs && node scripts/check-neural-dx-consumer.mjs
+
+      - name: Sign the bundled Neural DX executable
+        run: |
+          set -euo pipefail
+          neural=src-tauri/resources/neural-dx/neural-dx-watcher
+          file "$neural" | grep -q 'Mach-O' || { echo "Neural DX sidecar is not Mach-O"; exit 1; }
+          codesign --force --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" "$neural"
+          codesign --verify --strict --verbose=2 "$neural"
+          codesign -dvv "$neural" 2>&1 | grep -q "flags=.*runtime" \
+            || { echo "Neural DX sidecar lacks hardened runtime"; exit 1; }
 
       # Pinned, not "^2": tauri-cli 2.12.0 (2026-09-26) re-downloads linuxdeploy-plugin-gtk.sh over
       # the pinned copy (scripts/build-linux.sh refused the 1.15.0 AppImage for it). Every job builds
@@ -762,6 +833,9 @@ jobs:
           m="$app/Contents/Resources/resources/deepcw/model.onnx"
           [ -s "$m" ] || { echo "DeepCW model missing from the .app"; exit 1; }
           echo "$MODEL_SHA  $m" | shasum -a 256 -c -
+          neural="$app/Contents/Resources/resources/neural-dx/neural-dx-watcher"
+          [ -x "$neural" ] || { echo "Neural DX sidecar missing from the .app"; exit 1; }
+          codesign --verify --strict --verbose=2 "$neural"
           # HAMLIB MUST BE IN THE .app, AND THE APP MUST LOOK WHERE IT LANDS (#190).
           #
           # The Linux job has had this gate since 1.9.0; macOS had the staging and the
@@ -841,6 +915,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       - uses: actions/download-artifact@v4
         with:
@@ -967,7 +1042,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   pi:
     name: Raspberry Pi .deb (${{ matrix.base }})
-    needs: release-prerequisites
+    needs: [release-prerequisites, neural-dx-license]
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
@@ -977,6 +1052,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          submodules: recursive
 
       # See linux-x86: every artifact-producing job stamps, first. BOTH Pi bases go through
       # this job, and the stamp is on the RUNNER — Dockerfile.pi COPYs the build context, so
@@ -1020,6 +1096,8 @@ jobs:
           m=/tmp/debcheck/usr/lib/Nexus/resources/deepcw/model.onnx
           [ -s "$m" ] || { echo "DeepCW model missing from the package"; exit 1; }
           echo "$MODEL_SHA  $m" | sha256sum -c -
+          neural=/tmp/debcheck/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher
+          [ -x "$neural" ] || { echo "Neural DX sidecar missing from the Pi package"; exit 1; }
           mv "$deb" "pi-out/${{ matrix.base }}/Nexus_${ver}_pi_arm64_${{ matrix.base }}.deb"
           sha256sum pi-out/${{ matrix.base }}/*.deb
 
@@ -1148,6 +1226,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0   # need tags + history for the notes range
+
+      - name: Require reviewed Neural DX redistribution evidence
+        run: |
+          test -f docs/neural-dx/REDISTRIBUTION_APPROVED.md || {
+            echo "BLOCKED_PENDING_LICENSE_EVIDENCE: retain and review the written Neural DX grant before public release" >&2
+            exit 1
+          }
 
       - uses: actions/download-artifact@v4
         with:

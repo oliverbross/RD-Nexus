@@ -71,6 +71,7 @@
       "resources/hamlib/*.dylib": "resources/hamlib/",
       "resources/deepcw/*": "resources/deepcw/",
       "resources/tles/*": "resources/tles/",
+      "resources/neural-dx/*": "resources/neural-dx/",
       "../licenses/remote/*": "resources/remote/",
       "../licenses/openssl/*": "resources/openssl/",
       "../COPYING": "COPYING",

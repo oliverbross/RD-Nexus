@@ -1383,6 +1383,55 @@ export async function getAllSpots(): Promise<import('./types').SpotRow[]> {
   return invoke<import('./types').SpotRow[]>('get_all_spots')
 }
 
+export interface NeuralDxStatus {
+  phase: 'starting' | 'ready' | 'unavailable'
+  url: string | null
+  version: string
+  detail: string | null
+}
+
+export async function getNeuralDxStatus(): Promise<NeuralDxStatus> {
+  return invoke<NeuralDxStatus>('neural_dx_status')
+}
+
+export async function restartNeuralDx(): Promise<void> {
+  return invoke<void>('restart_neural_dx')
+}
+
+export async function syncNeuralDx(payload: Record<string, unknown>): Promise<void> {
+  return invoke<void>('neural_dx_sync', { payload })
+}
+
+export interface NeuralDxAction {
+  id: string
+  type: 'postSpot'
+  freqMhz: number
+  call: string
+  comment: string
+}
+
+export async function getNeuralDxActions(): Promise<NeuralDxAction[]> {
+  return invoke<NeuralDxAction[]>('neural_dx_actions')
+}
+
+export async function ackNeuralDxActions(ids: string[]): Promise<void> {
+  return invoke<void>('neural_dx_ack_actions', { ids })
+}
+
+export interface NeuralDxExecution {
+  id: string
+  state: 'delivered' | 'deliveryUnknown' | 'retry'
+  detail: string | null
+}
+
+export async function executeNeuralDxAction(action: NeuralDxAction): Promise<NeuralDxExecution> {
+  return invoke<NeuralDxExecution>('neural_dx_execute_action', { action })
+}
+
+export async function resolveNeuralDxAction(id: string, resolution: 'delivered' | 'retry'): Promise<NeuralDxExecution> {
+  return invoke<NeuralDxExecution>('neural_dx_resolve_action', { id, resolution })
+}
+
 /** Check the release feed (hamradiotools.io, SourceForge as fallback) for a newer Nexus
  * release (Phase 1 update check). Rejects offline / on a
  * fetch error — callers treat that as a silent no-op. */

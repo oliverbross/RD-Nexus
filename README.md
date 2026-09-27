@@ -342,7 +342,8 @@ still says what a thing does *not* do, and so does every entry in the changelog.
 │ Tauri v2 desktop shell (src-tauri) + web UI (ui/, React + TS)  │
 │   cockpits: Operate · CW · Phone · RTTY · SSTV · APRS · Tempo  │
 │   boards: Needed · Spots · POTA/SOTA · Logbook · Awards ·      │
-│           Journey · Connect map · Satellites · Memories        │
+│           Neural DX · Journey · Connect map · Satellites ·     │
+│           Memories                                             │
 ├────────────────────────────────────────────────────────────────┤
 │ Rust core (crates/)                                            │
 │   tempo-app    live TX/RX engine · settings · DTOs             │
@@ -358,6 +359,8 @@ still says what a thing does *not* do, and so does every entry in the changelog.
 │   per-mode     ft8 · ft4 · q65 · fst4 · msk144 · jt65 · wspr · │
 │                modes · tempo-sstv · deepcw                     │
 │   tempo-fast / tempo-fast-sys   safe wrapper + FFI over libtempo│
+│   Neural DX    pinned local companion · shared spots/logbook · │
+│                full upstream dashboard and analysis surface     │
 ├────────────────────────────────────────────────────────────────┤
 │ libtempo (Fortran → C ABI, FFTW3, no Qt)                       │
 │   FT8/FT4/Q65/FST4/FST4W/MSK144/JT65/WSPR encode+decode        │
@@ -409,6 +412,14 @@ The modem is Fortran + C behind a Rust FFI, so the **GNU toolchain** is required
 ## License & credits
 
 Nexus is **free software under the [GNU GPL v3](COPYING)** (GPL-3.0-only).
+
+- **[Neural DX Watcher](https://github.com/F1SMV/Neural-DX-Watcher)** — **F1SMV**. Nexus can build
+  and adapt the pinned v12.7 source under specific permission from the original developer for
+  ShackCQ.com and the maintainer's related software projects. The upstream README describes the
+  project as MIT but the audited tree has no standalone license file, so Nexus records the direct
+  permission and exact source pin without broadening that claim. Public redistribution remains
+  blocked until the written grant is retained and reviewed; see **[NOTICE](NOTICE)** and
+  `docs/neural-dx/SOURCE_PERMISSION.md`.
 
 - **[Auth0 SPA JS](https://github.com/auth0/auth0-spa-js)** and
   **[jose](https://github.com/panva/jose)** (MIT) provide Remote sign-in and token

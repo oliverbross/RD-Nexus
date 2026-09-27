@@ -49,6 +49,7 @@ mod log_folds;
 /// The UI's log questions answered by the engine — pages, places, a call's history, an entity's
 /// slots (SPEC-2 v3 C17a).
 mod log_queries;
+mod neural_dx;
 mod pouncer;
 mod profile_sync;
 /// The quit when the logbook still has changes on their way to disk: the window is held while
@@ -18228,6 +18229,8 @@ struct SpotRow {
     corroborators: Vec<String>,
     /// Seconds since the spot was received; -1 if unknown (no receive stamp).
     age_secs: i64,
+    /// Stable station receive time used by consumers that need an identity across refreshes.
+    received_unix: Option<u64>,
     comment: String,
     /// True when the operator's license class may TRANSMIT at this spot's frequency in
     /// its mode (privileges::tx_allowed; `Open` class ⇒ always true). Drives the Spots
@@ -18453,6 +18456,7 @@ fn read_all_spots(
                 spotter: cs.spotter.clone(),
                 corroborators: cs.corroborators.clone(),
                 age_secs,
+                received_unix: (cs.received_unix > 0).then_some(cs.received_unix),
                 comment: cs.comment.clone(),
                 licensed,
                 spotter_local: {
@@ -29534,6 +29538,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         // The data-folder picker (#289). Driven from Rust only (`pick_data_folder`); no
         // capability entry, so the webview cannot open a dialog of its own.
         .plugin(tauri_plugin_dialog::init())
+        .manage(neural_dx::NeuralDxState::default())
         .manage(d.engine)
         .manage(remote_publisher)
         .manage(d.spectrum_feed)
@@ -29561,6 +29566,13 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         .manage(log_queries::LogQueries::default())
         .invoke_handler(tauri::generate_handler![
             display_metrics,
+            neural_dx::neural_dx_status,
+            neural_dx::restart_neural_dx,
+            neural_dx::neural_dx_sync,
+            neural_dx::neural_dx_actions,
+            neural_dx::neural_dx_ack_actions,
+            neural_dx::neural_dx_execute_action,
+            neural_dx::neural_dx_resolve_action,
             update_install_block,
             prepare_update_install,
             restart_app,
@@ -30007,6 +30019,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             if let Ok(res) = app.path().resource_dir() {
                 let _ = RESOURCE_DIR.set(res);
             }
+            neural_dx::start(app.handle().clone());
             // The TV page's asset + RPC closures read this at call time (see TV_APP).
             let _ = TV_APP.set(app.handle().clone());
             // Probe the display's physical density HERE, on the main thread, where GDK is safe

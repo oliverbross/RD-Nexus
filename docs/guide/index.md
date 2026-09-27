@@ -142,6 +142,9 @@ Thirteen panels tear off into their own OS window — see
   air ranked by what it's worth to *your* log, each row carrying the evidence.
 - **[Spots](spots.md)** — the same cluster and RBN traffic raw: the last twenty
   minutes unranked and unscored, sorted however you like.
+- **[Neural DX](neural-dx.md)** — the complete Neural DX Watcher workspace,
+  sharing Nexus spots, station identity and logbook knowledge while preserving
+  its original analysis, propagation, weather, satellite and briefing tools.
 - **[DXpeditions](dxpeditions.md)** — active and upcoming expeditions, your
   modelled best window per day, and a wake-me alarm.
 - **[Logbook & QSL](logbook-qsl.md)** — the ADIF logbook, confirmation sources,

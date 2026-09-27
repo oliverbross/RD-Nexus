@@ -48,6 +48,8 @@ const CHAPTER_ALIASES: Record<string, string> = {
   // Settings is documented as a reference rather than a walkthrough — it is generated from
   // the settings registry, which is why it is the one chapter that cannot drift.
   settings: 'settings-reference',
+  // The product name includes spaces while section ids are camel-cased.
+  neuralDx: 'neural-dx',
   // The remaining four are plain naming: the nav id is short, the chapter is spelled out.
   needed: 'needed-dx',
   dxped: 'dxpeditions',

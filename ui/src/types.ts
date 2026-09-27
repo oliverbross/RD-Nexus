@@ -2456,6 +2456,8 @@ export interface SpotRow {
   corroborators: string[]
   /** Seconds since received; -1 if unknown. */
   ageSecs: number
+  /** Stable station receive time when the source carried one. */
+  receivedUnix?: number | null
   comment: string
   /** Operator may transmit at this freq+mode (license privileges; Open class ⇒ true). */
   licensed: boolean

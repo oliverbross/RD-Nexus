@@ -59,6 +59,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       # libtempo build deps. The native (host == target) CMake path locates the
       # FFTW3 single-precision library via pkg-config (`pkg_check_modules(FFTW3F
@@ -522,6 +524,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -536,6 +540,12 @@ jobs:
 
       - name: Test UI (Vitest)
         run: npm --prefix ui test
+
+      - name: Neural DX pin, route inventory and bridge syntax
+        run: |
+          node --test scripts/check-neural-dx-upstream.test.mjs
+          node scripts/check-neural-dx-upstream.mjs --source third_party/neural-dx-watcher
+          python3 -m py_compile integrations/neural-dx/nexus_bridge.py
 
       # `ui/`'s build output IS the hosted browser application, and nothing audited it - while
       # remote/ has had this gate all along and Rust is covered by cargo-deny on both lockfiles.
@@ -1007,6 +1017,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       # The DeepCW AI CW model is AGPL-3.0 (c) e04 and is NOT committed (15 MB binary,
       # gitignored — see src-tauri/resources/deepcw/README.md). A checkout therefore never
@@ -1077,6 +1089,8 @@ jobs:
           m=/tmp/debcheck/usr/lib/Nexus/resources/deepcw/model.onnx
           [ -s "$m" ] || { echo "DeepCW model missing from the package"; exit 1; }
           echo "a7b3b4aa2610d3e88b8c7d4420eceee31be2d0ae595b3413264334f3ffb1eab5  $m" | sha256sum -c -
+          neural=/tmp/debcheck/usr/lib/Nexus/resources/neural-dx/neural-dx-watcher
+          [ -x "$neural" ] || { echo "Neural DX sidecar missing from the package"; exit 1; }
           mv "$deb" "pi-out/${{ matrix.base }}/Nexus_${ver}_pi_arm64_${{ matrix.base }}.deb"
           sha256sum pi-out/${{ matrix.base }}/*.deb
 

@@ -47,6 +47,8 @@ export type LogQuestion =
   | { kind: 'bandsInLog' }
   /** The Statistics view's roll-up. */
   | { kind: 'statistics' }
+  /** Cached native worked/confirmed summary consumed by the Neural DX companion. */
+  | { kind: 'neuralDxSummary' }
   /** The Logbook's "Upload to LoTW" count, and the date-only contacts LoTW can never match. */
   | { kind: 'lotwBacklog' }
   /** How many contacts the log holds (the Logbook's count badge, its purge warning, its gates). */
@@ -114,6 +116,7 @@ export interface LogAnswers {
   gridPoints: QsoGridCount[]
   bandsInLog: string[]
   statistics: LogStats
+  neuralDxSummary: NeuralDxQsoSummary
   lotwBacklog: { unsent: number; timeless: number }
   logSize: number
   /** `null` for a position the log does not have. */
@@ -121,6 +124,16 @@ export interface LogAnswers {
   row: LoggedQso | null
   page: LogPage
   locate: LogLocate
+}
+
+export interface NeuralDxQsoSummary {
+  confirmedCalls: string[]
+  confirmedDxcc: string[]
+  workedCalls: string[]
+  workedDxcc: string[]
+  dxccByBand: Record<string, string[]>
+  totalQso: number
+  totalConfirmed: number
 }
 
 export type LogKind = LogQuestion['kind']
@@ -154,6 +167,7 @@ export function questionKey(q: LogQuestion): string {
     case 'workedGrids':
     case 'bandsInLog':
     case 'statistics':
+    case 'neuralDxSummary':
     case 'lotwBacklog':
     case 'logSize':
       return q.kind
@@ -206,6 +220,37 @@ function compute(
     }
     case 'statistics':
       return computeLogStats(log)
+    case 'neuralDxSummary': {
+      const confirmedCalls = new Set<string>()
+      const confirmedDxcc = new Set<string>()
+      const workedCalls = new Set<string>()
+      const workedDxcc = new Set<string>()
+      const dxccByBand = new Map<string, Set<string>>()
+      let totalConfirmed = 0
+      for (const row of log) {
+        const call = row.call.trim().toUpperCase()
+        const entity = row.entity ?? row.country ?? ''
+        const confirmed = row.awardConfirmed || row.confirmed
+        if (call) workedCalls.add(call)
+        if (entity) workedDxcc.add(entity)
+        if (confirmed) {
+          totalConfirmed += 1
+          if (call) confirmedCalls.add(call)
+          if (entity) {
+            confirmedDxcc.add(entity)
+            if (!dxccByBand.has(row.band)) dxccByBand.set(row.band, new Set())
+            dxccByBand.get(row.band)?.add(entity)
+          }
+        }
+      }
+      const sorted = (values: Set<string>) => [...values].sort()
+      return {
+        confirmedCalls: sorted(confirmedCalls), confirmedDxcc: sorted(confirmedDxcc),
+        workedCalls: sorted(workedCalls), workedDxcc: sorted(workedDxcc),
+        dxccByBand: Object.fromEntries([...dxccByBand].sort(([a], [b]) => a.localeCompare(b)).map(([band, values]) => [band, sorted(values)])),
+        totalQso: log.length, totalConfirmed,
+      }
+    }
     case 'lotwBacklog':
       return lotwBacklog(log)
     case 'logSize':

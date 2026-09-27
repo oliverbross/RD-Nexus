@@ -26,6 +26,7 @@ import {
   Users,
   MessagesSquare,
   AtSign,
+  BrainCircuit,
 } from 'lucide-react'
 import { Fragment, useState, type ButtonHTMLAttributes } from 'react'
 import { Tooltip, TooltipProvider } from './ui/Tooltip'
@@ -196,6 +197,7 @@ export const ITEMS: Item[] = [
   item({ id: 'connect', icon: Radar, labelKey: 'nav.connect.label', titleKey: 'nav.connect.title' }),
   item({ id: 'needed', icon: Target, labelKey: 'nav.needed.label', titleKey: 'nav.needed.title' }),
   item({ id: 'spots', icon: Rss, labelKey: 'nav.spots.label', titleKey: 'nav.spots.title' }),
+  item({ id: 'neuralDx', icon: BrainCircuit, labelKey: 'nav.neuralDx.label', titleKey: 'nav.neuralDx.title' }),
   item({ id: 'dxped', icon: Plane, labelKey: 'nav.dxped.label', titleKey: 'nav.dxped.title' }),
   item({ id: 'sats', icon: Satellite, labelKey: 'nav.sats.label', titleKey: 'nav.sats.title' }),
   item({ id: 'logbook', icon: BookOpen, labelKey: 'nav.logbook.label', titleKey: 'nav.logbook.title' }),

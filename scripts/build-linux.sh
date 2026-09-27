@@ -89,6 +89,10 @@ if [ "$GUI" = 0 ]; then bold "Modem exes done (--no-gui)."; exit 0; fi
 bold "3/4  Web UI dependencies"
 ( cd "$REPO/ui" && npm ci >/dev/null )
 ok "ui/node_modules"
+node "$REPO/scripts/stage-neural-dx.mjs"
+node "$REPO/scripts/check-neural-dx-staged.mjs"
+node "$REPO/scripts/check-neural-dx-consumer.mjs"
+ok "Neural DX staged (self-contained bundled companion)"
 
 # 4 — the GUI app + offline .deb + AppImage ---------------------------------------------------
 bold "4/4  Nexus GUI app + .deb + AppImage"
