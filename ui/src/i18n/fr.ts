@@ -2172,7 +2172,7 @@ export const FR: PartialCatalog = {
   "logbook.sync.running": "synchronisation…",
   "logbook.sync.attention": "attention requise",
   "logbook.sync.deliveryUnknown": "résultat de livraison inconnu pour {{count}} création(s)",
-  "logbook.sync.cadence": "créations distantes + tous changements locaux toutes les {{minutes}} min · modifications/suppressions distantes toutes les {{hours}} h",
+  "logbook.sync.cadence": "créations distantes + modifications locales prises en charge toutes les {{minutes}} min · modifications/suppressions distantes toutes les {{hours}} h",
   "logbook.search.placeholder": "Chercher indicatif / locator / bande / mode / date…",
   "logbook.subtitle": "Contacts ADIF",
   "logbook.sync.done": "Synchro : {{confirmed}} nouvellement confirmés, {{credited}} crédités",
@@ -6264,6 +6264,6 @@ export const FR: PartialCatalog = {
   "settings.confirmations.cloudlog.sync.hint": "Le passage de cinq minutes importe les créations distantes et envoie les ajouts locaux, suppressions liées et changements de champs pris en charge par l’API v2 standard. Les métadonnées locales de confirmation/compte ne sont pas envoyées par PATCH. Les modifications/suppressions distantes attendent l’audit complet.",
   "settings.confirmations.cloudlog.sync.summary": "Synchronisation Wavelog terminée : {{downloaded}} reçus, {{uploaded}} envoyés, {{localUpdates}} modifications locales, {{remoteUpdates}} modifications distantes, {{localDeletes}} suppressions locales, {{remoteDeletes}} suppressions distantes.",
   "settings.confirmations.cloudlog.fullAudit.label": "Intervalle d’audit distant complet (heures)",
-  "settings.confirmations.cloudlog.fullAudit.hint": "Les nouveaux QSO distants et les changements locaux sont synchronisés toutes les cinq minutes. L’API v2 de Wavelog n’a pas de curseur pour les modifications ou suppressions distantes ; l’audit complet suit donc cet intervalle séparé.",
+  "settings.confirmations.cloudlog.fullAudit.hint": "Les nouveaux QSO distants et les modifications locales prises en charge sont synchronisés toutes les cinq minutes. L’API v2 de Wavelog n’a pas de curseur pour les modifications ou suppressions distantes ; l’audit complet suit donc cet intervalle séparé.",
   "settings.connections.cloudlog.sync.failed": "Échec de la synchronisation Wavelog API v2",
 }

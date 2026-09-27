@@ -2001,7 +2001,7 @@ export const DE: PartialCatalog = {
   "logbook.sync.running": "Synchronisierung…",
   "logbook.sync.attention": "Prüfung erforderlich",
   "logbook.sync.deliveryUnknown": "Unbekanntes Zustellergebnis bei {{count}} Erstellung(en)",
-  "logbook.sync.cadence": "Remote-Neuanlagen + alle lokalen Änderungen alle {{minutes}} Min. · Remote-Änderungen/Löschungen alle {{hours}} Std.",
+  "logbook.sync.cadence": "Remote-Neuanlagen + unterstützte lokale Änderungen alle {{minutes}} Min. · Remote-Änderungen/Löschungen alle {{hours}} Std.",
   "logbook.filter.needsConfirmation.label": "Bestätigung fehlt",
   "logbook.filter.needsConfirmation.title": "Nur QSOs ohne diplomtaugliche Bestätigung (LoTW/Papier) anzeigen. Zeilen mit bereits gesendeter QSL-Anforderung bleiben hier — eine Anforderung ist keine Bestätigung.",
   "logbook.column.call": "Rufzeichen",
@@ -6254,6 +6254,6 @@ export const DE: PartialCatalog = {
   "settings.confirmations.cloudlog.sync.hint": "Der Fünf-Minuten-Lauf importiert Remote-Neuanlagen und sendet lokale Ergänzungen, gebundene Löschungen und von der Standard-API-v2 unterstützte Feldänderungen. Lokale Bestätigungs-/Kontodaten werden nicht per PATCH gesendet. Remote-Änderungen/-Löschungen folgen nur bei der Vollprüfung.",
   "settings.confirmations.cloudlog.sync.summary": "Wavelog-Synchronisierung abgeschlossen: {{downloaded}} heruntergeladen, {{uploaded}} hochgeladen, {{localUpdates}} lokale Änderungen, {{remoteUpdates}} entfernte Änderungen, {{localDeletes}} lokal gelöscht, {{remoteDeletes}} remote gelöscht.",
   "settings.confirmations.cloudlog.fullAudit.label": "Intervall der vollständigen Remote-Prüfung (Stunden)",
-  "settings.confirmations.cloudlog.fullAudit.hint": "Neue Remote-QSOs und lokale Änderungen werden alle fünf Minuten synchronisiert. Wavelog API v2 bietet keinen Cursor für Remote-Änderungen oder -Löschungen; deshalb läuft die vollständige Prüfung in diesem separaten Intervall.",
+  "settings.confirmations.cloudlog.fullAudit.hint": "Neue Remote-QSOs und unterstützte lokale Änderungen werden alle fünf Minuten synchronisiert. Wavelog API v2 bietet keinen Cursor für Remote-Änderungen oder -Löschungen; deshalb läuft die vollständige Prüfung in diesem separaten Intervall.",
   "settings.connections.cloudlog.sync.failed": "Wavelog-API-v2-Synchronisierung fehlgeschlagen",
 }

@@ -799,7 +799,7 @@ export const JA: PartialCatalog = {
   "logbook.sync.running": "同期中…",
   "logbook.sync.attention": "確認が必要",
   "logbook.sync.deliveryUnknown": "{{count}}件の作成で配信結果が不明",
-  "logbook.sync.cadence": "リモート新規+全ローカル変更は{{minutes}}分ごと・リモート編集/削除は{{hours}}時間ごと",
+  "logbook.sync.cadence": "リモート新規+対応するローカル変更は{{minutes}}分ごと・リモート編集/削除は{{hours}}時間ごと",
   "logbook.filter.needsConfirmation.label": "要コンファーム",
   "logbook.filter.needsConfirmation.title": "アワードに有効なコンファーム（LoTW／紙カード）のない交信のみ表示します。QSLリクエストを送った行もここに残ります — リクエストはコンファームではありません。",
   "logbook.column.call": "コール",
@@ -6247,6 +6247,6 @@ export const JA: PartialCatalog = {
   "settings.confirmations.cloudlog.sync.hint": "5分処理はリモート新規を取り込み、ローカル追加・関連付け済み削除・標準API v2対応フィールドの変更を送信します。ローカルの確認/アカウント情報はPATCHしません。リモート編集/削除は完全監査時のみ反映します。",
   "settings.confirmations.cloudlog.sync.summary": "Wavelog 同期完了: 受信 {{downloaded}}、送信 {{uploaded}}、ローカル変更 {{localUpdates}}、リモート変更 {{remoteUpdates}}、ローカル削除 {{localDeletes}}、リモート削除 {{remoteDeletes}}。",
   "settings.confirmations.cloudlog.fullAudit.label": "リモート完全監査の間隔（時間）",
-  "settings.confirmations.cloudlog.fullAudit.hint": "新しいリモートQSOとローカル変更は5分ごとに同期します。Wavelog API v2にはリモート編集/削除カーソルがないため、完全監査はこの別の間隔で実行します。",
+  "settings.confirmations.cloudlog.fullAudit.hint": "新しいリモートQSOと対応するローカル変更は5分ごとに同期します。Wavelog API v2にはリモート編集/削除カーソルがないため、完全監査はこの別の間隔で実行します。",
   "settings.connections.cloudlog.sync.failed": "Wavelog API v2 の同期に失敗しました",
 }

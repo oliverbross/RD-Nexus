@@ -1207,7 +1207,7 @@ export const EN = {
   'logbook.sync.running': 'synchronising…',
   'logbook.sync.attention': 'needs attention',
   'logbook.sync.deliveryUnknown': '{{count}} create delivery outcome(s) unknown',
-  'logbook.sync.cadence': 'remote creates + all local changes every {{minutes}} min · remote edits/deletes every {{hours}} h',
+  'logbook.sync.cadence': 'remote creates + supported local changes every {{minutes}} min · remote edits/deletes every {{hours}} h',
   'logbook.filter.needsConfirmation.label': 'needs confirmation',
   'logbook.filter.needsConfirmation.title':
     "Show only contacts without an award-eligible (LoTW/paper) confirmation. Rows you've already sent a QSL request for stay here — a request is not a confirmation.",
@@ -6949,7 +6949,7 @@ export const EN = {
     'Wavelog sync complete: {{downloaded}} down, {{uploaded}} up, {{localUpdates}} local edits, {{remoteUpdates}} remote edits, {{localDeletes}} local deletes, {{remoteDeletes}} remote deletes.',
   'settings.confirmations.cloudlog.fullAudit.label': 'Full remote audit interval (hours)',
   'settings.confirmations.cloudlog.fullAudit.hint':
-    'Wavelog API v2 has only a new-row cursor. Remote edits and deletes are therefore detected only by this complete audit; new remote QSOs and all local changes run every five minutes.',
+    'Wavelog API v2 has only a new-row cursor. Remote edits and deletes are therefore detected only by this complete audit; new remote QSOs and supported local changes run every five minutes.',
   'settings.connections.cloudlog.sync.failed': 'Wavelog API v2 sync failed',
 
   // ── Settings ▸ Appearance ▸ Workspace ───────────────────────────────────────────────

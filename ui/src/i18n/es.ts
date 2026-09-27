@@ -2172,7 +2172,7 @@ export const ES: PartialCatalog = {
   "logbook.sync.running": "sincronizando…",
   "logbook.sync.attention": "requiere atención",
   "logbook.sync.deliveryUnknown": "resultado de entrega desconocido para {{count}} creación(es)",
-  "logbook.sync.cadence": "altas remotas + todos los cambios locales cada {{minutes}} min · cambios/borrados remotos cada {{hours}} h",
+  "logbook.sync.cadence": "altas remotas + cambios locales admitidos cada {{minutes}} min · cambios/borrados remotos cada {{hours}} h",
   "logbook.search.placeholder": "Buscar ind. / locator / banda / modo / fecha…",
   "logbook.subtitle": "Contactos ADIF",
   "logbook.sync.done": "Sincronizado: {{confirmed}} confirmados nuevos, {{credited}} acreditados",
@@ -6264,6 +6264,6 @@ export const ES: PartialCatalog = {
   "settings.confirmations.cloudlog.sync.hint": "La pasada de cinco minutos importa altas remotas y envía altas locales, borrados vinculados y cambios de campos admitidos por la API v2 estándar. Los metadatos locales de confirmación/cuenta no se envían por PATCH. Las ediciones/borrados remotos solo se aplican en una auditoría completa.",
   "settings.confirmations.cloudlog.sync.summary": "Sincronización de Wavelog completa: {{downloaded}} recibidos, {{uploaded}} enviados, {{localUpdates}} cambios locales, {{remoteUpdates}} cambios remotos, {{localDeletes}} eliminados localmente, {{remoteDeletes}} eliminados remotamente.",
   "settings.confirmations.cloudlog.fullAudit.label": "Intervalo de auditoría remota completa (horas)",
-  "settings.confirmations.cloudlog.fullAudit.hint": "Los QSO remotos nuevos y los cambios locales se sincronizan cada cinco minutos. Wavelog API v2 no ofrece cursor para cambios o borrados remotos, por lo que la auditoría completa usa este intervalo separado.",
+  "settings.confirmations.cloudlog.fullAudit.hint": "Los QSO remotos nuevos y los cambios locales admitidos se sincronizan cada cinco minutos. Wavelog API v2 no ofrece cursor para cambios o borrados remotos, por lo que la auditoría completa usa este intervalo separado.",
   "settings.connections.cloudlog.sync.failed": "Falló la sincronización de Wavelog API v2",
 }
