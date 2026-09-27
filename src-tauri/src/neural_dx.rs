@@ -111,11 +111,14 @@ fn token() -> String {
 }
 
 fn bundled_executable(resource_dir: &Path) -> PathBuf {
-    resource_dir.join("neural-dx").join(if cfg!(windows) {
-        "neural-dx-watcher.exe"
-    } else {
-        "neural-dx-watcher"
-    })
+    resource_dir
+        .join("resources")
+        .join("neural-dx")
+        .join(if cfg!(windows) {
+            "neural-dx-watcher.exe"
+        } else {
+            "neural-dx-watcher"
+        })
 }
 
 fn launch(app: &AppHandle) -> Result<(Child, PathBuf, String), String> {
@@ -730,6 +733,19 @@ pub fn neural_dx_ack_actions(
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn bundled_executable_matches_the_tauri_resource_layout() {
+        let expected = Path::new("/bundle")
+            .join("resources")
+            .join("neural-dx")
+            .join(if cfg!(windows) {
+                "neural-dx-watcher.exe"
+            } else {
+                "neural-dx-watcher"
+            });
+        assert_eq!(bundled_executable(Path::new("/bundle")), expected);
+    }
 
     fn action() -> NeuralDxAction {
         NeuralDxAction {

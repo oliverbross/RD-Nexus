@@ -135,11 +135,14 @@ fn health_ready(address: std::net::SocketAddr) -> bool {
 }
 
 fn bundled_executable(resource_dir: &Path) -> PathBuf {
-    resource_dir.join("openhamclock").join(if cfg!(windows) {
-        "openhamclock.exe"
-    } else {
-        "openhamclock"
-    })
+    resource_dir
+        .join("resources")
+        .join("openhamclock")
+        .join(if cfg!(windows) {
+            "openhamclock.exe"
+        } else {
+            "openhamclock"
+        })
 }
 
 fn child_command(app: &AppHandle) -> Result<Command, String> {
@@ -409,6 +412,19 @@ pub async fn openhamclock_log_delta(
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn bundled_executable_matches_the_tauri_resource_layout() {
+        let expected = Path::new("/bundle")
+            .join("resources")
+            .join("openhamclock")
+            .join(if cfg!(windows) {
+                "openhamclock.exe"
+            } else {
+                "openhamclock"
+            });
+        assert_eq!(bundled_executable(Path::new("/bundle")), expected);
+    }
 
     fn health_response(status: &'static str, body: Vec<u8>) -> std::net::SocketAddr {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind health fixture");
