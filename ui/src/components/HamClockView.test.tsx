@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   confirm: vi.fn(),
   purge: vi.fn(),
   ptt: vi.fn(),
+  halt: vi.fn(),
   askLog: vi.fn(),
   editQso: vi.fn(),
   deleteQso: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../api', () => ({
   restartOpenHamClock: mocks.restart,
   askLog: mocks.askLog,
   getAllSpots: vi.fn().mockResolvedValue([]),
+  haltTx: mocks.halt,
   readRotator: vi.fn().mockResolvedValue(null),
   deleteQsoById: mocks.deleteQso,
   editQsoById: mocks.editQso,
@@ -74,6 +76,7 @@ describe('HamClockView', () => {
     mocks.confirm.mockReset().mockResolvedValue(false)
     mocks.purge.mockReset().mockResolvedValue(0)
     mocks.ptt.mockReset().mockResolvedValue(snap)
+    mocks.halt.mockReset().mockResolvedValue(snap)
     mocks.askLog.mockReset().mockResolvedValue({ rows: [], editKeys: [], total: 0, offset: 0, revision: 1 })
     mocks.logDelta.mockReset().mockImplementation(async (revision: number) => ({ revision, reset: false, upserts: [], deleted: [] }))
     mocks.editQso.mockReset().mockResolvedValue({ kind: 'applied' })
@@ -318,7 +321,22 @@ describe('HamClockView', () => {
     const stop = [...host.querySelectorAll('button')].find((button) => button.textContent?.includes('STOP TX'))
     expect(stop).toBeTruthy()
     await act(async () => stop?.click())
+    expect(mocks.halt).toHaveBeenCalledTimes(1)
+    expect(mocks.ptt).not.toHaveBeenCalled()
+  })
+
+  it('keeps embedded PTT release broker-scoped instead of turning it into a global stop', async () => {
+    mocks.status.mockResolvedValue({ phase: 'ready', url: 'http://127.0.0.1:39001', version: '26.8.0', detail: null })
+    await act(async () => root.render(<HamClockView snap={snap} onSnap={vi.fn()} />))
+    await act(async () => Promise.resolve())
+    const frame = host.querySelector('iframe') as HTMLIFrameElement
+    window.dispatchEvent(new MessageEvent('message', {
+      origin: 'http://127.0.0.1:39001', source: frame.contentWindow,
+      data: { source: 'openhamclock', type: 'rig:setPTT', payload: { ptt: false } },
+    }))
+    await act(async () => Promise.resolve())
     expect(mocks.ptt).toHaveBeenCalledWith(false)
+    expect(mocks.halt).not.toHaveBeenCalled()
   })
 
   it('surfaces a refused embedded PTT request and leaves Nexus as the only actuator', async () => {

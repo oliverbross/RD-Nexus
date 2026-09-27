@@ -3532,8 +3532,8 @@ pub struct ParsecPresenceDto {
     /// `"starting"` (no read of Parsec's log yet) | `"connected"` | `"notConnected"` |
     /// `"unreadable"` — the last thing the watcher found.
     pub status: String,
-    /// When presence mode last stopped a transmission (unix seconds). Kept until the operator
-    /// transmits again, so the reason is still on screen when they reconnect.
+    /// When presence mode last stopped a transmission (unix seconds). Kept until the watcher
+    /// observes another covered latch, so the reason is still on screen when they reconnect.
     pub stopped_at: Option<u64>,
     /// What that stop ended: `"tune"` | `"ptt"` | `"rtty"` | `"psk"`.
     pub stopped: Vec<String>,

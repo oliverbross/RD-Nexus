@@ -640,9 +640,12 @@ full power on every mode.*
   watches Parsec's own log on the shack PC (`log.txt` in `%APPDATA%\Parsec` for
   a per-user install, `%ProgramData%\Parsec` for a per-computer one). When the
   Parsec session that was connected drops, or that log can no longer be read,
-  it stops a latched PTT, continuous RTTY or PSK, and Tune, exactly as their
-  own Stop does, and the Now-Bar says why until you transmit again. It never
-  starts a transmission or turns TX back on, and it leaves FT8/FT4 alone: an
+  it stops Nexus's latched Phone PTT, embedded Ham Clock PTT, continuous RTTY
+  or PSK, and Tune, exactly as their own Stop does. A generic external CAT
+  client's PTT remains that client's responsibility. The Now-Bar says why
+  until the once-per-second watcher observes another protected latch; a short
+  or finite transmission may not retire that notice. It never starts a
+  transmission or turns TX back on, and it leaves FT8/FT4 alone: an
   over ends by itself and the TX watchdog still applies. Sitting at the shack
   with no Parsec session, nothing happens. How fast it acts is up to Parsec,
   which allows about a minute for a pulled network cable before it gives up on

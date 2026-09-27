@@ -356,7 +356,7 @@ pub fn openhamclock_set_ptt(
     on: bool,
 ) -> Result<AppSnapshot, String> {
     let mut engine = engine_lock(&state);
-    let granted = engine.broker_ptt(on);
+    let granted = engine.openhamclock_ptt(on);
     let snapshot = engine.snapshot();
     if on && !granted {
         return Err("Nexus transmit safety gate refused the OpenHamClock PTT request".into());

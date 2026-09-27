@@ -57,7 +57,8 @@ function stoppedName(token: string): string {
 /**
  * The status-lane item after presence mode stopped a transmission, or null. Said in the lane
  * rather than a toast: the operator was not there when it happened, so the reason has to still
- * be on screen when they reconnect. The station keeps it until they transmit again.
+ * be on screen when they reconnect. The station keeps it until its presence watcher observes
+ * another protected latch; finite/short transmissions do not retire it by accident.
  */
 export function parsecStopLane(p: ParsecPresence | null | undefined): Omit<StatusItem, 'id'> | null {
   if (!p || p.stoppedAt == null || p.stopped.length === 0) return null

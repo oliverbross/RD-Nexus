@@ -15,6 +15,15 @@ exits. The lazy start keeps OpenHamClock from consuming resources or opening
 its independent data feeds when the screen is unused. No system Node.js,
 Docker, separate installer, or separately launched browser is required.
 
+PTT messages originating inside the embedded upstream UI remain scoped to the
+OpenHamClock broker owner: key and un-key requests go through Nexus's broker
+safety arbiter. The always-visible **STOP TX** overlay belongs to Nexus and uses
+Nexus's canonical global halt, so it disarms and stops every Nexus-controlled
+owner (FT slots, manual or broker PTT, Tune, voice/CW, continuous keyboard modes,
+SSTV, and queued transmissions). It cannot release a front-panel microphone,
+VOX, or another physical/external keying path that Nexus does not own; that
+hardware must be released at its source.
+
 To update upstream:
 
 1. Run `node scripts/sync-openhamclock.mjs`.

@@ -5843,7 +5843,7 @@ export const EN = {
   // `RTTY`, `PSK`, `Tune`, `TX`, `FT8/FT4` and the two folder paths are tokens.
   'settings.transmit.parsecStop.label': 'Stop latched transmissions if my Parsec session drops',
   'settings.transmit.parsecStop.hint':
-    "For running the shack over Parsec. Nexus watches Parsec's own log on this computer. If the Parsec session that was connected drops, or its log can no longer be read, Nexus stops a latched PTT, continuous RTTY or PSK, and Tune, exactly as their own Stop does, and says why. It never starts a transmission or turns TX back on. FT8/FT4 overs are not touched: they end by themselves, and the TX watchdog still applies. Parsec can take up to a minute to notice a pulled network cable, so this backs up the watchdog rather than replacing it.",
+    "For running the shack over Parsec. Nexus watches Parsec's own log on this computer. If the Parsec session that was connected drops, or its log can no longer be read, Nexus stops Nexus's latched Phone PTT, embedded Ham Clock PTT, continuous RTTY or PSK, and Tune, exactly as their own Stop does, and says why. A generic external CAT client's PTT remains that client's responsibility. Nexus never starts a transmission or turns TX back on. FT8/FT4 overs are not touched: they end by themselves, and the TX watchdog still applies. Parsec can take up to a minute to notice a pulled network cable, so this backs up the watchdog rather than replacing it.",
   'settings.transmit.parsecStop.unavailable':
     'Available on Windows only, where Nexus can read the Parsec host\u2019s log.',
   'settings.transmit.parsecStop.status.starting': 'Checking Parsec\u2019s log\u2026',
@@ -9264,12 +9264,12 @@ export const EN = {
   'shell.lane.txPowerZero.detail':
     'The radio reports 0% power and transmit is armed — it will key and put nothing on the air. Check the Pwr slider, and the rig\u2019s own power for THIS mode: Yaesu rigs keep a separate level for SSB, DATA, CW and AM.',
   'shell.lane.recording.message': 'RECORDING',
-  // Parsec presence mode stopped a transmission while the operator was away; the lane keeps it
-  // until they transmit again. `{{what}}` is a list of the `.what.*` entries below.
+  // Parsec presence mode stopped a transmission while the operator was away. The lane remains
+  // until the watcher observes another protected latch. `{{what}}` is a list below.
   'shell.lane.parsecStop.message': 'PARSEC DROPPED — TX STOPPED',
   'shell.lane.parsecStop.detail':
     'Your Parsec session dropped (or Parsec’s log stopped answering) at {{time}} UTC, so Nexus stopped: {{what}}. Nothing was restarted; key up again when you are back.',
-  'shell.lane.parsecStop.what.ptt': 'latched PTT',
+  'shell.lane.parsecStop.what.ptt': 'Nexus/Ham Clock latched PTT',
   'shell.lane.parsecStop.what.rtty': 'continuous RTTY',
   'shell.lane.parsecStop.what.psk': 'continuous PSK',
   'shell.lane.parsecStop.what.tune': 'Tune',

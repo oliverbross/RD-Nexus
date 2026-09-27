@@ -2921,8 +2921,10 @@ pub struct Engine {
     /// one-shots above — the Flex worker polls the current value, so these are live, not drained.
     flex_pan_span_hz: f64,
     flex_pan_ref_dbm: Option<i32>,
-    /// A foreign CAT-broker client is holding PTT (arbitrated in `broker_ptt`).
-    broker_ptt: bool,
+    /// The broker client currently holding PTT. Ownership prevents an embedded
+    /// OpenHamClock retry from stealing a generic CAT client's already-keyed rig
+    /// (and vice versa), while every un-key request remains fail-safe.
+    broker_ptt: Option<BrokerPttOwner>,
     /// A CONTEXT CHANGE has happened since the last operator arm — the station moved band or
     /// radio under a broker client that never asked for it. Refuses a FOREIGN key until the
     /// operator arms transmit again (`set_tx_enabled(true)`); Nexus's own mic is unaffected.
@@ -4337,6 +4339,16 @@ pub enum TxOwner {
     Sstv,
 }
 
+/// Identity of a client using the shared CAT-broker PTT lane. This is not a
+/// second actuator: both owners pass through the same broker arbiter and feed
+/// the same radio-loop key bit. The identity only prevents cross-client
+/// reassertion and lets Parsec protect the bundled remote surface precisely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrokerPttOwner {
+    External,
+    OpenHamClock,
+}
+
 impl TxOwner {
     /// The operator-facing refusal, naming who holds the transmitter.
     pub fn busy_reason(self) -> String {
@@ -4896,7 +4908,7 @@ impl Engine {
             flex_pan_span_hz: 200_000.0,
             flex_pan_ref_dbm: None,
             pending_scope_fixed: None,
-            broker_ptt: false,
+            broker_ptt: None,
             broker_context_hold: false,
             voice_tx: None,
             voice_abort: false,
@@ -8613,7 +8625,7 @@ impl Engine {
     /// masks on read, so a key that became out-of-privilege (knob turned to a locked
     /// segment while holding PTT) drops the next loop pass.
     pub fn manual_ptt(&self) -> bool {
-        (self.manual_ptt || self.broker_ptt) && self.tx_enabled && self.tx_allowed()
+        (self.manual_ptt || self.broker_ptt.is_some()) && self.tx_enabled && self.tx_allowed()
     }
 
     /// PTT arbitration for a FOREIGN app on the CAT broker (WSJT-X/N1MM sharing
@@ -8622,8 +8634,19 @@ impl Engine {
     /// Nexus's own key always wins; a refused request returns false so the broker
     /// answers the client honestly. Un-key is always honored (safety).
     pub fn broker_ptt(&mut self, on: bool) -> bool {
+        self.broker_ptt_for(BrokerPttOwner::External, on)
+    }
+
+    /// PTT arbitration for the bundled OpenHamClock bridge. It shares every CAT
+    /// broker safety gate, but has a distinct owner so Parsec presence mode can
+    /// stop the embedded latch without taking ownership of unrelated CAT clients.
+    pub fn openhamclock_ptt(&mut self, on: bool) -> bool {
+        self.broker_ptt_for(BrokerPttOwner::OpenHamClock, on)
+    }
+
+    fn broker_ptt_for(&mut self, owner: BrokerPttOwner, on: bool) -> bool {
         if !on {
-            self.broker_ptt = false;
+            self.broker_ptt = None;
             return true; // un-key always succeeds
         }
         // Anything owning the transmitter — a mic key, a tune carrier, a slot
@@ -8633,7 +8656,7 @@ impl Engine {
         // current holder (a retry, a periodic assert) is idempotent — real
         // rigctld answers RPRT 0 to a redundant key-down, and refusing it fails
         // the client mid-over while the rig stays keyed. Nexus's own mic wins.
-        let re_assert = self.broker_ptt && !self.manual_ptt;
+        let re_assert = self.broker_ptt == Some(owner) && !self.manual_ptt;
         // …and never onto a context the client never asked for. The station may have changed
         // band or radio under it since the last operator arm (`broker_context_hold`), in which
         // case a fresh `T 1` is a key on a frequency the client has not seen yet. The operator's
@@ -8648,13 +8671,13 @@ impl Engine {
         {
             return false;
         }
-        self.broker_ptt = true;
+        self.broker_ptt = Some(owner);
         true
     }
 
     /// Whether a broker client currently holds PTT (for tests/inspection).
     pub fn broker_ptt_active(&self) -> bool {
-        self.broker_ptt
+        self.broker_ptt.is_some()
     }
 
     /// Set desired RF output power (0.0–1.0). The radio loop applies it via the rig.
@@ -13313,7 +13336,7 @@ Pick the one you operate from on the Contesting tab in Settings.",
         // T 1): Stop TX and a radio switch must release PTT, not merely mask it until
         // TX re-enables — else re-arming TX re-keys the radio with nobody holding it.
         self.manual_ptt = false;
-        self.broker_ptt = false;
+        self.broker_ptt = None;
         // A pending snappy-TX request dies with the halt — otherwise the loop
         // consumes it against a disabled TX and a later re-arm has lost it.
         self.immediate_tx = false;
@@ -13652,7 +13675,7 @@ Pick the one you operate from on the Contesting tab in Settings.",
             self.immediate_retune = true;
         }
         if !on {
-            self.broker_ptt = false; // a TX kill switch drops a foreign key too
+            self.broker_ptt = None; // a TX kill switch drops a foreign key too
         }
         // ANY operator arm cancels a deferred after-73 disable from the PREVIOUS
         // contact — every arm path funnels here (Enable-Tx button, Call CQ,
@@ -16490,7 +16513,7 @@ Pick the one you operate from on the Contesting tab in Settings.",
             Some(TxOwner::Slot)
         } else if self.tuning {
             Some(TxOwner::Tune)
-        } else if self.manual_ptt || self.broker_ptt {
+        } else if self.manual_ptt || self.broker_ptt.is_some() {
             Some(TxOwner::ManualPtt)
         } else if self.voice_tx.is_some() {
             Some(TxOwner::Voice)
@@ -30886,6 +30909,44 @@ mod tests {
             "stays stopped across slots — the sequencer does NOT re-arm"
         );
         assert!(!e.snapshot().radio.transmitting);
+    }
+
+    #[test]
+    fn halt_tx_is_the_universal_openhamclock_overlay_stop() {
+        // Ham Clock's Nexus-owned STOP overlay routes directly here. Exercise the
+        // independent ownership flags together so a future scoped-unkey refactor
+        // cannot silently weaken that emergency stop into broker-only PTT release.
+        let mut e = Engine::new("K2DEF", "FN31", 0);
+        e.tx_enabled = true;
+        e.app.set_transmitting(true); // FT slot already on air
+        e.manual_ptt = true; // Nexus manual PTT
+        e.broker_ptt = Some(BrokerPttOwner::OpenHamClock); // embedded broker PTT
+        e.tuning = true; // tune carrier
+        e.rtty_latched = true; // representative continuous owner
+        e.psk_latched = true;
+
+        e.halt_tx();
+
+        assert!(!e.tx_enabled(), "global stop disarms later transmissions");
+        assert!(
+            !e.app.radio.transmitting,
+            "global stop clears the FT on-air state"
+        );
+        assert!(
+            e.take_slot_tx_abort(),
+            "global stop asks the radio loop to cut the active over"
+        );
+        assert!(!e.manual_ptt, "global stop drops Nexus manual PTT");
+        assert!(e.broker_ptt.is_none(), "global stop drops broker PTT");
+        assert!(!e.tuning, "global stop drops Tune");
+        assert!(
+            !e.rtty_latched && !e.psk_latched,
+            "global stop drops continuous keyboard owners"
+        );
+        assert!(
+            e.rtty_abort && e.psk_abort,
+            "global stop asks the loop to flush continuous audio"
+        );
     }
 
     #[test]
@@ -51579,7 +51640,7 @@ mod tests {
             (
                 "manual PTT",
                 |e| e.set_ptt(true),
-                |e| !e.manual_ptt && !e.broker_ptt,
+                |e| !e.manual_ptt && e.broker_ptt.is_none(),
             ),
             (
                 "voice",

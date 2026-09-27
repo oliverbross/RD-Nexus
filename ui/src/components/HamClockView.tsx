@@ -5,6 +5,7 @@ import {
   editQsoById,
   exportLog,
   getAllSpots,
+  haltTx,
   logQso,
   openHamClockLogDelta,
   openHamClockStatus,
@@ -677,7 +678,7 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
           <button
             type="button"
             className="ham-clock-stop"
-            onClick={() => void setOpenHamClockPtt(false).then(onSnap).catch((e) => setError(String(e)))}
+            onClick={() => void haltTx().then(onSnap).catch((e) => setError(String(e)))}
           >
             {t('hamClock.stopTx')}
           </button>

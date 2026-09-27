@@ -12,12 +12,14 @@
 //! - **Stop-only, through the EXISTING stop paths.** Nothing here keys, retunes, re-arms or
 //!   changes timing. Each covered transmission ends exactly as its own Stop ends it — the path
 //!   is named in [`PresenceStop`] and asserted by the tests below.
-//! - **Covered: a latched Phone PTT, RTTY/PSK continuous TX, and Tune.** Those are the
-//!   transmissions with no precomputed end, which is what a dropped link leaves keyed.
+//! - **Covered: a latched Phone PTT, embedded OpenHamClock PTT, RTTY/PSK continuous TX, and
+//!   Tune.** Those are the Nexus-owned transmissions with no precomputed end that a dropped
+//!   Parsec session can leave keyed.
 //! - **FT auto-sequencing is NOT covered.** An FT over ends by itself; FT QSO management sits
 //!   behind its own gate, and the permit and the watchdog stay exactly as they are. So is
 //!   everything else that ends by itself — a voice-keyer message, a CW macro, an SSTV image, an
-//!   RTTY/PSK macro over. A foreign program's key through the CAT broker is that program's.
+//!   RTTY/PSK macro over. A generic external program's key through the CAT broker remains that
+//!   program's; ownership identity keeps it distinct from the bundled OpenHamClock surface.
 //! - **Off by default** ([`crate::settings::Settings::parsec_presence_stop`]), and with it off
 //!   the machine is reset, so switching it on later starts from "unknown", never from a stale
 //!   "connected".
@@ -25,7 +27,7 @@
 //!   anything, and only a covered transmission that is up at that moment. An operator at the
 //!   shack with no Parsec session is never touched.
 
-use super::{now_unix_secs, Engine};
+use super::{now_unix_secs, BrokerPttOwner, Engine};
 use crate::dto::ParsecPresenceDto;
 use crate::presence::{Presence, PresenceMachine, Verdict};
 
@@ -96,7 +98,8 @@ impl Engine {
             tempo_core::applog::info("parsec", &format!("presence {before:?} -> {after:?}"));
         }
         if !lost {
-            // The report of the last stop stands until the operator transmits again.
+            // The report stands until this once-per-second watcher observes another covered
+            // latch. Short/finite transmissions are deliberately outside that promise.
             if self.parsec.stopped.is_some() && !self.presence_covered().is_empty() {
                 self.parsec.stopped = None;
             }
@@ -131,14 +134,15 @@ impl Engine {
     /// - `tuning` — the raw hold, not the privilege-masked [`Self::tuning`]: a carrier masked
     ///   by a QSY into a locked segment keys again the moment the dial comes back.
     /// - `manual_ptt` — the operator's OWN latched key, raw for the same reason (re-arming TX
-    ///   would re-key it). Not `broker_ptt`: that is a foreign program's key.
+    ///   would re-key it), plus an embedded OpenHamClock broker key. A generic external CAT
+    ///   broker key remains its program's responsibility.
     /// - `rtty_streaming` / `psk_streaming` — the latch up, or what was typed still draining.
     fn presence_covered(&self) -> Vec<PresenceStop> {
         let mut up = Vec::new();
         if self.tuning {
             up.push(PresenceStop::Tune);
         }
-        if self.manual_ptt {
+        if self.manual_ptt || self.broker_ptt == Some(BrokerPttOwner::OpenHamClock) {
             up.push(PresenceStop::Ptt);
         }
         if self.rtty_streaming() {
@@ -320,6 +324,63 @@ mod tests {
         assert!(!e.manual_ptt());
     }
 
+    #[test]
+    fn an_embedded_openhamclock_latch_is_covered_but_an_external_broker_is_not() {
+        let mut embedded = Engine::new("W9XYZ", "EN61", 0);
+        watching(&mut embedded);
+        embedded.set_operating_mode("phone", false);
+        assert!(embedded.openhamclock_ptt(true), "embedded key granted");
+        assert_eq!(
+            drop_session(&mut embedded, &[Disconnected]),
+            vec![PresenceStop::Ptt]
+        );
+        assert!(
+            !embedded.broker_ptt_active(),
+            "embedded key survived the drop"
+        );
+
+        let mut external = Engine::new("W9XYZ", "EN61", 0);
+        watching(&mut external);
+        external.set_operating_mode("phone", false);
+        assert!(external.broker_ptt(true), "external key granted");
+        assert!(
+            drop_session(&mut external, &[Disconnected]).is_empty(),
+            "Parsec took ownership of a generic external CAT client's key"
+        );
+        assert!(external.broker_ptt_active(), "external key was released");
+        external.halt_tx();
+        assert!(
+            !external.broker_ptt_active(),
+            "global halt must still clear every broker owner"
+        );
+    }
+
+    #[test]
+    fn broker_reassertion_is_idempotent_only_for_the_current_owner() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_operating_mode("phone", false);
+        assert!(e.broker_ptt(true));
+        assert!(e.broker_ptt(true), "same external owner may reassert");
+        assert!(
+            !e.openhamclock_ptt(true),
+            "embedded owner may not steal external PTT"
+        );
+        assert!(
+            e.openhamclock_ptt(false),
+            "unkey is fail-safe across owners"
+        );
+        assert!(!e.broker_ptt_active());
+
+        assert!(e.openhamclock_ptt(true));
+        assert!(e.openhamclock_ptt(true), "same embedded owner may reassert");
+        assert!(
+            !e.broker_ptt(true),
+            "external owner may not steal embedded PTT"
+        );
+        assert!(e.broker_ptt(false), "external unkey still lands fail-safe");
+        assert!(!e.broker_ptt_active());
+    }
+
     // ----- what it must leave alone -----
 
     /// ⛔ FT auto-sequencing is not covered. A CQ run with an over in flight rides through a
@@ -437,7 +498,7 @@ mod tests {
     // ----- what it says -----
 
     #[test]
-    fn the_snapshot_reports_status_and_the_last_stop_until_the_operator_transmits_again() {
+    fn the_snapshot_reports_the_last_stop_until_the_watcher_observes_a_protected_latch() {
         let mut e = phone_latched();
         assert_eq!(
             e.parsec_presence_dto(),
@@ -461,7 +522,21 @@ mod tests {
             e.parsec_presence_dto().unwrap().stopped,
             vec!["ptt".to_string()]
         );
-        // Transmitting again is what retires it.
+        // A finite transmission is deliberately not the retirement condition: the watcher may
+        // miss a short over between its one-second samples, so the UI/docs promise only an
+        // observed protected latch.
+        e.set_operating_mode("digital", false);
+        e.set_tx_enabled(true);
+        e.app.set_transmitting(true);
+        e.apply_parsec_presence(Some(Connected));
+        assert_eq!(
+            e.parsec_presence_dto().unwrap().stopped,
+            vec!["ptt".to_string()]
+        );
+        e.app.set_transmitting(false);
+
+        // A covered latch observed by the watcher retires it.
+        e.set_operating_mode("phone", false);
         e.set_tx_enabled(true);
         e.set_ptt(true);
         e.apply_parsec_presence(Some(Connected));
