@@ -61,13 +61,12 @@ only by `amd64` versus `arm64`, so picking the right one meant already knowing t
 `amd64` means "PC" here. They say `pc` and `pi` now, and the two Pi files name the Pi
 OS base they are built against — match yours (`cat /etc/os-release`).
 
-Get them from:
+Get them from the **RD-Nexus GitHub Releases** page:
+<https://github.com/oliverbross/RD-Nexus/releases/latest>.
 
-- **GitHub Releases:** <https://github.com/kd9taw/Nexus/releases/latest>
-- **SourceForge:** <https://sourceforge.net/projects/nexus-ham-radio/files/latest/download>
-
-Both host the identical binary and its SHA-256 checksum. Use whichever is faster
-for you.
+That fork release is the authority for RD-Nexus binaries and its published
+`SHA256SUMS` file. Upstream Nexus and SourceForge artifacts are separate products;
+do not use them as substitutes for an RD-Nexus release.
 
 ---
 
@@ -126,8 +125,11 @@ The DMG is **signed and notarized**, so there is no Gatekeeper warning to click
 through:
 
 1. Open `Nexus_<version>_aarch64.dmg`.
-2. Drag **Nexus** into **Applications**, then eject the disk image.
-3. Launch Nexus from Applications (or Spotlight). Running it from inside the mounted
+2. Drag **RD-Nexus** into **Applications**, then eject the disk image. When upgrading from
+   upstream Nexus, quit it first and remove the old `/Applications/Nexus.app` after RD-Nexus is
+   installed; the different app filenames can otherwise leave both copies present. Do not delete
+   application data—the compatibility bundle identity deliberately reuses the existing settings.
+3. Launch RD-Nexus from Applications (or Spotlight). Running it from inside the mounted
    disk image works once, but self-update needs the app in Applications, so move it
    first.
 4. CAT rig control needs nothing else installed — Hamlib is inside the app since

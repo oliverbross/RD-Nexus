@@ -26154,7 +26154,8 @@ fn restart_app(app: tauri::AppHandle) {
 
 /// The GitHub releases API — lists pre-releases too (unlike the `/releases/latest` redirect the
 /// stable feed uses). 20 is far more than the few betas a cycle ever has in flight.
-const GITHUB_RELEASES_URL: &str = "https://api.github.com/repos/kd9taw/Nexus/releases?per_page=20";
+const GITHUB_RELEASES_URL: &str =
+    "https://api.github.com/repos/oliverbross/RD-Nexus/releases?per_page=20";
 
 /// Holds the pending beta `Update` between the check that found it and the install the operator
 /// presses — the JS side cannot carry a Rust `Update` handle, so it lives here. `None` until a
@@ -26234,15 +26235,11 @@ async fn install_beta_update(state: tauri::State<'_, BetaUpdateState>) -> Result
         .map_err(|e| e.to_string())
 }
 
-/// Our own update endpoint (schema 1): a `version.json` with a direct `"latest"` field. Primary,
-/// GitHub-first, and under our control — so update accuracy no longer depends on SourceForge's
-/// per-release "Default Download" flip.
-const VERSION_JSON_URL: &str = "https://hamradiotools.io/nexus/version.json";
-/// SourceForge `best_release.json` — the FALLBACK release feed if the endpoint is unreachable.
-const BEST_RELEASE_URL: &str = "https://sourceforge.net/projects/nexus-ham-radio/best_release.json";
-/// The download page the "Download" button opens — GitHub Releases (primary distribution), which
-/// lists every installer plus notes; SourceForge mirrors it.
-const DOWNLOAD_PAGE_URL: &str = "https://github.com/kd9taw/nexus/releases/latest";
+/// Fork-owned release authority for the notify-only update path. It is intentionally the same
+/// repository as the signed Tauri feed; an upstream Nexus release must never replace RD-Nexus.
+const GITHUB_LATEST_RELEASE_URL: &str =
+    "https://api.github.com/repos/oliverbross/RD-Nexus/releases/latest";
+const DOWNLOAD_PAGE_URL: &str = "https://github.com/oliverbross/RD-Nexus/releases/latest";
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26278,21 +26275,39 @@ fn fetch_text(url: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Resolve the latest released version: try our own endpoint first (authoritative `latest`), then
-/// fall back to SourceForge's best_release.json. `Ok(None)` = a feed was reachable but carried no
-/// usable version; `Err` = BOTH feeds failed to fetch (treated as offline → the frontend stays
-/// silent). Runs blocking HTTP, so call via `spawn_blocking`.
+fn parse_github_release_version(body: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()?
+        .get("tag_name")?
+        .as_str()
+        .map(str::trim)
+        .map(|tag| tag.strip_prefix('v').unwrap_or(tag))
+        .filter(|version| !version.is_empty())
+        .map(str::to_string)
+}
+
+/// Resolve the newest fork release. `Err` is treated as offline by the frontend; there is no
+/// upstream/SF fallback because presenting a foreign build as an RD-Nexus update is unsafe.
 fn fetch_latest_version() -> Result<Option<String>, String> {
-    // Primary: our own endpoint.
-    if let Ok(body) = fetch_text(VERSION_JSON_URL) {
-        if let Some(v) = tempo_app::update::parse_latest_from_endpoint(&body) {
-            return Ok(Some(v));
-        }
-        // Reachable but unparseable — fall through to the SF feed as a cross-check.
+    fetch_text(GITHUB_LATEST_RELEASE_URL).map(|body| parse_github_release_version(&body))
+}
+
+#[cfg(test)]
+mod rd_nexus_update_feed_tests {
+    use super::parse_github_release_version;
+
+    #[test]
+    fn github_release_tags_are_the_only_notify_version_authority() {
+        assert_eq!(
+            parse_github_release_version(r#"{"tag_name":"v1.16.0"}"#).as_deref(),
+            Some("1.16.0")
+        );
+        assert_eq!(
+            parse_github_release_version(r#"{"tag_name":"1.16.0-beta.2"}"#).as_deref(),
+            Some("1.16.0-beta.2")
+        );
+        assert_eq!(parse_github_release_version(r#"{"name":"v1.16.0"}"#), None);
     }
-    // Fallback: SourceForge. An error here (with the endpoint also unavailable) means offline.
-    let body = fetch_text(BEST_RELEASE_URL)?;
-    Ok(tempo_app::update::parse_latest_version(&body))
 }
 
 /// Check the release feed for a newer version. Returns the current/latest versions and whether an

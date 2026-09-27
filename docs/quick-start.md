@@ -23,8 +23,8 @@ Download the file for your platform — `Nexus_<version>_x64-setup.exe` on Windo
 `Nexus_<version>_amd64.AppImage` or `Nexus_<version>_pc_amd64.deb` on Linux,
 `Nexus_<version>_pi_arm64_bookworm.deb` / `..._trixie.deb` on a 64-bit Raspberry Pi —
 from the
-[SourceForge download page](https://sourceforge.net/projects/nexus-ham-radio/files/)
-(the source lives there too).
+[RD-Nexus GitHub Releases page](https://github.com/oliverbross/RD-Nexus/releases/latest)
+(the source lives in the same repository).
 It is a per-user install and needs no administrator rights. WebView2 (Windows) and Hamlib
 (every platform) are bundled, so there is nothing else to install.
 Full detail, including SHA-256

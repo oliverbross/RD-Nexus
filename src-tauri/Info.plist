@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Nexus decodes received audio from your radio's soundcard interface (FT8/FT4, RTTY, SSTV, CW, and other digital modes) and needs input access to do so.</string>
+	<string>RD-Nexus decodes received audio from your radio's soundcard interface (FT8/FT4, RTTY, SSTV, CW, and other digital modes) and needs input access to do so.</string>
 </dict>
 </plist>

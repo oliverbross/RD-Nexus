@@ -6,7 +6,7 @@ Raspberry Pi are packaged too and are covered where they differ. If you just wan
 get on the air, the [Quick Start](Quick-Start) covers install in three paragraphs;
 come here for the complete picture.
 
-[**⬇ Download the latest release**](https://github.com/kd9taw/Nexus/releases/latest)
+[**⬇ Download the latest release**](https://github.com/oliverbross/RD-Nexus/releases/latest)
 
 ---
 
@@ -31,7 +31,7 @@ come here for the complete picture.
   runtime and **Hamlib** (`rigctld.exe` plus its DLLs), so CAT and rotor control work
   offline out of the box. There is no separate Hamlib, WebView2, or driver download for
   supported radios. (USB bridge-chip drivers are the one exception — see
-  [Troubleshooting → drivers](https://github.com/kd9taw/Nexus/blob/main/docs/troubleshooting.md#driver-hint-usb-bridge-chip-detected-but-the-rig-wont-open).)
+  [Troubleshooting → drivers](https://github.com/oliverbross/RD-Nexus/blob/main/docs/troubleshooting.md#driver-hint-usb-bridge-chip-detected-but-the-rig-wont-open).)
   The same is true on **Linux, the Pi and macOS** since 1.9.0: Hamlib rides inside
   the download, so there is nothing to apt-install or brew-install. If Nexus's own
   copy ever fails to start it falls back to a system Hamlib, and it searches the
@@ -63,13 +63,12 @@ only by `amd64` versus `arm64`, so picking the right one meant already knowing t
 `amd64` means "PC" here. They say `pc` and `pi` now, and the two Pi files name the Pi
 OS base they are built against — match yours (`cat /etc/os-release`).
 
-Get them from:
+Get them from the **RD-Nexus GitHub Releases** page:
+<https://github.com/oliverbross/RD-Nexus/releases/latest>.
 
-- **GitHub Releases (primary):** <https://github.com/kd9taw/Nexus/releases/latest>
-- **SourceForge (mirror):** <https://sourceforge.net/projects/nexus-ham-radio/files/>
-
-Both host the identical binary and its SHA-256 checksum. Use whichever is faster
-for you.
+That fork release is the authority for RD-Nexus binaries and its published
+`SHA256SUMS` file. Upstream Nexus and SourceForge artifacts are separate products;
+do not use them as substitutes for an RD-Nexus release.
 
 ---
 
@@ -109,7 +108,7 @@ see the macOS section below.)
 Click **More info**, then **Run anyway**.
 
 If you would rather avoid the prompt entirely, you can
-[build from source](https://github.com/kd9taw/Nexus/blob/main/docs/manual/Building-from-Source.md) instead.
+[build from source](https://github.com/oliverbross/RD-Nexus/blob/main/docs/manual/Building-from-Source.md) instead.
 
 ### Where it installs
 
@@ -124,8 +123,11 @@ The DMG is **signed and notarized**, so there is no Gatekeeper warning to click
 through:
 
 1. Open `Nexus_<version>_aarch64.dmg`.
-2. Drag **Nexus** into **Applications**, then eject the disk image.
-3. Launch Nexus from Applications (or Spotlight). Running it from inside the mounted
+2. Drag **RD-Nexus** into **Applications**, then eject the disk image. When upgrading from
+   upstream Nexus, quit it first and remove the old `/Applications/Nexus.app` after RD-Nexus is
+   installed; the different app filenames can otherwise leave both copies present. Do not delete
+   application data—the compatibility bundle identity deliberately reuses the existing settings.
+3. Launch RD-Nexus from Applications (or Spotlight). Running it from inside the mounted
    disk image works once, but self-update needs the app in Applications, so move it
    first.
 4. CAT rig control needs nothing else installed — Hamlib is inside the app since

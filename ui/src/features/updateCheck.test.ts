@@ -43,7 +43,7 @@ const check = vi.mocked(checkForUpdate)
 const open = vi.mocked(openDownloadPage)
 
 const LS_DISMISSED = 'nexus.update.dismissedVersion'
-const URL = 'https://github.com/kd9taw/Nexus/releases'
+const URL = 'https://github.com/oliverbross/RD-Nexus/releases'
 
 const INFO: UpdateInfo = {
   current: '1.6.1',

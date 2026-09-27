@@ -5,15 +5,15 @@
 //   docs/install.md     ->  docs/launch/wiki/Install.md
 //   docs/quick-start.md ->  docs/launch/wiki/Quick-Start.md
 //
-// docs/launch/wiki/ is pasted by hand into BOTH the GitHub wiki and the SourceForge
-// wiki. Hand-mirrored copies rot: the three pages above were 26-53% verbatim copies
+// docs/launch/wiki/ is pasted by hand into the RD-Nexus GitHub wiki. Hand-mirrored
+// copies rot: the three pages above were 26-53% verbatim copies
 // of their docs/ source that had drifted apart word by word, and each had picked up
 // a defect the source did not have. Generating them means the docs tree stays the
 // one place a fact is written down.
 //
 // *** THIS TOOL DELIBERATELY DOES NOT GENERATE Home.md, Rig-Setup.md,           ***
 // *** _ProjectSummary.md OR Documentation.md. Those four are HAND-WRITTEN --    ***
-// *** positioning copy, a per-brand rig guide, the SourceForge project summary  ***
+// *** positioning copy, a per-brand rig guide, the project summary             ***
 // *** and the link hub -- with no docs/ source to derive them from. A generator ***
 // *** that overwrote them would be a destructive tool wearing a helpful hat.    ***
 // *** See docs/launch/wiki/README.md.                                           ***
@@ -26,7 +26,7 @@
 //   2. Links to docs/ pages that HAVE a wiki twin become bare wiki page names
 //      ([Install & Verify](install.md) -> [Install](Install)); every other relative
 //      docs link becomes an absolute GitHub URL, because the wiki is not in the tree
-//   3. Download source: docs/ points at SourceForge, the wiki at GitHub Releases
+//   3. Download source: both docs and wiki point at RD-Nexus GitHub Releases
 //   4. US -> en-GB spelling, the house style of the wiki
 //   5. Heading time estimates condense: "(about 3 minutes)" -> "(~3 min)"
 //   6. Per-page head/tail: the download button and the wiki's own nav block, which
@@ -46,12 +46,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const DOCS = path.join(ROOT, 'docs')
 const WIKI = path.join(DOCS, 'launch', 'wiki')
 
-const REPO = 'https://github.com/kd9taw/Nexus'
+const REPO = 'https://github.com/oliverbross/RD-Nexus'
 const BLOB = `${REPO}/blob/main/docs/`
 const TREE = `${REPO}/tree/main/docs/`
 const RELEASES = `${REPO}/releases/latest`
 const ISSUES = `${REPO}/issues/new/choose`
-const SF_FILES = 'https://sourceforge.net/projects/nexus-ham-radio/files/'
 
 // docs/ page -> [the label the wiki uses for it, the wiki page name].
 // Only these three have a wiki twin; every other docs link leaves the wiki.
@@ -116,9 +115,8 @@ const rewriteLinks = (s) =>
       (_m, file, anchor) => `](${BLOB}${file}${anchor ?? ''})`,
     )
 
-// The bare project URL means "the repository" in docs/; on the wiki that is GitHub.
-// The negative lookahead leaves https://sourceforge.net/projects/.../files/... alone
-// -- the wiki still names SourceForge as the download MIRROR.
+// The historical bare SourceForge project URL means "the repository" in docs/;
+// on the RD-Nexus wiki that is the fork's GitHub repository.
 const rewriteRepoUrls = (s) =>
   s
     .replace(/https:\/\/sourceforge\.net\/projects\/nexus-ham-radio(?![\w/-])/g, REPO)
@@ -161,22 +159,7 @@ const PAGES = [
     // The wiki page opens with the download button; docs/ opens straight into the
     // requirements, because the docs tree has no "get the file" job to do.
     head: `[**⬇ Download the latest release**](${RELEASES})\n\n`,
-    replacements: [
-      {
-        // ⚠️ REKEYED 2026-08-14. a6097c92 (2026-08-09) rewrote this block in
-        // docs/install.md — it used to name SourceForge primary and describe the
-        // mirror in prose; it now lists GitHub and SourceForge neutrally. The old
-        // `find` matched nothing from that commit on, so this generator THREW on
-        // every run and three releases shipped over a wiki nobody could rebuild.
-        // Nothing was red because nothing invoked it — which is why it is a CI
-        // step now. The INTENT is unchanged: the wiki ranks GitHub first and
-        // points its SourceForge link at the files section, not at latest/download.
-        find: `- **GitHub Releases:** <${RELEASES}>
-- **SourceForge:** <${SF_FILES}latest/download>`,
-        replace: `- **GitHub Releases (primary):** <${RELEASES}>
-- **SourceForge (mirror):** <${SF_FILES}>`,
-      },
-    ],
+    replacements: [],
     tailFrom: '## See also',
     tail: `## See also
 
@@ -193,16 +176,7 @@ const PAGES = [
   {
     source: 'quick-start.md',
     out: 'Quick-Start.md',
-    replacements: [
-      {
-        find: `from the
-[SourceForge download page](${SF_FILES})
-(the source lives there too).`,
-        replace: `from the
-[**⬇ latest release**](${RELEASES})
-(SourceForge mirrors it at <${SF_FILES}>).`,
-      },
-    ],
+    replacements: [],
     tailFrom: '## Where to go next',
     tail: `## Where to go next
 

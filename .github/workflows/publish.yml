@@ -100,6 +100,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   resolve:
     name: Resolve the release + check the secrets
+    if: github.repository == 'kd9taw/Nexus'
     runs-on: ubuntu-latest
     # A job-level block REPLACES the workflow-level one, so `contents: read` is repeated.
     # `actions: read` is the addition, needed by the CI-evidence gate at the end of this job:

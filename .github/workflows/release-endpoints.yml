@@ -1,32 +1,6 @@
-# Release-endpoint drift — do the update feeds agree with the latest release?
-#
-# WHY THIS EXISTS (1.0.1, 2026-08-05). Nexus was released to GitHub and the
-# operator's own "Check for updates" button kept answering "Nexus 1.0.0 is
-# available". Nothing was broken in the build: the tag, the workflow, the
-# artifacts and the Tauri updater manifest were all correct and all said 1.0.1.
-# What was stale was the endpoint the IN-APP check actually reads --
-# hamradiotools.io/nexus/version.json, which lives in a SEPARATE repo and is
-# deployed by hand -- and its fallback, SourceForge's best_release.json, which
-# only moves when the operator flips Default Download in the browser. Both halves
-# of one checklist step, skipped together, so neither could rescue the other.
-#
-# The only guard at the time was a reminder PRINTED by scripts/release-prep:
-#   "3. After CI publishes: SourceForge mirror + FRS, and update the site's
-#      /nexus/version.json (separate repo) -- the update-check endpoint stays
-#      stale until you do."
-# That reminder is only seen by someone who runs the script. The 1.0.1 CHANGELOG
-# was stamped by hand, release-prep never ran, the reminder never printed, and the
-# step was missed. A guard that a shortcut walks straight past is not a guard.
-#
-# WHY IT IS NOT PART OF release.yml. The site deploy and the Default-Download flip
-# are MANUAL steps that necessarily happen after CI publishes. A check inside the
-# release job would fail every single release, teach everyone to ignore it, and be
-# worse than nothing. So this runs on a schedule and gives the manual steps a grace
-# window before it complains.
-#
-# WHAT IT DOES NOT DO: it cannot deploy anything or flip Default Download (no API
-# exists for the latter -- a scripted POST returns 401). It tells you which feed
-# disagrees and what to run. Fixing it stays a deliberate, operator-gated act.
+# RD-Nexus has one release authority: this repository's GitHub Releases. The notify-only check,
+# beta channel, signed Tauri feed and download button must never fall back to upstream Nexus or a
+# downstream mirror. This monitor verifies the one derived artifact that can drift: latest.json.
 
 name: Release endpoints
 
@@ -52,15 +26,17 @@ jobs:
       - name: Compare every update feed against the latest GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
           GRACE_HOURS: ${{ github.event.inputs.grace_hours || '12' }}
         run: |
           python3 - <<'PY'
-          import json, os, re, sys, urllib.request, urllib.error
+          import json, os, sys, urllib.request, urllib.error
           from datetime import datetime, timezone
 
           GRACE = float(os.environ.get("GRACE_HOURS") or 12)
 
           TOKEN = os.environ.get("GH_TOKEN", "")
+          REPOSITORY = os.environ["GH_REPOSITORY"]
 
           def get(url, tries=3):
               """Fetch with retries. A transient blip must not red the badge, but an
@@ -92,7 +68,7 @@ jobs:
               raise RuntimeError(f"unreachable after {tries} tries: {url} ({last})")
 
           # --- the reference: what GitHub calls the latest release -----------------
-          rel = json.loads(get("https://api.github.com/repos/kd9taw/Nexus/releases/latest"))
+          rel = json.loads(get(f"https://api.github.com/repos/{REPOSITORY}/releases/latest"))
           tag = rel["tag_name"]                      # e.g. v1.0.1
           want = tag.lstrip("v")
           published = datetime.strptime(rel["published_at"], "%Y-%m-%dT%H:%M:%SZ") \
@@ -115,42 +91,9 @@ jobs:
           #    hard-gated against tauri.conf.json, so it cannot drift on its own -- a
           #    mismatch here means the release itself is malformed, not a missed step.
           lj = json.loads(get(
-              "https://github.com/kd9taw/Nexus/releases/latest/download/latest.json"))
+              f"https://github.com/{REPOSITORY}/releases/latest/download/latest.json"))
           check("latest.json (self-update)", lj.get("version", "?"),
                 "the release is malformed -- re-run release.yml for this tag")
-
-          # 2. The in-app 'Check for updates' PRIMARY feed. Separate repo
-          #    (~/work/hamtoolssite), deployed by hand. This is the one that was
-          #    stale for 1.0.1.
-          vj = json.loads(get("https://hamradiotools.io/nexus/version.json"))
-          check("hamradiotools.io version.json", vj.get("latest", "?"),
-                "bump public/nexus/version.json in the site repo, npm run build, then\n"
-                "     npx wrangler pages deploy dist --project-name=hamradiotools "
-                "--branch=main --commit-dirty=true\n"
-                "     then VERIFY the live cache-busted URL -- wrangler exits 0 on a "
-                "deploy that shipped nothing")
-
-          # 3. The in-app FALLBACK feed, used when the site endpoint cannot be reached.
-          #    Moves only when the operator flips Default Download in the SF web UI.
-          #
-          #    PARSED THE SAME WAY THE APP PARSES IT -- crates/tempo-app/src/update.rs
-          #    parse_latest_version(): platform_releases.windows.filename first, then
-          #    release.filename, and the version comes from the "Nexus_<ver>" token in
-          #    the FILENAME, not from the directory. Two traps live here, both hit while
-          #    writing this check: `release` is often literally null (SF fills it per the
-          #    requesting client's platform, so a Linux runner sees null while a browser
-          #    sees a value), and reading the version out of the /vX.Y.Z/ directory
-          #    instead of the filename checks a string the app never looks at. A drift
-          #    check that parses differently from the app is not checking the app.
-          br = json.loads(get(
-              "https://sourceforge.net/projects/nexus-ham-radio/best_release.json"))
-          fn = ((br.get("platform_releases") or {}).get("windows") or {}).get("filename") \
-               or (br.get("release") or {}).get("filename") or ""
-          m = re.search(r"Nexus_(\d+\.\d+\.\d+)", fn)
-          check("SourceForge best_release.json", m.group(1) if m else f"unparsed:{fn!r}",
-                "upload the installers to /home/frs/project/nexus-ham-radio/" + tag + "/,\n"
-                "     then set Default Download in the SF web UI (Files -> the .exe -> i ->\n"
-                "     Default Download For: Windows -> Save). There is NO API for this.")
 
           if not problems:
               print(f"\nAll {len(checked)} feeds agree on {want}.")
@@ -167,6 +110,6 @@ jobs:
                     "Reporting, not failing.")
               sys.exit(0)
 
-          print("An operator pressing 'Check for updates' is being told the wrong version.")
+          print("The signed self-update manifest disagrees with this repository's release.")
           sys.exit(1)
           PY

@@ -6,9 +6,9 @@ propagation, logging and awards. A brand-new Technician can set it up in an
 afternoon and a seasoned DXer will not outgrow it. Windows, Linux and Raspberry
 Pi. GPL-3.0, built in Rust.
 
-**[⬇ Download the latest release](https://github.com/kd9taw/Nexus/releases/latest)**
-&nbsp;·&nbsp; [Documentation](https://sourceforge.net/p/nexus-ham-radio/wiki/Documentation/)
-&nbsp;·&nbsp; [Source](https://github.com/kd9taw/Nexus)
+**[⬇ Download the latest release](https://github.com/oliverbross/RD-Nexus/releases/latest)**
+&nbsp;·&nbsp; [Documentation](https://github.com/oliverbross/RD-Nexus/wiki/Documentation)
+&nbsp;·&nbsp; [Source](https://github.com/oliverbross/RD-Nexus)
 &nbsp;·&nbsp; [hamradiotools.io](https://hamradiotools.io)
 
 > **Nexus left beta at 1.0.0, and here is what that claims.** The FT8/FT4 core

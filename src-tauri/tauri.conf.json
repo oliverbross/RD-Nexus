@@ -68,6 +68,7 @@
       "resources/hamlib/*.txt": "resources/hamlib/",
       "resources/hamlib/rig*": "resources/hamlib/",
       "resources/hamlib/rot*": "resources/hamlib/",
+      "resources/hamlib/*.dylib": "resources/hamlib/",
       "resources/deepcw/*": "resources/deepcw/",
       "resources/tles/*": "resources/tles/",
       "../licenses/remote/*": "resources/remote/",

@@ -5,8 +5,8 @@ CW, APRS, satellites, propagation, logging and awards in one modern app, built f
 everyone from a new Technician making a first FT8 contact to a DXCC Honor Roll
 chaser. Windows, macOS (Apple Silicon), Linux and Raspberry Pi. GPL-3.0, built in Rust.
 
-[**⬇ Download the latest release**](https://github.com/kd9taw/Nexus/releases/latest)
-&nbsp;·&nbsp; [Source](https://github.com/kd9taw/Nexus)
+[**⬇ Download the latest release**](https://github.com/oliverbross/RD-Nexus/releases/latest)
+&nbsp;·&nbsp; [Source](https://github.com/oliverbross/RD-Nexus)
 &nbsp;·&nbsp; [hamradiotools.io](https://hamradiotools.io)
 
 > **Nexus left beta at 1.0.0, and here is what that claims.** The FT8/FT4 core

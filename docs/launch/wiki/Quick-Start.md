@@ -4,7 +4,7 @@ This is the short path from a downloaded installer to a logged contact. The inst
 step below is written for Windows; macOS, Linux and Raspberry Pi take the same path
 from step 2, and [Install](Install) covers them all. It assumes a radio with
 a USB (or network) connection and a working antenna. Everything here is also covered
-in more depth in the [user guide](https://github.com/kd9taw/Nexus/tree/main/docs/guide/) — this page is the fast lane.
+in more depth in the [user guide](https://github.com/oliverbross/RD-Nexus/tree/main/docs/guide/) — this page is the fast lane.
 
 By the end you will have Nexus installed, your station and rig set up, a cockpit
 full of live decodes, and one FT8 QSO in your log.
@@ -23,8 +23,8 @@ Download the file for your platform — `Nexus_<version>_x64-setup.exe` on Windo
 `Nexus_<version>_amd64.AppImage` or `Nexus_<version>_pc_amd64.deb` on Linux,
 `Nexus_<version>_pi_arm64_bookworm.deb` / `..._trixie.deb` on a 64-bit Raspberry Pi —
 from the
-[**⬇ latest release**](https://github.com/kd9taw/Nexus/releases/latest)
-(SourceForge mirrors it at <https://sourceforge.net/projects/nexus-ham-radio/files/>).
+[RD-Nexus GitHub Releases page](https://github.com/oliverbross/RD-Nexus/releases/latest)
+(the source lives in the same repository).
 It is a per-user install and needs no administrator rights. WebView2 (Windows) and Hamlib
 (every platform) are bundled, so there is nothing else to install.
 Full detail, including SHA-256
@@ -50,7 +50,7 @@ and everything it sets can be changed later in Settings.
 On a clean install the wizard opens by itself, with empty fields. On a machine
 that is already set up it does not reappear: reopen it with **Re-run setup
 wizard…**, under Setup health in
-[Settings ▸ Radio](https://github.com/kd9taw/Nexus/blob/main/docs/guide/settings-reference.md#setup-health). Re-running it edits
+[Settings ▸ Radio](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/settings-reference.md#setup-health). Re-running it edits
 in place — your callsign, radio and log come with you and nothing is lost — which
 is why the fields in the captures below already hold a station.
 
@@ -87,7 +87,7 @@ Then click **Test CAT**. Nexus saves what you've entered, starts its bundled
 `rigctld`, and reads back the dial frequency. A number like `14.074 MHz` means CAT
 is working, and the **Setup health** strip at the foot of the step turns its Rig,
 RX audio and TX indicators over to what it actually found. If it fails,
-[Troubleshooting → CAT](https://github.com/kd9taw/Nexus/blob/main/docs/troubleshooting.md#cat--rig-control) walks through the
+[Troubleshooting → CAT](https://github.com/oliverbross/RD-Nexus/blob/main/docs/troubleshooting.md#cat--rig-control) walks through the
 usual causes.
 
 *A station that is actually working, in Nexus 1.10.3. The dB figure is this
@@ -110,7 +110,7 @@ treating every station on the band as new.
 
 The import is local: nothing leaves your computer, and duplicates are detected
 and skipped. The step is optional and you can import at any time from the
-[Logbook](https://github.com/kd9taw/Nexus/blob/main/docs/guide/logbook-qsl.md) — but it is the single biggest thing that makes
+[Logbook](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/logbook-qsl.md) — but it is the single biggest thing that makes
 the app useful on day one.
 
 ### Step 4 — Finish
@@ -118,7 +118,7 @@ the app useful on day one.
 There is nothing to unlock: **every mode and every section starts on** —
 FT8/FT4, Phone, CW, RTTY, SSTV, APRS, satellites, the maps, the lot. If you would
 rather run a leaner app, sections come off one at a time afterwards in
-[Settings ▸ Appearance ▸ Features](https://github.com/kd9taw/Nexus/blob/main/docs/guide/settings-reference.md#features), which is
+[Settings ▸ Appearance ▸ Features](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/settings-reference.md#features), which is
 also where the goal profiles — getting started, DX/awards, contesting, POTA/SOTA,
 6m/VHF, and **Everything (expert)**, which turns the whole console back on — set
 a batch of sensible defaults in one pick. Toggle features by hand and the profile
@@ -150,7 +150,7 @@ The three things to know:
   two independent cursors. **Left-click** moves the green **RX** cursor,
   **right-click** (or **Shift**-click) moves the red **TX** cursor, and
   **Ctrl**-click moves both at once — the same legend the pane header prints. The
-  [Operate chapter](https://github.com/kd9taw/Nexus/blob/main/docs/guide/operate-digital.md#the-tour) shows it.
+  [Operate chapter](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/operate-digital.md#the-tour) shows it.
 - **Band Activity** is the decode list — newest at the bottom, auto-scrolled to the
   latest period. Every row carries what stock WSJT-X never showed: the country
   name, a **B4** chip if you've worked them before, **New DXCC** / **new-grid**
@@ -215,7 +215,7 @@ happen at different moments, and each moves a different number:
 2. **A QSO** — you called, they came back, you exchanged reports and signed.
    That is a contact, and it is the only one of the four that writes a record
    in your logbook. This is what moves the **worked** counts on the Needed
-   board, in [Stats](https://github.com/kd9taw/Nexus/blob/main/docs/guide/stats.md) and in [Awards](https://github.com/kd9taw/Nexus/blob/main/docs/guide/awards-journey.md).
+   board, in [Stats](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/stats.md) and in [Awards](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/awards-journey.md).
 3. **An upload** — Nexus sends that record to LoTW, QRZ, ClubLog, eQSL or WRL.
    You have now told a service what you did. Nothing is confirmed yet, and the
    contact counts toward no award. On its own an upload proves only that your
@@ -229,7 +229,7 @@ happen at different moments, and each moves a different number:
 
 The short version: **decodes and reports are about your antenna, contacts are
 about your log, uploads are about your side of the paperwork, and confirmations
-are about theirs.** [Logbook & QSL](https://github.com/kd9taw/Nexus/blob/main/docs/guide/logbook-qsl.md) covers uploads and
+are about theirs.** [Logbook & QSL](https://github.com/oliverbross/RD-Nexus/blob/main/docs/guide/logbook-qsl.md) covers uploads and
 confirmations properly.
 
 With a callsign and grid set, the **Needed board** begins ranking every station on
@@ -252,7 +252,7 @@ You're on the air. When you want to go deeper:
 - [FAQ](FAQ) — the common questions.
 - [Documentation](Documentation) — the full manual set: section guides, protocols, interop.
 
-Stuck? The [troubleshooting guide](https://github.com/kd9taw/Nexus/blob/main/docs/troubleshooting.md)
+Stuck? The [troubleshooting guide](https://github.com/oliverbross/RD-Nexus/blob/main/docs/troubleshooting.md)
 on GitHub covers CAT failures, drivers, port conflicts, and audio.
 
 ---

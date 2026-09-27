@@ -21,14 +21,14 @@ stations on the air by what they are worth to *your* log.
 Nexus now transmits and receives **Q65, FST4, FST4W, MSK144, JT65 and WSPR** as well, so
 the mode gap has largely closed. And
 Nexus speaks WSJT-X's UDP protocol, so you don't have to choose all-or-nothing — your
-GridTracker/JTAlert/logger workflow survives either way. See [interop and companion setup](https://github.com/kd9taw/Nexus/blob/main/docs/interop.md).
+GridTracker/JTAlert/logger workflow survives either way. See [interop and companion setup](https://github.com/oliverbross/RD-Nexus/blob/main/docs/interop.md).
 
 ### What is TempoFast, in one sentence?
 
 FT8's message set on a 4-second cycle with cellular-style retransmission combining —
 keyboard chat at conversation speed, still down in the weak-signal noise. It works on
 the air; the published threshold figures are still bench numbers. The longer story is in
-[TempoFast](https://github.com/kd9taw/Nexus/blob/main/docs/protocols/tempofast.md).
+[TempoFast](https://github.com/oliverbross/RD-Nexus/blob/main/docs/protocols/tempofast.md).
 
 ### Is TempoFast more sensitive than FT8?
 
@@ -39,14 +39,14 @@ combine instead of being wasted. FT8's ~−21 dB threshold is the most sensitive
 TempoFast's ~−15 dB sits about where FT4 does. Those numbers are **bench figures
 only.** If you want maximum reach in
 one shot, use FT8; if you want a conversation, use TempoFast. When the path is fading, use
-[TempoDeep](https://github.com/kd9taw/Nexus/blob/main/docs/protocols/tempodeep.md).
+[TempoDeep](https://github.com/oliverbross/RD-Nexus/blob/main/docs/protocols/tempodeep.md).
 
 ### What is TempoDeep?
 
 The robust tier: non-coherent 8-FSK on a 15-second cycle, built to shrug off the
 fading that collapses coherent modes (a ~3.7 dB fading penalty in simulation, where
 coherent modes lose 10+ dB). It gives up some raw sensitivity to stay decodable on
-NVIS, polar, and rough paths. Details in [TempoDeep](https://github.com/kd9taw/Nexus/blob/main/docs/protocols/tempodeep.md).
+NVIS, polar, and rough paths. Details in [TempoDeep](https://github.com/oliverbross/RD-Nexus/blob/main/docs/protocols/tempodeep.md).
 
 ### Are the TempoFast/TempoDeep performance numbers proven?
 
@@ -63,7 +63,7 @@ Send honest on-air reports: band, dial frequency, which tier (TempoFast or Tempo
 and rough conditions, and what you decoded versus what you expected — including the
 surprises (false decodes, retransmissions that combined, stations you saw that others
 didn't). Field reports are the single most useful contribution right now. Use the
-issue tracker at <https://github.com/kd9taw/Nexus/issues/new/choose>.
+issue tracker at <https://github.com/oliverbross/RD-Nexus/issues/new/choose>.
 
 One thing worth checking before you try: read the clock in the top bar at **both**
 ends. A few tenths of a second of UTC error is invisible on FT8 and is fatal to
@@ -173,7 +173,7 @@ you already run.
 
 ### Where is the source code, and can I contribute?
 
-The repository is <https://github.com/kd9taw/Nexus>. Contributions are welcome —
+The repository is <https://github.com/oliverbross/RD-Nexus>. Contributions are welcome —
 issues, field reports, and pull requests all help. The most valuable ones are **on-air
 decode reports** for TempoFast and TempoDeep (see "How do I help close that gap?" above)
 and **rig confirmations** for radios beyond the ones the author has bench-verified. Bugs,
@@ -208,6 +208,6 @@ system and notify you instead.
 
 **More:** [Quick Start](Quick-Start) · [Install](Install) · [Rig Setup](Rig-Setup)
 · [Documentation](Documentation) · the deep protocol docs
-[on GitHub](https://github.com/kd9taw/Nexus/tree/main/docs).
+[on GitHub](https://github.com/oliverbross/RD-Nexus/tree/main/docs).
 
-*License: GPL-3.0 · by KD9TAW · Repository: <https://github.com/kd9taw/Nexus>*
+*License: GPL-3.0 · by KD9TAW · Repository: <https://github.com/oliverbross/RD-Nexus>*

@@ -10,10 +10,9 @@
 # The manual (workflow_dispatch) path exists to prove a build green WITHOUT cutting a
 # release: every build/verify job runs, but the publish job is gated on a real tag push.
 #
-# SCOPE: this publishes to GitHub. SourceForge FRS upload and the version.json update
-# endpoint are a deliberate fast-follow (each needs its own secret + external system);
-# the SF *git* mirror is scripts/mirror-to-sourceforge.sh. See
-# nexus-notes/single-repo-pipeline-plan.md.
+# SCOPE: this fork publishes RD-Nexus artifacts to its GitHub Release only. The retained
+# upstream publish.yml workflow is separately identity-gated for kd9taw/Nexus and is never
+# dispatched from this fork release path.
 #
 # WHY THE GATES: on 2026-07-20 a fully-green build shipped a .deb with the AI CW model
 # silently absent (14 MB light, no error anywhere). "Automatic on tag" here does NOT mean
@@ -47,8 +46,10 @@ permissions:
 
 env:
   # The DeepCW model is gitignored (AGPL-3.0 (c) e04); every build job stages it from this
-  # release and pins it by digest. One place to bump if it is ever re-folded.
-  DEEPCW_RELEASE: deepcw-model-v1
+  # upstream release and pins it by digest. The fork names the source repository explicitly:
+  # `deepcw-model-v1` does not exist in every fork, while the digest makes this external input
+  # reproducible rather than trusting a mutable release name alone.
+  DEEPCW_BASE_URL: https://github.com/kd9taw/Nexus/releases/download/deepcw-model-v1
   MODEL_SHA: a7b3b4aa2610d3e88b8c7d4420eceee31be2d0ae595b3413264334f3ffb1eab5
   MODEL_JSON_SHA: b4342157b90229ee7380e165f3d8036179b80d1e6ae02f2557388b7fcd558c01
   # The highest glibc symbol version the published x86_64 Linux binaries may require, and
@@ -72,6 +73,47 @@ env:
   GLIBC_FLOOR: '2.39'
 
 jobs:
+  # Fail before any artifact-producing job when the immutable model input is unavailable, or when
+  # a tag release cannot produce updater signatures. workflow_dispatch remains an unsigned build
+  # rehearsal; a tag is a publication request and must never strand installed updater clients.
+  release-prerequisites:
+    name: Gate — model input + updater signing readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify release inputs before building artifacts
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
+          EXPECTED_APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "A tag release requires the fork-owned TAURI_SIGNING_PRIVATE_KEY."
+            echo "Refusing to publish unsigned installers or an incomplete latest.json."
+            exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY_ID \
+              APPLE_API_ISSUER_ID APPLE_API_KEY_CONTENT EXPECTED_APPLE_TEAM_ID; do
+              if [ -z "${!name:-}" ]; then
+                echo "A tag release requires $name for signed, notarized macOS artifacts."
+                exit 1
+              fi
+            done
+          fi
+          model_dir=$(mktemp -d)
+          trap 'rm -rf "$model_dir"' EXIT
+          curl --fail --location --retry 3 \
+            --output "$model_dir/model.onnx" "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output "$model_dir/model.onnx.json" "$DEEPCW_BASE_URL/model.onnx.json"
+          echo "$MODEL_SHA  $model_dir/model.onnx" | sha256sum -c -
+          echo "$MODEL_JSON_SHA  $model_dir/model.onnx.json" | sha256sum -c -
+
   # ---------------------------------------------------------------------------------------
   # THE CI-EVIDENCE GATE — nothing here publishes until ci.yml has actually passed on the
   # commit the tag points at.
@@ -146,6 +188,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   linux-x86:
     name: Linux x86_64 (.deb + AppImage)
+    needs: release-prerequisites
     # PINNED, not `ubuntu-latest`. The build host's glibc IS the floor of every published
     # x86_64 artifact, so an unpinned label makes the supported-distro list move on GitHub's
     # schedule rather than ours. The arm64 jobs below have always been pinned AND containerised
@@ -166,12 +209,13 @@ jobs:
         run: bash scripts/stamp-version.sh
 
       - name: Stage the DeepCW model (not committed — AGPL-3.0 (c) e04)
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release download "$DEEPCW_RELEASE" --repo "${{ github.repository }}" \
-            --pattern 'model.onnx*' --dir src-tauri/resources/deepcw --clobber
+          mkdir -p src-tauri/resources/deepcw
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx.json "$DEEPCW_BASE_URL/model.onnx.json"
           echo "$MODEL_SHA  src-tauri/resources/deepcw/model.onnx" | sha256sum -c -
           echo "$MODEL_JSON_SHA  src-tauri/resources/deepcw/model.onnx.json" | sha256sum -c -
 
@@ -400,6 +444,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   windows:
     name: Windows (NSIS installer)
+    needs: release-prerequisites
     runs-on: ubuntu-latest
     env:
       # Baked into the binary via option_env! (build.rs). Only referenced in this
@@ -419,12 +464,13 @@ jobs:
         run: bash scripts/stamp-version.sh
 
       - name: Stage the DeepCW model (not committed — AGPL-3.0 (c) e04)
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release download "$DEEPCW_RELEASE" --repo "${{ github.repository }}" \
-            --pattern 'model.onnx*' --dir src-tauri/resources/deepcw --clobber
+          mkdir -p src-tauri/resources/deepcw
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx.json "$DEEPCW_BASE_URL/model.onnx.json"
           echo "$MODEL_SHA  src-tauri/resources/deepcw/model.onnx" | sha256sum -c -
           echo "$MODEL_JSON_SHA  src-tauri/resources/deepcw/model.onnx.json" | sha256sum -c -
 
@@ -554,9 +600,11 @@ jobs:
   # ---------------------------------------------------------------------------------------
   macos:
     name: macOS (Apple Silicon .dmg)
+    needs: release-prerequisites
     runs-on: macos-14
     env:
       CLUBLOG_API_KEY: ${{ secrets.CLUBLOG_API_KEY }}
+      EXPECTED_APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -568,12 +616,13 @@ jobs:
         run: bash scripts/stamp-version.sh
 
       - name: Stage the DeepCW model (not committed — AGPL-3.0 (c) e04)
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release download "$DEEPCW_RELEASE" --repo "${{ github.repository }}" \
-            --pattern 'model.onnx*' --dir src-tauri/resources/deepcw --clobber
+          mkdir -p src-tauri/resources/deepcw
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx.json "$DEEPCW_BASE_URL/model.onnx.json"
           echo "$MODEL_SHA  src-tauri/resources/deepcw/model.onnx" | shasum -a 256 -c -
           echo "$MODEL_JSON_SHA  src-tauri/resources/deepcw/model.onnx.json" | shasum -a 256 -c -
 
@@ -610,6 +659,10 @@ jobs:
           ident=$(security find-identity -v -p codesigning "$KEYCHAIN" \
             | awk -F'"' '/Developer ID Application/ {print $2; exit}')
           [ -n "$ident" ] || { echo "no Developer ID Application identity in the certificate"; exit 1; }
+          case "$ident" in
+            *"($EXPECTED_APPLE_TEAM_ID)") : ;;
+            *) echo "Developer ID identity does not match expected TeamIdentifier $EXPECTED_APPLE_TEAM_ID"; exit 1 ;;
+          esac
           echo "APPLE_SIGNING_IDENTITY=$ident" >> "$GITHUB_ENV"
           echo "signing as: $ident"
 
@@ -697,6 +750,9 @@ jobs:
           tarball=$(find "$bundle/macos" -name '*.app.tar.gz' -print -quit)
           [ -n "$dmg" ] || { echo "no DMG produced"; exit 1; }
           app=$(find "$bundle/macos" -maxdepth 1 -name '*.app' -print -quit)
+          team=$(codesign -dvv "$app" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')
+          [ "$team" = "$EXPECTED_APPLE_TEAM_ID" ] \
+            || { echo "unexpected app TeamIdentifier: $team"; exit 1; }
           # Gatekeeper's own verdict on what shipped — signing AND notarization AND
           # staple, the exact test a user's first double-click runs.
           spctl -a -t exec -vv "$app"
@@ -776,6 +832,8 @@ jobs:
     name: Smoke — mount + launch the macOS artifact
     needs: macos
     runs-on: macos-14
+    env:
+      EXPECTED_APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
     steps:
       # Checkout BEFORE download-artifact: the updater-signature check below reads the
       # minisign pubkey out of src-tauri/tauri.conf.json, and checkout's default clean
@@ -807,6 +865,14 @@ jobs:
         run: |
           set -euo pipefail
           app="$RUNNER_TEMP/Nexus.app"
+          appid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
+          appexec=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")
+          appname=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app/Contents/Info.plist")
+          appteam=$(codesign -dvv "$app" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')
+          [ "$appid" = "com.kd9taw.tempo" ] || { echo "unexpected compatibility bundle id: $appid"; exit 1; }
+          [ "$appexec" = "RD-Nexus" ] || { echo "unexpected app executable: $appexec"; exit 1; }
+          [ "$appname" = "RD-Nexus" ] || { echo "unexpected app name: $appname"; exit 1; }
+          [ "$appteam" = "$EXPECTED_APPLE_TEAM_ID" ] || { echo "unexpected app TeamIdentifier: $appteam"; exit 1; }
           # The microphone entitlement must be in the SIGNATURE of the shipped app, not
           # merely in the repo's Entitlements.plist: it reaches the bundle through two
           # config hops (bundle.macOS.entitlements -> Entitlements.plist), and losing
@@ -815,8 +881,9 @@ jobs:
           # DMGs with every other gate green. A headless runner can never exercise
           # capture, so reading the signature is the strongest check available here.
           codesign -d --entitlements - --xml "$app" > "$RUNNER_TEMP/entitlements.xml"
-          grep -q 'com.apple.security.device.audio-input' "$RUNNER_TEMP/entitlements.xml" \
-            || { echo "mic entitlement missing from the signed app"; cat "$RUNNER_TEMP/entitlements.xml"; exit 1; }
+          plutil -convert json -o - "$RUNNER_TEMP/entitlements.xml" \
+            | jq -e '.["com.apple.security.device.audio-input"] == true' >/dev/null \
+            || { echo "signed app mic entitlement is missing or false"; cat "$RUNNER_TEMP/entitlements.xml"; exit 1; }
           # And the usage string, in the same breath: without NSMicrophoneUsageDescription
           # macOS refuses the prompt outright even WITH the entitlement. PlistBuddy exits
           # non-zero when the key is absent, which fails the step under -e.
@@ -862,6 +929,23 @@ jobs:
           upapp=$(find "$RUNNER_TEMP/updater" -maxdepth 1 -name '*.app' -print -quit)
           [ -n "$upapp" ] || { echo "no .app inside the updater tarball"; exit 1; }
           codesign --verify --deep --strict "$upapp"
+          codesign -d --entitlements - --xml "$upapp" > "$RUNNER_TEMP/updater-entitlements.xml"
+          plutil -convert json -o - "$RUNNER_TEMP/updater-entitlements.xml" \
+            | jq -e '.["com.apple.security.device.audio-input"] == true' >/dev/null \
+            || { echo "updater app mic entitlement is missing or false"; cat "$RUNNER_TEMP/updater-entitlements.xml"; exit 1; }
+          uphl="$upapp/Contents/Resources/resources/hamlib"
+          for f in rigctld rigctl rotctld rotctl libhamlib.4.dylib libusb-1.0.0.dylib; do
+            [ -s "$uphl/$f" ] || { echo "updater app is missing Hamlib runtime $f"; exit 1; }
+          done
+          "$uphl/rigctld" --version
+          upid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$upapp/Contents/Info.plist")
+          upexec=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$upapp/Contents/Info.plist")
+          upname=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$upapp/Contents/Info.plist")
+          upteam=$(codesign -dvv "$upapp" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')
+          [ "$upid" = "com.kd9taw.tempo" ] || { echo "unexpected updater bundle id: $upid"; exit 1; }
+          [ "$upexec" = "RD-Nexus" ] || { echo "unexpected updater executable: $upexec"; exit 1; }
+          [ "$upname" = "RD-Nexus" ] || { echo "unexpected updater app name: $upname"; exit 1; }
+          [ "$upteam" = "$EXPECTED_APPLE_TEAM_ID" ] || { echo "unexpected updater TeamIdentifier: $upteam"; exit 1; }
           dmgver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_TEMP/Nexus.app/Contents/Info.plist")
           upver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$upapp/Contents/Info.plist")
           [ "$dmgver" = "$upver" ] || { echo "version mismatch: DMG=$dmgver updater=$upver"; exit 1; }
@@ -883,6 +967,7 @@ jobs:
   # ---------------------------------------------------------------------------------------
   pi:
     name: Raspberry Pi .deb (${{ matrix.base }})
+    needs: release-prerequisites
     runs-on: ubuntu-24.04-arm
     strategy:
       fail-fast: false
@@ -901,12 +986,13 @@ jobs:
         run: bash scripts/stamp-version.sh
 
       - name: Stage the DeepCW model (not committed — AGPL-3.0 (c) e04)
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release download "$DEEPCW_RELEASE" --repo "${{ github.repository }}" \
-            --pattern 'model.onnx*' --dir src-tauri/resources/deepcw --clobber
+          mkdir -p src-tauri/resources/deepcw
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx.json "$DEEPCW_BASE_URL/model.onnx.json"
           echo "$MODEL_SHA  src-tauri/resources/deepcw/model.onnx" | sha256sum -c -
           echo "$MODEL_JSON_SHA  src-tauri/resources/deepcw/model.onnx.json" | sha256sum -c -
 
@@ -1053,12 +1139,10 @@ jobs:
     needs: [ci-evidence, linux-x86, windows, smoke-windows, macos, smoke-macos, manual]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    # `actions: write` is for the downstream hand-off at the end of this job. Job-level
-    # permissions REPLACE the workflow-level block rather than adding to it, so `contents:
-    # write` is repeated here — without it this job loses its ability to create the release.
+    # Job-level permissions REPLACE the workflow-level block rather than adding to it, so
+    # `contents: write` is repeated here — without it this job cannot create the release.
     permissions:
       contents: write
-      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -1158,7 +1242,7 @@ jobs:
           set -euo pipefail
           ver='${{ steps.ver.outputs.ver }}'
           tag='${{ steps.ver.outputs.tag }}'
-          base="https://github.com/kd9taw/Nexus/releases/download/$tag"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/$tag"
           win=$(find dist -name '*_x64-setup.exe' -print -quit)
           app=$(find dist -name '*_amd64.AppImage' -print -quit)
           platforms=''
@@ -1202,51 +1286,8 @@ jobs:
             $( [ -f dist/latest.json ] && echo dist/latest.json )
 
   # Second wave (operator's release order: Windows + Linux first, then Pi): attach the
-  # Raspberry Pi .debs to the already-published release as their builds finish. Waits on
+  # Raspberry Pi .debs to the already-published fork release as their builds finish. Waits on
   # publish so the release exists; a Pi failure never blocks the primary platforms.
-      # ── HAND OFF TO THE DOWNSTREAM PUBLISH ────────────────────────────────────────────
-      # Without this, publish.yml never runs on its own and the release reaches NOBODY: the
-      # SourceForge upload, the site's version.json and the Cloudflare deploy all wait on it,
-      # and nothing goes red — which is exactly how 1.0.1 shipped while the in-app update check
-      # told every operator 1.0.0 was newest for two days. It was still true at 1.0.5 (every
-      # run of publish.yml in this repo's history has been a manual dispatch), so this closes it.
-      #
-      # `on: release: published` cannot do the job: GitHub suppresses events raised by
-      # GITHUB_TOKEN to stop recursion, and this job creates the release with exactly that.
-      # workflow_dispatch is the documented exception — "workflow_dispatch and
-      # repository_dispatch events always create workflow runs" — so NO PAT is needed, only
-      # `actions: write` above. publish.yml's own header says a PAT is required; that is wrong,
-      # and it is corrected there.
-      #
-      # Fired from THIS job rather than publish-pi on purpose. publish.yml opens by polling for
-      # all five installers and their checksums with a 30-minute deadline, so it is built to be
-      # started before the Pi .debs land and to wait for them. And publish-pi SKIPS when the Pi
-      # build fails (0.18.0), which would leave the hand-off unreachable in the one case where
-      # someone most needs to be told — this way it times out loudly instead.
-      #
-      # `|| true`: the release itself is already published and correct at this point. A failed
-      # hand-off must not turn a good release red; the run summary carries the warning and the
-      # manual dispatch is still there.
-      - name: Hand off to the downstream publish (SourceForge + site)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -uo pipefail
-          tag="${GITHUB_REF_NAME}"
-          if gh workflow run publish.yml --repo "${{ github.repository }}" -f tag="$tag"; then
-            echo "Dispatched publish.yml for $tag" >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "### ⚠️ Downstream publish was NOT dispatched"
-              echo "The release is published and correct, but SourceForge, the site's"
-              echo "\`version.json\` and the Cloudflare deploy have not run."
-              echo ""
-              echo "Run it by hand:"
-              echo '```'
-              echo "gh workflow run publish.yml --repo ${{ github.repository }} -f tag=$tag"
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
 
   publish-pi:
     # Uploads the Pi artifacts and the amended SHA256SUMS.txt to the Release.

@@ -1,10 +1,9 @@
-//! Self-update version check — the PURE parse/compare of the release-version feeds.
+//! Pure version parsing/comparison helpers.
 //!
-//! Two sources, tried in order by the shell: our own update endpoint
-//! (`hamradiotools.io/nexus/version.json`, a schema-1 doc with a direct `"latest"` field —
-//! parsed by [`parse_latest_from_endpoint`]), and, as a fallback, SourceForge's
-//! `best_release.json` (the filename-parsing path in [`parse_latest_version`]). The own endpoint
-//! is authoritative and GitHub-first; SF is the safety net so a site outage can't disable the check.
+//! RD-Nexus runtime update authority is the fork's GitHub release API and signed Tauri manifest;
+//! the Tauri shell owns that IO and tag parser. The schema-1 and SourceForge parsers below remain
+//! only for compatibility tests and older callers. They must not be described or wired as fallback
+//! authorities for an RD-Nexus build.
 //!
 //! The HTTP fetch (IO) lives in the Tauri shell; this module stays pure and unit-tested so the
 //! version logic is verifiable without a network — and without building `src-tauri`, which the

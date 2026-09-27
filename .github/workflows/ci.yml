@@ -1,8 +1,8 @@
 # Tempo CI — headless Rust workspace tests/clippy + the web UI build.
 #
 # Scope: Linux-hosted gates — the simulation-only Rust tests/clippy, the web UI
-# build + Vitest, AND a Windows cross-COMPILE of the desktop app (compile/link
-# only, to catch src-tauri breakage the Linux tests can't see). It does NOT bundle
+# build + Vitest, a Windows cross-COMPILE of the desktop app, and a macOS ad-hoc
+# `.app` package contract with its real bundled resources. It does NOT bundle
 # the NSIS installer or download the WebView2/Hamlib runtimes — that full packaging
 # is produced out-of-band by scripts/build-windows.sh (native MSYS2 UCRT64),
 # scripts/build-windows.ps1 (PowerShell wrapper), and scripts/build-windows-cross.sh
@@ -907,17 +907,18 @@ jobs:
           --target x86_64-pc-windows-gnu
           --features radio,custom-protocol
 
-  # Job 5b — macOS compile check (fast feedback; the SHIPPING mac build lives in release.yml).
+  # Job 5b — macOS unsigned/ad-hoc package contract (the SHIPPING build lives in release.yml).
   #
   # Since 1.5.0 macOS IS a supported platform: release.yml's `macos` job does the signed,
   # notarized, statically-linked .dmg (and `smoke-macos` proves it on a clean runner). This
-  # job stays deliberately the same shape as `windows-cross` above — prove it LINKS on every
-  # push, ship nothing. No `cargo tauri build`, no signing secrets here; a compile check
-  # that needed secrets would stop running on forks and PRs, which is where it earns its keep.
+  # This job proves the actual `.app` layout on every push: Tauri resource assembly, all bundled
+  # Hamlib tools/dylibs, strict outer resource sealing, and the microphone entitlement. It uses
+  # the local ad-hoc signing path and ships nothing; Developer ID signing, notarization, DMG mount,
+  # updater signature and installed-upgrade checks remain release.yml/real-Mac gates.
   #
-  # Unsigned and hardened-runtime-off is fine for a compile check. The SIGNED build needs
-  # `bundle.macOS.entitlements` with com.apple.security.device.audio-input, or the microphone
-  # is unreachable at runtime however good the Info.plist is — that lives in
+  # The ad-hoc app cannot prove Developer ID or hardened-runtime acceptance. It does prove that
+  # `bundle.macOS.entitlements` carries com.apple.security.device.audio-input, without which the
+  # microphone is unreachable at runtime however good the Info.plist is — that lives in
   # src-tauri/tauri.conf.json + Entitlements.plist (added 2026-08-17; this comment warned
   # about the gap from the day the job was added, and the 1.5.x/1.6.0 DMGs shipped with it).
   #
@@ -932,8 +933,12 @@ jobs:
   # (The "unproven until it first runs" caveat that stood here is retired: it has run many times,
   # and the CMake/Homebrew failure it predicted was fixed rather than theoretical.)
   macos-check:
-    name: macOS compile check (fast link check; the shipping build is in release.yml)
+    name: macOS app package contract (ad-hoc; shipping build is in release.yml)
     runs-on: macos-14
+    env:
+      DEEPCW_BASE_URL: https://github.com/kd9taw/Nexus/releases/download/deepcw-model-v1
+      MODEL_SHA: a7b3b4aa2610d3e88b8c7d4420eceee31be2d0ae595b3413264334f3ffb1eab5
+      MODEL_JSON_SHA: b4342157b90229ee7380e165f3d8036179b80d1e6ae02f2557388b7fcd558c01
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -942,7 +947,7 @@ jobs:
       # for the modem — the darwin equivalents of the apt list the Linux job installs.
       - name: Install build dependencies
         run: |
-          brew install cmake ninja gcc fftw boost
+          brew install cmake ninja gcc fftw boost libusb
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -953,33 +958,29 @@ jobs:
         with:
           node-version: 24
 
-      # src-tauri embeds the built web assets, so the UI has to exist before it links.
-      - name: Build the web UI
+      - name: Install UI and Tauri tooling
         run: |
           npm --prefix ui ci
-          npm --prefix ui run build
+          cargo install tauri-cli --version "=2.11.5" --locked
 
-      # The DeepCW model is gitignored (AGPL-3.0 (c) e04) and absent here on purpose:
-      # build.rs offers NEXUS_ALLOW_MISSING_AICW for exactly this case, and its absence
-      # affects only the AI CW panel — nothing this job is trying to prove.
-      # Homebrew keeps libgfortran under the gcc formula's own lib dir, which is not on the
-      # default linker search path — the modem links `-lgfortran` and `-lfftw3f`, so both
-      # prefixes have to reach the linker or the build dies at the very last step. That is
-      # tempo-fast-sys/build.rs's job now (it probes gfortran and pkg-config); this step
-      # exists to prove the probe works on a runner with nothing pre-arranged.
-      - name: Compile src-tauri for macOS
-        env:
-          NEXUS_ALLOW_MISSING_AICW: 1
+      - name: Stage and verify the DeepCW model
         run: |
-          # NO LIBRARY_PATH export here, deliberately. It used to supply exactly the two directories
-          # tempo-fast-sys/build.rs now derives (gcc's lib/gcc/current and fftw's lib), which meant
-          # this job passed whether or not the probe worked -- green either way is not a test. Without
-          # it, the job IS the positive control for the probe: if the derivation breaks, the link
-          # fails here rather than on a contributor's Mac.
-          cargo build --release \
-            --manifest-path src-tauri/Cargo.toml \
-            --target aarch64-apple-darwin \
-            --features radio,custom-protocol
+          set -euo pipefail
+          mkdir -p src-tauri/resources/deepcw
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx.json "$DEEPCW_BASE_URL/model.onnx.json"
+          echo "$MODEL_SHA  src-tauri/resources/deepcw/model.onnx" | shasum -a 256 -c -
+          echo "$MODEL_JSON_SHA  src-tauri/resources/deepcw/model.onnx.json" | shasum -a 256 -c -
+
+      - name: Stage bundled Hamlib
+        run: bash scripts/fetch-hamlib-unix.sh
+
+      # NO LIBRARY_PATH export: tempo-fast-sys must derive Homebrew's gfortran/FFTW paths itself.
+      # scripts/build-macos.sh performs the Tauri build and then verifies the complete app contract.
+      - name: Build and verify the ad-hoc RD-Nexus.app
+        run: bash scripts/build-macos.sh --debug
 
   # Job 6 — Raspberry Pi .deb, one per live Pi OS base. Runs on GitHub's hosted
   # arm64 runner (free for public repos), so the aarch64 build is NATIVE: the same
@@ -1014,11 +1015,14 @@ jobs:
       # no error. build-linux.sh hard-fails if these are absent, so this step is load-bearing.
       - name: Stage the DeepCW model (not committed — AGPL-3.0 (c) e04)
         env:
-          GH_TOKEN: ${{ github.token }}
+          DEEPCW_BASE_URL: https://github.com/kd9taw/Nexus/releases/download/deepcw-model-v1
         run: |
           set -euo pipefail
-          gh release download deepcw-model-v1 --repo "${{ github.repository }}" \
-            --pattern 'model.onnx*' --dir src-tauri/resources/deepcw --clobber
+          mkdir -p src-tauri/resources/deepcw
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx "$DEEPCW_BASE_URL/model.onnx"
+          curl --fail --location --retry 3 \
+            --output src-tauri/resources/deepcw/model.onnx.json "$DEEPCW_BASE_URL/model.onnx.json"
           # Pin by digest: a silently-swapped model would change decode behaviour with no
           # other visible signal.
           echo "a7b3b4aa2610d3e88b8c7d4420eceee31be2d0ae595b3413264334f3ffb1eab5  src-tauri/resources/deepcw/model.onnx" | sha256sum -c -
