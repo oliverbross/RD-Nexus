@@ -53,6 +53,13 @@ test('the macOS build script checks both companions inside the assembled app', (
   }
 })
 
+test('the default release build never expands an empty array under macOS Bash nounset', () => {
+  const script = read('scripts/build-macos.sh')
+  assert.ok(!script.includes('tauri_args=()'), 'an empty array fails under the system Bash 3.2 with set -u')
+  assert.match(script, /tauri_args=\([\s\S]*--features radio,custom-protocol[\s\S]*--bundles app[\s\S]*--config/)
+  assert.ok(script.includes('cargo tauri build "${tauri_args[@]}" "$@"'))
+})
+
 test('the assembled-app self-test parser accepts Python json.dumps output and rejects bad payloads', () => {
   const checker = join(root, 'scripts', 'check-neural-dx-self-test.mjs')
   const run = (input) => spawnSync(process.execPath, [checker, '--version', '12.7'], {

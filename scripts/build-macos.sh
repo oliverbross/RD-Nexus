@@ -3,7 +3,11 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 profile="release"
-tauri_args=()
+tauri_args=(
+  --features radio,custom-protocol
+  --bundles app
+  --config '{"bundle":{"createUpdaterArtifacts":false}}'
+)
 if [[ "${1:-}" == "--debug" ]]; then
   profile="debug"
   tauri_args+=(--debug)
@@ -20,9 +24,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 fi
 
 cd "$repo/src-tauri"
-cargo tauri build --features radio,custom-protocol --bundles app \
-  --config '{"bundle":{"createUpdaterArtifacts":false}}' \
-  "${tauri_args[@]}" "$@"
+cargo tauri build "${tauri_args[@]}" "$@"
 
 # The dylibs are Tauri resources, not post-bundle mutations: DMG and updater archives must contain
 # the same CAT runtime bytes the .app was signed over. This script never copies or changes bundle
