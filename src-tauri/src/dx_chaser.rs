@@ -16,7 +16,7 @@ use std::io::Write;
 use std::ops::ControlFlow;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 use tauri::State;
 use tempo_core::logbook::sqlite::{Narrow, Order, Scope};
@@ -27,6 +27,16 @@ const DXCC_MATRIX_BANDS: [&str; 9] = [
     "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m",
 ];
 const DXCC_MATRIX_SPOT_AGE: Duration = Duration::from_secs(5 * 60);
+/// One owner from normalization through durable install and runtime application.
+///
+/// Atomic file replacement prevents torn JSON, but it does not impose an order between two
+/// callers: without this transaction A can save, B can save and apply, then A can apply, leaving
+/// disk B/runtime A. This lock is deliberately process-wide because the settings file is
+/// process-wide even if a test or a future window constructs another managed state handle.
+static CONFIGURE_TRANSACTION: Mutex<()> = Mutex::new(());
+const TWILIO_CLIENT_FAILURE: &str = "Twilio client could not be initialized";
+const TWILIO_AMBIGUOUS_FAILURE: &str =
+    "Twilio delivery outcome is unknown; the message was not retried to prevent a duplicate";
 const DXCC_MATRIX_LOG_COLUMNS: Narrow = Narrow {
     columns: &["call", "country", "band"],
     uploads: false,
@@ -893,12 +903,39 @@ pub(crate) fn dx_chaser_configure(
     state: State<'_, SharedEngine>,
     chaser: State<'_, SharedDxChaser>,
 ) -> Result<Snapshot, String> {
+    configure_transaction_with(
+        settings,
+        &chaser,
+        save_settings,
+        || engine_lock(&state).halt_tx(),
+        || engine_lock(&state).tx_enabled(),
+    )
+}
+
+fn configure_transaction_with<Save, Halt, TxEnabled>(
+    settings: Settings,
+    chaser: &SharedDxChaser,
+    save: Save,
+    halt_tx: Halt,
+    tx_enabled: TxEnabled,
+) -> Result<Snapshot, String>
+where
+    Save: FnOnce(&Settings) -> Result<(), String>,
+    Halt: FnOnce(),
+    TxEnabled: FnOnce() -> bool,
+{
+    let _transaction = CONFIGURE_TRANSACTION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let settings = settings.normalized();
-    save_settings(&settings)?;
+
+    // Durable state is the commit point. If it cannot be installed, runtime state is untouched.
+    save(&settings)?;
     if !settings.enabled {
-        engine_lock(&state).halt_tx();
+        halt_tx();
     }
-    let mut dx = chaser_lock(&chaser);
+    let armed = tx_enabled();
+    let mut dx = chaser_lock(chaser);
     dx.sms_outbox.configure(settings.sms_min_interval_secs);
     dx.engine.configure(settings);
     if !dx.engine.settings().enabled {
@@ -906,9 +943,7 @@ pub(crate) fn dx_chaser_configure(
         dx.active_attempt = None;
     }
     dx.loaded = true;
-    Ok(dx
-        .engine
-        .snapshot(now_unix().max(0) as u64, engine_lock(&state).tx_enabled()))
+    Ok(dx.engine.snapshot(now_unix().max(0) as u64, armed))
 }
 
 #[tauri::command(async)]
@@ -974,8 +1009,11 @@ fn execute(
             audio_hz,
             tx_audio_hz,
         } => {
+            let generation = armed_generation
+                .ok_or_else(|| "DX Chaser call requires a live operator arm binding".to_string())?;
             let baseline_log_tick = eng.snapshot().log_tick;
             eng.dx_chaser_call_while_armed_ctx(
+                generation,
                 &call,
                 grid.as_deref(),
                 Some(&message),
@@ -1424,6 +1462,22 @@ fn twilio_status_retryable(status: reqwest::StatusCode) -> bool {
     status == reqwest::StatusCode::TOO_MANY_REQUESTS
 }
 
+fn redacted_twilio_client_error(_error: &impl std::fmt::Display) -> TwilioSendError {
+    TwilioSendError {
+        message: TWILIO_CLIENT_FAILURE.into(),
+        retryable: false,
+    }
+}
+
+fn redacted_twilio_transport_error(_error: &impl std::fmt::Display) -> TwilioSendError {
+    // reqwest transport errors commonly include the request URL. The Twilio Account SID is a
+    // path component, so neither the source error nor its chain may cross this boundary.
+    TwilioSendError {
+        message: TWILIO_AMBIGUOUS_FAILURE.into(),
+        retryable: false,
+    }
+}
+
 impl std::fmt::Display for TwilioSendError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message)
@@ -1443,10 +1497,7 @@ fn send_twilio_delivery(body: &str) -> Result<(), TwilioSendError> {
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(20))
         .build()
-        .map_err(|e| TwilioSendError {
-            message: e.to_string(),
-            retryable: false,
-        })?
+        .map_err(|error| redacted_twilio_client_error(&error))?
         .post(format!(
             "https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
         ))
@@ -1462,12 +1513,7 @@ fn send_twilio_delivery(body: &str) -> Result<(), TwilioSendError> {
             form(body)
         ))
         .send()
-        .map_err(|e| TwilioSendError {
-            message: format!(
-                "ambiguous network failure; not retried to prevent duplicate SMS: {e}"
-            ),
-            retryable: false,
-        })?;
+        .map_err(|error| redacted_twilio_transport_error(&error))?;
     if response.status().is_success() {
         Ok(())
     } else {
@@ -1583,6 +1629,109 @@ mod matrix_tests {
     }
 
     #[test]
+    fn configuration_transaction_keeps_last_durable_and_runtime_settings_identical() {
+        let root = scratch_dir("configure-transaction");
+        let path = root.join("dx-chaser.json");
+        let chaser: SharedDxChaser = Arc::new(std::sync::Mutex::new(ChaserState::default()));
+        let first_in_save = Arc::new(std::sync::Barrier::new(2));
+        let release_first = Arc::new(std::sync::Barrier::new(2));
+
+        let first = {
+            let chaser = Arc::clone(&chaser);
+            let path = path.clone();
+            let first_in_save = Arc::clone(&first_in_save);
+            let release_first = Arc::clone(&release_first);
+            std::thread::spawn(move || {
+                configure_transaction_with(
+                    Settings {
+                        sms_min_interval_secs: 61,
+                        ..Settings::default()
+                    },
+                    &chaser,
+                    |settings| {
+                        first_in_save.wait();
+                        release_first.wait();
+                        write_json_atomic(&path, settings)
+                    },
+                    || {},
+                    || false,
+                )
+                .unwrap();
+            })
+        };
+
+        // The first caller is holding CONFIGURE_TRANSACTION inside its durable-save step. Start
+        // the second now: it must not save until the first has also applied its runtime state.
+        first_in_save.wait();
+        let second = {
+            let chaser = Arc::clone(&chaser);
+            let path = path.clone();
+            std::thread::spawn(move || {
+                configure_transaction_with(
+                    Settings {
+                        sms_min_interval_secs: 62,
+                        ..Settings::default()
+                    },
+                    &chaser,
+                    |settings| write_json_atomic(&path, settings),
+                    || {},
+                    || false,
+                )
+                .unwrap();
+            })
+        };
+        release_first.wait();
+        first.join().unwrap();
+        second.join().unwrap();
+
+        let saved = load_json::<Settings>(&path, "transaction settings").unwrap();
+        let runtime = chaser_lock(&chaser).engine.settings().clone();
+        assert_eq!(saved.sms_min_interval_secs, 62);
+        assert_eq!(runtime.sms_min_interval_secs, 62);
+        assert_eq!(saved, runtime);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn configuration_save_failure_leaves_durable_and_runtime_settings_unchanged() {
+        let root = scratch_dir("configure-failure");
+        let path = root.join("dx-chaser.json");
+        let chaser: SharedDxChaser = Arc::new(std::sync::Mutex::new(ChaserState::default()));
+        configure_transaction_with(
+            Settings {
+                sms_min_interval_secs: 73,
+                ..Settings::default()
+            },
+            &chaser,
+            |settings| write_json_atomic(&path, settings),
+            || {},
+            || false,
+        )
+        .unwrap();
+        let before = std::fs::read(&path).unwrap();
+
+        let error = configure_transaction_with(
+            Settings {
+                enabled: true,
+                sms_min_interval_secs: 99,
+                ..Settings::default()
+            },
+            &chaser,
+            |_| Err("injected durable-save failure".into()),
+            || panic!("a failed durable commit must not halt TX"),
+            || panic!("a failed durable commit must not inspect or apply runtime state"),
+        )
+        .unwrap_err();
+        assert_eq!(error, "injected durable-save failure");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let saved = load_json::<Settings>(&path, "transaction settings").unwrap();
+        let runtime = chaser_lock(&chaser).engine.settings().clone();
+        assert_eq!(saved.sms_min_interval_secs, 73);
+        assert_eq!(saved, runtime);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn twilio_retries_only_an_explicit_rate_limit_response() {
         assert!(twilio_status_retryable(
             reqwest::StatusCode::TOO_MANY_REQUESTS
@@ -1593,6 +1742,25 @@ mod matrix_tests {
         assert!(!twilio_status_retryable(
             reqwest::StatusCode::REQUEST_TIMEOUT
         ));
+    }
+
+    #[test]
+    fn twilio_transport_errors_never_expose_the_account_url_or_source_chain() {
+        let sentinel_sid = "AC_SENTINEL_MUST_NOT_ESCAPE";
+        let sentinel_url =
+            format!("https://api.twilio.com/2010-04-01/Accounts/{sentinel_sid}/Messages.json");
+        let source = format!("request failed for {sentinel_url}; auth=TOKEN_SENTINEL");
+        let error = redacted_twilio_transport_error(&source);
+        let public = error.to_string();
+        assert_eq!(public, TWILIO_AMBIGUOUS_FAILURE);
+        assert!(!error.retryable);
+        for secret in [sentinel_sid, sentinel_url.as_str(), "TOKEN_SENTINEL"] {
+            assert!(!public.contains(secret));
+        }
+        let client_error = redacted_twilio_client_error(&source).to_string();
+        assert_eq!(client_error, TWILIO_CLIENT_FAILURE);
+        assert!(!client_error.contains(sentinel_sid));
+        assert!(!client_error.contains("TOKEN_SENTINEL"));
     }
 
     #[test]

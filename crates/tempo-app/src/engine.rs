@@ -12472,10 +12472,14 @@ Pick the one you operate from on the Contesting tab in Settings.",
     }
 
     /// Atomically commit DX Chaser's selected TX offset before making the exchange eligible
-    /// for an immediate over. The existing TX latch and all ordinary call gates remain
-    /// authoritative; a refused call restores the prior marker and never grants authority.
+    /// for an immediate over. The caller must present the TX-halt generation to which the
+    /// operator's DX Chaser arm was bound. The generation check, offset commit and ordinary
+    /// call gates all run in this one mutable Engine transaction, so a Stop TX followed by a
+    /// later manual re-arm cannot revive a decision made under the retired arm. A refusal
+    /// happens before any dial, queue or sequencer mutation and never grants authority.
     pub fn dx_chaser_call_while_armed_ctx(
         &mut self,
+        armed_generation: u64,
         dxcall: &str,
         dxgrid: Option<&str>,
         reply_msg: Option<&str>,
@@ -12483,6 +12487,9 @@ Pick the one you operate from on the Contesting tab in Settings.",
         dx_freq: Option<f32>,
         tx_offset_hz: f32,
     ) -> Result<(), String> {
+        if self.tx_gate_gen != armed_generation {
+            return Err("DX Chaser arm is stale — Stop TX or station context changed".into());
+        }
         if !self.tx_enabled() {
             return Err("Enable TX is off — arm transmit before DX Chaser can call".into());
         }
@@ -30755,12 +30762,91 @@ mod tests {
         let mut e = Engine::new("W9XYZ", "EN37", 0);
         e.set_tx_enabled(true);
         e.set_tx_offset(700.0);
-        e.dx_chaser_call_while_armed_ctx("F4ABC", Some("JN18"), None, None, None, 2200.0)
-            .expect("armed DX Chaser transaction");
+        let armed_generation = e.tx_halt_generation();
+        e.dx_chaser_call_while_armed_ctx(
+            armed_generation,
+            "F4ABC",
+            Some("JN18"),
+            None,
+            None,
+            None,
+            2200.0,
+        )
+        .expect("armed DX Chaser transaction");
         assert_eq!(e.tx_offset_hz(), 2200.0);
         assert!(
             e.immediate_tx,
             "exchange is now eligible for its first over"
+        );
+    }
+
+    #[test]
+    fn dx_chaser_call_rejects_a_retired_arm_after_stop_and_reenable_without_mutation() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        e.set_tx_enabled(true);
+        let stale_generation = e.tx_halt_generation();
+
+        // Model a decision already returned to the supervisor under generation N. Stop TX
+        // retires that authority, and a later operator re-enable must not revive the decision.
+        e.halt_tx();
+        e.set_tx_enabled(true);
+        let current_generation = e.tx_halt_generation();
+        assert_ne!(current_generation, stale_generation);
+
+        e.set_tx_offset(700.0);
+        e.tx_queue.push_back("sentinel directed over".into());
+        e.broadcast_queue.push_back("sentinel broadcast".into());
+        e.immediate_tx = false;
+        let dial_before = e.settings().dial_mhz;
+        let band_before = e.settings().band.clone();
+        let stale = e.dx_chaser_call_while_armed_ctx(
+            stale_generation,
+            "F4ABC",
+            Some("JN18"),
+            None,
+            None,
+            None,
+            2200.0,
+        );
+
+        assert!(stale.is_err(), "the retired decision must be rejected");
+        assert_eq!(e.tx_offset_hz(), 700.0, "TX offset was mutated");
+        assert_eq!(e.settings().dial_mhz, dial_before, "dial was mutated");
+        assert_eq!(e.settings().band, band_before, "band was mutated");
+        assert_eq!(
+            e.tx_queue.front().map(String::as_str),
+            Some("sentinel directed over"),
+            "directed queue was mutated"
+        );
+        assert_eq!(
+            e.broadcast_queue.front().map(String::as_str),
+            Some("sentinel broadcast"),
+            "broadcast queue was mutated"
+        );
+        assert!(
+            !e.immediate_tx,
+            "the sequencer was made immediately eligible"
+        );
+        assert!(
+            e.tx_enabled(),
+            "a refusal must not rewrite the operator latch"
+        );
+
+        e.dx_chaser_call_while_armed_ctx(
+            current_generation,
+            "F4ABC",
+            Some("JN18"),
+            None,
+            None,
+            None,
+            2200.0,
+        )
+        .expect("a decision bound to the current generation may proceed");
+        assert_eq!(e.tx_offset_hz(), 2200.0);
+        assert!(e.tx_queue.is_empty() && e.broadcast_queue.is_empty());
+        assert!(
+            e.immediate_tx,
+            "the current-generation call starts normally"
         );
     }
 
