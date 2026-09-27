@@ -1,0 +1,128 @@
+.groupsio-view {
+  position: relative;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--surface-1);
+}
+
+.groupsio-view-header {
+  display: grid;
+  grid-template-columns: minmax(16rem, 1fr) auto;
+  gap: .75rem 1.5rem;
+  align-items: center;
+  padding: 1rem 1.1rem .8rem;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--surface-2) 92%, #6a4b00), var(--surface-1));
+}
+
+.groupsio-view-header h2 { margin: .1rem 0; font-size: 1.55rem; }
+.groupsio-view-header p { margin: 0; color: var(--text-muted); }
+.groupsio-view .eyebrow { color: var(--accent); font-size: .7rem; font-weight: 700; letter-spacing: .13em; }
+.groupsio-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.groupsio-summary { grid-column: 1 / -1; color: var(--text-muted); font-size: .8rem; }
+.groupsio-summary strong { color: var(--text); }
+
+.groupsio-boundary,
+.groupsio-searchbar {
+  display: flex;
+  gap: .75rem;
+  align-items: center;
+  padding: .65rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.groupsio-boundary { background: color-mix(in srgb, var(--warn, #d89a2b) 12%, var(--surface-1)); }
+.groupsio-boundary span { flex: 1; color: var(--text-muted); }
+.groupsio-searchbar label { flex: 1; display: grid; grid-template-columns: auto minmax(8rem, 1fr); align-items: center; gap: .65rem; }
+.groupsio-searchbar label span { color: var(--text-muted); font-size: .78rem; }
+.groupsio-segment { display: flex; padding: .15rem; background: var(--surface-3); border: 1px solid var(--border); border-radius: .45rem; }
+.groupsio-segment button { border: 0; background: transparent; }
+.groupsio-segment button[aria-pressed='true'] { color: var(--text); background: var(--surface-1); box-shadow: 0 1px 4px #0004; }
+
+.groupsio-panes {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(12rem, .72fr) minmax(15rem, 1fr) minmax(22rem, 1.8fr);
+}
+.groupsio-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-right: 1px solid var(--border); }
+.groupsio-pane:last-child { border-right: 0; }
+.groupsio-pane > header { display: flex; justify-content: space-between; align-items: center; min-height: 2.7rem; padding: .5rem .75rem; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.groupsio-pane h3 { margin: 0; font-size: .86rem; text-transform: uppercase; letter-spacing: .07em; }
+.groupsio-pane-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.groupsio-pane-scroll > button { width: 100%; display: flex; gap: .65rem; text-align: left; padding: .72rem; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+.groupsio-pane-scroll > button:hover { background: var(--surface-2); }
+.groupsio-pane-scroll > button[aria-current='true'] { background: color-mix(in srgb, var(--accent) 13%, var(--surface-1)); box-shadow: inset .18rem 0 var(--accent); }
+.groupsio-pane-scroll button i { width: 2rem; height: 2rem; flex: 0 0 auto; display: grid; place-items: center; border-radius: .45rem; color: #111; background: #e9a72b; font-style: normal; font-weight: 800; }
+.groupsio-pane-scroll button span { min-width: 0; display: grid; gap: .2rem; }
+.groupsio-pane-scroll button strong { overflow: hidden; text-overflow: ellipsis; }
+.groupsio-pane-scroll button small { color: var(--text-muted); }
+.groupsio-pane.messages article { margin: .7rem; padding: .8rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--surface-2); }
+.groupsio-pane.messages article > header { display: flex; justify-content: space-between; align-items: flex-start; }
+.groupsio-pane.messages article header div { display: grid; }
+.groupsio-pane.messages article small { color: var(--text-muted); }
+.groupsio-pane.messages article h4 { margin: .65rem 0 .35rem; }
+.groupsio-pane.messages article p { margin: 0; white-space: pre-wrap; line-height: 1.48; }
+.groupsio-attachment { display: inline-block; margin-top: .7rem; color: var(--accent); font-size: .78rem; }
+.groupsio-view .empty { padding: 1.25rem; color: var(--text-muted); text-align: center; }
+
+.groupsio-results { min-height: 0; overflow: auto; padding: .7rem; }
+.groupsio-results > button[role='listitem'] { width: 100%; display: grid; gap: .2rem; padding: .8rem; text-align: left; border-bottom: 1px solid var(--border); background: transparent; }
+.groupsio-results span { color: var(--text-muted); font-size: .78rem; }
+.groupsio-results p { margin: .3rem 0 0; }
+
+.groupsio-dialog { width: min(44rem, 92vw); max-height: min(88vh, calc(var(--vh-eff, 100vh) * .88)); overflow: auto; }
+.groupsio-dialog.wide { width: min(58rem, 94vw); }
+.groupsio-composer, .groupsio-settings-card, .groupsio-archive, .groupsio-drafts { display: grid; gap: .8rem; }
+.groupsio-composer label, .groupsio-settings-grid label { display: grid; gap: .3rem; }
+.groupsio-composer textarea { resize: vertical; min-height: 10rem; }
+.groupsio-composer footer, .groupsio-archive footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; }
+.groupsio-drafts article { display: flex; justify-content: space-between; gap: 1rem; padding: .65rem 0; border-bottom: 1px solid var(--border); }
+.groupsio-drafts article div { display: grid; }
+.groupsio-drafts small { color: var(--text-muted); }
+.groupsio-archive dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
+.groupsio-archive dl div { padding: .65rem; border: 1px solid var(--border); border-radius: .45rem; background: var(--surface-2); }
+.groupsio-archive dt { color: var(--text-muted); font-size: .72rem; text-transform: uppercase; }
+
+.groupsio-settings-overrides { display: grid; gap: .55rem; margin-top: 1rem; }
+.groupsio-settings-overrides h3 { margin: 0; }
+.groupsio-settings-overrides article {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.5fr) repeat(2, minmax(8rem, 1fr)) auto;
+  gap: .55rem;
+  align-items: center;
+  padding: .65rem;
+  border: 1px solid var(--border);
+  border-radius: .45rem;
+  background: var(--surface-2);
+}
+.groupsio-settings-overrides article > div { display: grid; }
+.groupsio-settings-overrides article small { color: var(--text-muted); }
+.groupsio-settings-overrides article label { display: grid; gap: .2rem; font-size: .75rem; color: var(--text-muted); }
+.groupsio-settings-overrides article input[type='number'] { min-width: 0; width: 100%; }
+.groupsio-new-preview { position: absolute; z-index: 4; top: 4.6rem; right: 1rem; width: min(22rem, calc(100% - 2rem)); display: grid; gap: .35rem; padding: .8rem; border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border)); border-radius: .6rem; background: var(--surface-1); box-shadow: 0 .8rem 2rem #0007; }
+.groupsio-new-preview > span { color: var(--accent); font-size: .68rem; font-weight: 800; letter-spacing: .1em; }
+.groupsio-new-preview small { color: var(--text-muted); }
+.groupsio-new-preview p { margin: .25rem 0; }
+.groupsio-new-preview div { display: flex; gap: .4rem; }
+
+@container app-shell (max-width: 920px) {
+  .groupsio-view-header { grid-template-columns: 1fr; }
+  .groupsio-header-actions { justify-content: flex-start; }
+  .groupsio-panes {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(12rem, .7fr) minmax(14rem, 1fr) minmax(20rem, 1.5fr);
+    overflow: auto;
+  }
+  .groupsio-pane { min-height: 12rem; border-right: 0; border-bottom: 1px solid var(--border); }
+  .groupsio-pane.messages { min-height: 20rem; border-bottom: 0; }
+  .groupsio-settings-overrides article { grid-template-columns: 1fr 1fr; }
+}
+
+@container app-shell (max-width: 560px) {
+  .groupsio-searchbar { align-items: stretch; flex-direction: column; }
+  .groupsio-searchbar label { grid-template-columns: 1fr; }
+  .groupsio-boundary { align-items: flex-start; flex-wrap: wrap; }
+  .groupsio-drafts article { align-items: flex-start; flex-direction: column; }
+  .groupsio-new-preview { top: 1rem; }
+}

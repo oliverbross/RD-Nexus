@@ -203,6 +203,7 @@ import { FEATURES, featureById, featureCategoryLabel, type FeatureCategory, type
 import { PROFILE_LIST } from '../features/profiles'
 import { checkForUpdateManual } from '../features/updateCheck'
 import { ARRL_SECTIONS_BY_DIVISION, RETIRED_SECTIONS } from '../features/arrlSections'
+import { GroupsIoSettings } from './GroupsIoSettings'
 
 // Serial-port examples and walkthroughs are platform prose: a Mac's ports are /dev/cu.* and
 // there is no Device Manager, so a "COM16" placeholder or a CP210x "Enhanced" label is a dead
@@ -277,6 +278,8 @@ interface Props {
    *  (UI scale, just below); this is the half that had none. Same optional shape. */
   highContrast?: boolean
   onHighContrastChange?: (on: boolean) => void
+  /** Open the first-class Groups.io workspace from its account/settings tab. */
+  onOpenGroupsIo?: () => void
   /** Night — Off / On / Auto at dusk (`useNight`, owned by App): a darker, warmer screen after
    *  dark. `nightGridKnown` is whether Auto has a grid square to go by, so the row can say when
    *  it has none. Same optional shape as the theme. */
@@ -704,6 +707,7 @@ type SettingsTab =
   | 'digital'
   | 'spots'
   | 'logging'
+  | 'groupsio'
   | 'contesting'
   | 'appearance'
   | 'configurations'
@@ -723,6 +727,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; labelKey?: MessageKey }[]
   { id: 'digital', label: 'Digital' },
   { id: 'spots', label: 'Spots & Alerts', labelKey: 'settings.tabs.spots' },
   { id: 'logging', label: 'Logging & Connectors', labelKey: 'settings.tabs.logging' },
+  { id: 'groupsio', label: 'Groups.io', labelKey: 'settings.tabs.groupsio' },
   { id: 'contesting', label: 'Contesting', labelKey: 'settings.tabs.contesting' },
   { id: 'appearance', label: 'Appearance', labelKey: 'settings.tabs.appearance' },
   { id: 'configurations', label: 'Config', labelKey: 'settings.tabs.configurations' },
@@ -1002,6 +1007,7 @@ export function SettingsPanel({
   onFieldModeChange,
   highContrast = false,
   onHighContrastChange,
+  onOpenGroupsIo,
   night = 'off',
   onNightChange,
   nightGridKnown = false,
@@ -3421,6 +3427,8 @@ export function SettingsPanel({
           {remote && <p className="settings-note" role="status">{remoteFollow.supported || remoteGain.supported || remotePrefs.supported ? t('remote.configurationControls') : t('remote.configurationObserver')}</p>}
           {remote && remotePrefs.supported && <p className="settings-note">{t('remote.settingsEditable')}</p>}
           {remote && (tab==='logging'||tab==='configurations') && <p className="settings-note">{t('remote.configurationLocal')}</p>}
+          {tab === 'groupsio' && !remote && <fieldset className="settings-section" id="settings-groups-io"><legend>{t('settings.tabs.groupsio')}</legend><GroupsIoSettings onOpenGroupsIo={onOpenGroupsIo ?? (() => {})} /></fieldset>}
+          {tab === 'groupsio' && remote && <p className="settings-note" role="status">{t('groupsio.settings.remoteLocal')}</p>}
           {/* ---- Workspace (UI-only prefs, applied live like the theme) ---- */}
           {tab === 'configurations' && !remote && (
             <fieldset className="settings-section" id="settings-data-folder">
