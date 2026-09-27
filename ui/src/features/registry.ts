@@ -46,6 +46,7 @@ export type View =
   | 'stats'
   | 'pota'
   | 'memories'
+  | 'groupsio'
   | 'program'
   | 'settings'
 
@@ -438,6 +439,21 @@ export const FEATURES: FeatureDef[] = [
     // only an explicit Tune (recall) retunes.
     oneLineKey: 'features.memories.oneLine',
   }),
+  {
+    id: 'groupsio',
+    // The provider's own service name — an invariant product token.
+    label: 'Groups.io',
+    kind: 'section',
+    category: 'Logging',
+    core: true,
+    dependsOn: [],
+    intents: ['casual', 'dx', 'contest', 'pota', 'vhf'],
+    view: 'groupsio',
+    // Global and receive/passive on entry. Posting remains an explicit confirmed action.
+    get oneLine() {
+      return t('features.groupsio.oneLine')
+    },
+  },
   feature({
     id: 'program',
     labelKey: 'features.program.label',

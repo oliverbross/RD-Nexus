@@ -37,6 +37,7 @@ const EXPECTED_SECTIONS: FeatureId[] = [
   'awards',
   'stats',
   'memories',
+  'groupsio',
   'program',
 ]
 
@@ -47,7 +48,7 @@ describe('feature registry', () => {
 
   it('lists exactly the known core spine', () => {
     const core = FEATURES.filter((f) => f.core).map((f) => f.id).sort()
-    expect(core).toEqual(['chat', 'connect', 'hamClock', 'logbook', 'needed', 'nowBar', 'operate', 'settings'])
+    expect(core).toEqual(['chat', 'connect', 'groupsio', 'hamClock', 'logbook', 'needed', 'nowBar', 'operate', 'settings'])
   })
 
   it('section features correspond 1:1 with the views', () => {

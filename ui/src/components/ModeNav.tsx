@@ -26,6 +26,7 @@ import {
   Users,
   MessagesSquare,
   Clock3,
+  AtSign,
 } from 'lucide-react'
 import { Fragment, useState, type ButtonHTMLAttributes } from 'react'
 import { Tooltip, TooltipProvider } from './ui/Tooltip'
@@ -229,6 +230,14 @@ export const ITEMS: Item[] = [
     },
   },
   item({ id: 'memories', icon: Bookmark, labelKey: 'nav.memories.label', titleKey: 'nav.memories.title' }),
+  {
+    id: 'groupsio',
+    label: 'Groups.io',
+    icon: AtSign,
+    get title() {
+      return t('nav.groupsio.title')
+    },
+  },
   item({ id: 'program', icon: Cable, labelKey: 'nav.program.label', titleKey: 'nav.program.title' }),
 ]
 
