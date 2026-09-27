@@ -227,9 +227,7 @@ static RETIRE_UNTIL: Mutex<Option<std::time::Instant>> = Mutex::new(None);
 fn retirement_delay(removed: bool, now: std::time::Instant) -> std::time::Duration {
     let mut until = lock(&RETIRE_UNTIL);
     if removed {
-        *until = Some(
-            now + std::time::Duration::from_secs(tempo_net::FEED_STOP_OBSERVE_SECS + 1),
-        );
+        *until = Some(now + std::time::Duration::from_secs(tempo_net::FEED_STOP_OBSERVE_SECS + 1));
     }
     until
         .as_ref()
@@ -388,9 +386,12 @@ pub(crate) fn reconcile(
         Vec::new()
     };
     let changed = feeds.0.len() != want.len()
-        || want
-            .iter()
-            .any(|host| !feeds.0.iter().any(|feed| feed.host.eq_ignore_ascii_case(host)));
+        || want.iter().any(|host| {
+            !feeds
+                .0
+                .iter()
+                .any(|feed| feed.host.eq_ignore_ascii_case(host))
+        });
     if !changed {
         return Default::default();
     }
@@ -624,7 +625,10 @@ mod tests {
         assert_eq!(stopped, vec![host]);
         assert!(started.is_empty());
         assert!(feeds.is_empty());
-        assert!(stop.load(Ordering::SeqCst), "the socket loop was told to stop");
+        assert!(
+            stop.load(Ordering::SeqCst),
+            "the socket loop was told to stop"
+        );
     }
 
     #[test]
@@ -666,7 +670,11 @@ mod tests {
             rbn.set_test_hosts(rbn_hosts);
 
             assert_eq!(dx.0.len(), expected_dx, "DX={dx_enabled} RBN={rbn_enabled}");
-            assert_eq!(rbn.0.len(), expected_rbn, "DX={dx_enabled} RBN={rbn_enabled}");
+            assert_eq!(
+                rbn.0.len(),
+                expected_rbn,
+                "DX={dx_enabled} RBN={rbn_enabled}"
+            );
         }
     }
 

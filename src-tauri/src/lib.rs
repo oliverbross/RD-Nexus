@@ -701,7 +701,10 @@ impl RbnFeeds {
         use std::sync::atomic::Ordering::SeqCst;
         let desired: Vec<String> = desired.iter().map(|host| (*host).to_string()).collect();
         for feed in &self.0 {
-            if !desired.iter().any(|host| host.eq_ignore_ascii_case(&feed.host)) {
+            if !desired
+                .iter()
+                .any(|host| host.eq_ignore_ascii_case(&feed.host))
+            {
                 feed.stop.store(true, SeqCst);
             }
         }
@@ -711,7 +714,11 @@ impl RbnFeeds {
                 .any(|host| host.eq_ignore_ascii_case(&feed.host))
         });
         for host in desired {
-            if !self.0.iter().any(|feed| feed.host.eq_ignore_ascii_case(&host)) {
+            if !self
+                .0
+                .iter()
+                .any(|feed| feed.host.eq_ignore_ascii_case(&host))
+            {
                 self.0.push(RbnFeed::new(&host));
             }
         }
@@ -723,9 +730,7 @@ impl RbnFeeds {
 
     fn any_connected(&self) -> bool {
         use std::sync::atomic::Ordering::Relaxed;
-        self.0
-            .iter()
-            .any(|feed| feed.connected.load(Relaxed))
+        self.0.iter().any(|feed| feed.connected.load(Relaxed))
     }
 }
 
@@ -1060,9 +1065,8 @@ fn sync_rbn_feeds(
         }
         *wanted = desired.clone();
     }
-    let generation = RBN_TRANSITION_GENERATION
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
-        + 1;
+    let generation =
+        RBN_TRANSITION_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let old = RBN_FEEDS
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -12981,14 +12985,7 @@ fn restart_live_feeds(
             )
         };
         cluster_nodes::set_config(node_config);
-        sync_rbn_feeds(
-            &spots,
-            &mycall,
-            &cluster_ssid,
-            &health,
-            rbn_active,
-            true,
-        );
+        sync_rbn_feeds(&spots, &mycall, &cluster_ssid, &health, rbn_active, true);
         start_cluster_feeds(&spots, &health, true);
         start_pskr_feed(&live_paths, &mycall, &health);
         start_wspr_feed(&live_paths, &mycall);
@@ -30697,9 +30694,8 @@ mod tests {
         let generation = super::RBN_TRANSITION_GENERATION.fetch_add(1, SeqCst) + 1;
         let first_flag = first_finished.clone();
         let before = std::time::Instant::now();
-        let first = super::spawn_rbn_transition(old, generation, move || {
-            first_flag.store(true, SeqCst)
-        });
+        let first =
+            super::spawn_rbn_transition(old, generation, move || first_flag.store(true, SeqCst));
         assert!(before.elapsed() < std::time::Duration::from_millis(100));
 
         let generation = super::RBN_TRANSITION_GENERATION.fetch_add(1, SeqCst) + 1;
@@ -30715,8 +30711,14 @@ mod tests {
         ready.notify_all();
         first.join().unwrap();
         second.join().unwrap();
-        assert!(!first_finished.load(SeqCst), "stale generation restarted feeds");
-        assert!(second_finished.load(SeqCst), "latest generation never started");
+        assert!(
+            !first_finished.load(SeqCst),
+            "stale generation restarted feeds"
+        );
+        assert!(
+            second_finished.load(SeqCst),
+            "latest generation never started"
+        );
     }
 
     #[test]

@@ -9814,8 +9814,8 @@ mod tests {
     #[test]
     fn load_migrates_the_old_combined_spot_switch_to_rbn() {
         for combined in [false, true] {
-            let path = scratch_dir(if combined { "rbnmig-on" } else { "rbnmig-off" })
-                .join("settings.json");
+            let dir = scratch_dir_ready(if combined { "rbnmig-on" } else { "rbnmig-off" });
+            let path = dir.join("settings.json");
             let mut value = serde_json::to_value(Settings {
                 cluster_enabled: combined,
                 ..Settings::default()
@@ -9830,7 +9830,7 @@ mod tests {
                 back.rbn_enabled, combined,
                 "an old combined switch must keep governing RBN after upgrade"
             );
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 

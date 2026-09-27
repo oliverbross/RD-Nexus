@@ -134,6 +134,9 @@ Thirteen panels tear off into their own OS window — see
 - **[Memories](memories.md)** — the saved-channel bank behind the cockpit MEM
   strip: one click tunes the rig, applies the shift and tone, and opens the
   cockpit that mode belongs in.
+- **[Groups.io](groupsio.md)** — memberships, topic threads, offline archives,
+  local drafts and explicitly confirmed posting, with the API key kept in the
+  operating system credential vault.
 - **[Tempo chat (TempoFast/TempoDeep)](operate-digital.md#the-tempo-chat-layer-tempofasttempodeep)** — the
   original weak-signal chat tiers, covered at the end of the Operate guide.
 

@@ -92,6 +92,10 @@
       "label": "Memories"
     },
     {
+      "id": "groupsio",
+      "label": "Groups.io"
+    },
+    {
       "id": "program",
       "label": "Program"
     },
