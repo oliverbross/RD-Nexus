@@ -76,6 +76,10 @@
       "label": "Spots"
     },
     {
+      "id": "neuralDx",
+      "label": "Neural DX"
+    },
+    {
       "id": "dxped",
       "label": "DXpeditions"
     },

@@ -117,8 +117,8 @@ neither written to the ready file nor included in error messages.
 |---|---|---|
 | Pin and drift | live remote SHA; exact file and route inventories; positive/negative diff tests | Executed locally at the recorded pin |
 | Upstream unit behavior | `test_analytics.py`, `test_country_meta.py`, `test_dxcc_hunt.py` | Passed locally in the packaged Python 3.12 environment |
-| UI/source | production UI build, focused Neural DX/i18n tests, full suite plus isolated retry of unrelated failures | Production build passed; 224 focused tests passed; full suite exposed one pre-existing Satellite Remote failure outside this change |
-| Rust host | action-journal fault/restart tests plus 67k native log-summary benchmark with `radio,custom-protocol` | 5 focused tests passed; 67,000 QSOs folded to 627 bytes in 962 ms on the final local run |
+| UI/source | production UI build, focused Neural DX/i18n tests, full suite and focused Satellite Remote coverage | Production build passed; 224 focused tests passed; focused Satellite Remote suite passed 8/8. After Landing 62, the bounded eight-shard sweep exercised all 741 files: 738 passed in-suite and four legacy concurrency-sensitive assertions in three files passed on isolated rerun (Remote DXpeditions 5/5, CW subreceiver 7/7 plus one skip, Remote application lane 3/3) |
+| Rust host | action-journal fault/restart tests plus 67k native log-summary benchmark with `radio,custom-protocol` | 6 focused tests passed; 67,000 QSOs folded to 627 bytes in 962 ms on the final local run |
 | Packaged companion | Python 3.12 PyInstaller build/self-test; authenticated sync; logged-out consumer path; action validation/deduplication; embedded meta analysis | Passed locally on Apple Silicon |
 | Bridge composition | overlap/deletion/restart, provider provenance, same-second production spot identity, bounded LRU, repeated sync, saturation/restart/no-loss action queue, meta-route auth/path bounds | 7 bridge regression tests passed locally |
 | macOS bundle | resource presence, Developer ID signing, hardened runtime, notarization and DMG smoke | Workflow gates added; signing/notarization require release secrets/CI |
