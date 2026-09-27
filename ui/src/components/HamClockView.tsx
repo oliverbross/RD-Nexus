@@ -24,7 +24,7 @@ import { bandLabelForMhz } from '../band'
 import { DEFAULT_LOG_QUERY } from '../features/logQuery'
 import { t } from '../i18n'
 import { confirmDialog } from '../confirm'
-import type { AppSnapshot, DecodeRow, LoggedQso, SpotRow } from '../types'
+import { isOnAir, type AppSnapshot, type DecodeRow, type LoggedQso, type SpotRow } from '../types'
 
 const POLL_MS = 500
 const DATA_POLL_MS = 2_000
@@ -382,6 +382,7 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
   const origin = useMemo(() => status?.url ? new URL(status.url).origin : '', [status?.url])
   const sendState = useCallback(() => {
     const current = snapRef.current
+    const onAir = isOnAir(current.radio)
     const recentDecodes = current.recentDecodes ?? []
     const activeDecodeKeys = new Set(recentDecodes.map(decodeKey))
     for (const key of decodeTimes.current.keys()) {
@@ -396,7 +397,7 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
           connected: current.radio.catOk !== false,
           freq: current.radio.dialMhz * 1_000_000,
           mode: current.radio.sideband,
-          ptt: current.radio.transmitting,
+          ptt: onAir,
         },
         spots: spots.current,
         rotator: rotator.current,
@@ -406,8 +407,8 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
             dialFrequency: current.radio.dialMhz * 1_000_000,
             mode: current.mode,
             band: current.radio.band,
-            transmitting: current.radio.transmitting,
-            decoding: !current.radio.transmitting,
+            transmitting: onAir,
+            decoding: !onAir,
             lastSeen: Date.now(),
           },
         },
@@ -672,7 +673,7 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
     return (
       <main className="layout single ham-clock-view">
         {error && <div className="ham-clock-error" role="alert">{error}</div>}
-        {snap.radio.transmitting && (
+        {isOnAir(snap.radio) && (
           <button
             type="button"
             className="ham-clock-stop"

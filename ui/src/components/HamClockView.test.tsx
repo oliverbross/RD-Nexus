@@ -298,11 +298,23 @@ describe('HamClockView', () => {
     expect(new Set(transferred.map((row) => row.id)).size).toBe(rows.length)
   })
 
-  it('keeps an always-reachable Nexus un-key control over the embedded frame', async () => {
+  it.each([
+    ['FT slot TX', { transmitting: true }],
+    ['broker/manual PTT', { transmitting: false, txBusyReason: 'Manual PTT' }],
+    ['rig PTT readback', { transmitting: false, rigKeyed: true }],
+  ])('keeps STOP TX reachable and bridges on-air state for %s', async (_label, radioPatch) => {
     mocks.status.mockResolvedValue({ phase: 'ready', url: 'http://127.0.0.1:39001', version: '26.8.0', detail: null })
-    const transmitting = { ...snap, radio: { ...snap.radio, transmitting: true } } as AppSnapshot
-    await act(async () => root.render(<HamClockView snap={transmitting} onSnap={vi.fn()} />))
+    const onAir = { ...snap, radio: { ...snap.radio, ...radioPatch } } as AppSnapshot
+    await act(async () => root.render(<HamClockView snap={onAir} onSnap={vi.fn()} />))
     await act(async () => Promise.resolve())
+    const state = (frameWindow.postMessage as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0] as {
+        type?: string
+        payload?: { rig?: { ptt?: boolean }; wsjtx?: { client?: { transmitting?: boolean; decoding?: boolean } } }
+      })
+      .find((message) => message.type === 'state')
+    expect(state?.payload?.rig?.ptt).toBe(true)
+    expect(state?.payload?.wsjtx?.client).toMatchObject({ transmitting: true, decoding: false })
     const stop = [...host.querySelectorAll('button')].find((button) => button.textContent?.includes('STOP TX'))
     expect(stop).toBeTruthy()
     await act(async () => stop?.click())

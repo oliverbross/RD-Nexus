@@ -38,7 +38,10 @@ assert.ok(!supervisor.includes('.env("N1MM_UDP_ENABLED", "false")'), 'upstream N
 
 const tauri = JSON.parse(read('src-tauri/tauri.conf.json'))
 assert.equal(tauri.bundle.resources['resources/openhamclock/*'], 'resources/openhamclock/')
-assert.match(tauri.build.beforeBuildCommand, /check-openhamclock-staged/)
+assert.deepEqual(tauri.build.beforeBuildCommand, {
+  cwd: '..',
+  script: 'node scripts/check-openhamclock-staged.mjs && npm --prefix ui run build',
+})
 
 const nav = read('ui/src/components/ModeNav.tsx')
 assert.ok(nav.indexOf('navBtn(HAM_CLOCK)') < nav.indexOf('navBtn(PHONE)'), 'Ham Clock must appear above Phone')

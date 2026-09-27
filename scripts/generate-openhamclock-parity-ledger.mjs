@@ -73,7 +73,7 @@ for (const [capability, upstream, seam, evidence, status = 'VERIFIED', reason = 
   ['DX cluster and RBN feeds', 'server cluster routes and frontend services', 'Native upstream spots are merged with Nexus spots; posting reaches both configured upstream and Nexus paths', 'bridge tests and browser spot rendering'],
   ['WSJT-X, N1MM, WSPR, and decode surfaces', 'server integrations and digital-mode panels', 'Native collectors remain enabled/configurable; Nexus observations are merged', 'bridge invariants and staged environment audit'],
   ['Rig read telemetry', 'src/contexts/RigContext.jsx', 'Native upstream collector remains available; Nexus events are authoritative while embedded', 'bridge unit tests and browser state probe'],
-  ['Rig mutations and PTT', 'src/contexts/RigContext.jsx', 'Embedded controls route only through Nexus commands and its TX safety arbiter', 'refused-PTT, STOP TX, and no-dual-actuation tests'],
+  ['Rig mutations and PTT', 'src/contexts/RigContext.jsx', 'Embedded controls route only through Nexus commands and its TX safety arbiter; bridge PTT and STOP TX use the canonical FT, broker/manual, and rig-readback on-air predicate', 'refused-PTT, FT-slot, broker/manual, rig-readback STOP TX, and no-dual-actuation tests'],
   ['Rotator telemetry and controls', 'rotator provider and routes', 'Configured upstream provider is retained; Nexus is the embedded fallback', 'bridge routing tests'],
   ['Logbook create', 'src/services/logbookStore.js', 'Explicit persistent Nexus IDs and complete ADIF extras route to Nexus', 'bridge CRUD and ID-binding tests'],
   ['Logbook update', 'src/services/logbookStore.js', 'Binding-safe optimistic-concurrency update through Nexus', 'conflict and canonical-refresh tests'],

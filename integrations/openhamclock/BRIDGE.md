@@ -33,7 +33,10 @@ OpenHamClock sends narrowly typed requests back:
 Every request is executed through the existing Nexus command. The bridge does
 not bypass license, transmit, CAT, rotator, log consistency, or unassisted-mode
 guards. In particular, embedded PTT uses the Nexus broker arbiter and the Ham
-Clock view exposes an always-reachable STOP TX control while keyed.
+Clock view exposes an always-reachable STOP TX control while keyed. Both the
+state sent to OpenHamClock and STOP TX visibility use Nexus's canonical on-air
+predicate, covering FT slot transmission, broker/manual PTT ownership, and CAT
+rig-key readback rather than relying on the FT-only `transmitting` flag.
 
 Nexus is the system of record for mirrored contacts. OpenHamClock stores the
 explicit Nexus ID in each mirrored row and in a durable local ledger. That
