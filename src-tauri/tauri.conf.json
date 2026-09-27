@@ -7,8 +7,8 @@
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "node scripts/check-openhamclock-staged.mjs && npm --prefix ui run dev",
-    "beforeBuildCommand": "node scripts/check-openhamclock-staged.mjs && npm --prefix ui run build"
+    "beforeDevCommand": "node ../scripts/check-openhamclock-staged.mjs && npm run dev",
+    "beforeBuildCommand": "node ../scripts/check-openhamclock-staged.mjs && npm run build"
   },
   "app": {
     "withGlobalTauri": true,
