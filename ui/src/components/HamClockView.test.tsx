@@ -39,7 +39,7 @@ vi.mock('../api', () => ({
   stopRotator: vi.fn(),
 }))
 
-import { HamClockView, chunkOpenHamLogbook, fromOpenHam, loadOpenHamLogbook, toOpenHam, LOGBOOK_CHUNK_BYTES, LOGBOOK_CHUNK_ROWS, MAX_LOGBOOK_PAGES } from './HamClockView'
+import { HamClockView, chunkOpenHamLogbook, fromOpenHam, loadOpenHamLogbook, openHamBridgeMessageBytes, toOpenHam, LOGBOOK_CHUNK_BYTES, LOGBOOK_CHUNK_ROWS, MAX_LOGBOOK_PAGES } from './HamClockView'
 
 const snap = {
   mycall: 'VK8AA',
@@ -157,7 +157,10 @@ describe('HamClockView', () => {
     expect(chunks).toHaveLength(Math.ceil(rows.length / LOGBOOK_CHUNK_ROWS))
     expect(chunks.length + 2).toBeLessThan(MAX_LOGBOOK_PAGES + 3)
     expect(Math.max(...chunks.map((chunk) => chunk.length))).toBeLessThanOrEqual(LOGBOOK_CHUNK_ROWS)
-    for (const chunk of chunks) expect(new TextEncoder().encode(JSON.stringify(chunk)).length).toBeLessThanOrEqual(LOGBOOK_CHUNK_BYTES + 2)
+    for (const [offset, chunk] of chunks.entries()) {
+      expect(openHamBridgeMessageBytes({ source: 'nexus', type: 'logbook:chunk', payload: { revision: 1, offset, rows: chunk } })).toBeLessThanOrEqual(LOGBOOK_CHUNK_BYTES)
+    }
+    expect(() => chunkOpenHamLogbook([{ id: 'oversized', extras: { APP_BIG: 'x'.repeat(LOGBOOK_CHUNK_BYTES) } }])).toThrow('bridge safety limit')
   })
 
   it('bounds paging by total and rejects a no-progress page instead of looping', async () => {
@@ -263,6 +266,36 @@ describe('HamClockView', () => {
     expect(mocks.logDelta).toHaveBeenCalledTimes(2)
     expect(mocks.logDelta.mock.calls[1]?.[0]).toBe(2)
     await act(async () => { pendingAcks.shift()?.(); await Promise.resolve() })
+  })
+
+  it('falls back to bounded snapshot chunks when an accumulated delta exceeds the WebView byte cap', async () => {
+    mocks.status.mockResolvedValue({ phase: 'ready', url: 'http://127.0.0.1:39001', version: '26.8.0', detail: null })
+    mocks.askLog.mockResolvedValueOnce({ rows: [], editKeys: [], total: 0, offset: 0, revision: 1 })
+    await act(async () => root.render(<HamClockView snap={{ ...snap, logTick: 0 } as AppSnapshot} onSnap={vi.fn()} />))
+    await act(async () => Promise.resolve())
+
+    const rows = Array.from({ length: 80 }, (_, index) => ({
+      id: `nexus-${index}`, call: `K${index}ABC`, whenUnix: 1_795_000_000 + index,
+      band: '20m', freqMhz: 14.074, mode: 'FT8', extra: [['APP_BIG', 'x'.repeat(9_000)]],
+    }))
+    mocks.logDelta.mockResolvedValueOnce({
+      revision: 2, reset: false,
+      upserts: rows.map((row, index) => ({ row, editKey: `edit-${index}` })),
+      deleted: [],
+    })
+    mocks.askLog.mockResolvedValue({ rows, editKeys: rows.map((_, index) => `edit-${index}`), total: rows.length, offset: 0, revision: 2 })
+    const posted = frameWindow.postMessage as unknown as ReturnType<typeof vi.fn>
+    posted.mockClear()
+
+    await act(async () => root.render(<HamClockView snap={{ ...snap, logTick: 1 } as AppSnapshot} onSnap={vi.fn()} />))
+    await act(async () => Promise.resolve())
+
+    const messages = posted.mock.calls.map((call) => call[0] as { type?: string; payload?: { rows?: Array<{ id?: string }> } })
+    expect(messages.some((message) => message.type === 'logbook:delta')).toBe(false)
+    expect(Math.max(...messages.map(openHamBridgeMessageBytes))).toBeLessThanOrEqual(LOGBOOK_CHUNK_BYTES)
+    const transferred = messages.filter((message) => message.type === 'logbook:chunk').flatMap((message) => message.payload?.rows ?? [])
+    expect(transferred.map((row) => row.id)).toEqual(rows.map((row) => row.id))
+    expect(new Set(transferred.map((row) => row.id)).size).toBe(rows.length)
   })
 
   it('keeps an always-reachable Nexus un-key control over the embedded frame', async () => {

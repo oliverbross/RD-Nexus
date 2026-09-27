@@ -65,6 +65,8 @@ jobs:
           node scripts/openhamclock-integration.test.mjs
           node scripts/test-openhamclock-log-binding.mjs
           node scripts/test-openhamclock-mirror-transaction.mjs
+          node scripts/test-openhamclock-runtime-receipt.mjs
+          node scripts/test-openhamclock-staged.mjs
           node scripts/test-openhamclock-sync.mjs
           node scripts/check-openhamclock-licenses.mjs
 

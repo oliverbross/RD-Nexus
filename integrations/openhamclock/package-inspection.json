@@ -47,9 +47,9 @@
       "size": 163262416,
       "sha256": "7adb09be2f572ce2d210e52018937a80fe2d2a00605943fab154262f254cbc6e",
       "packageStatus": "VERIFIED",
-      "runtimeStatus": "VERIFIED",
-      "runtimeEvidence": "packaged health, route, asset, persistence, collision, restart, and browser probes on the build host",
-      "runtimeReason": ""
+      "runtimeStatus": "EXTERNAL",
+      "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
+      "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
     }
   ]
 }

@@ -330,7 +330,13 @@ try {
     throw new Error(`Node.js runtime license checksum mismatch: ${nodeLicenseSha}`)
   }
   writeFileSync(join(stage, 'NODE-RUNTIME-LICENSE.txt'), nodeLicense)
-  writeFileSync(join(stage, 'provenance.json'), JSON.stringify({ ...manifest, target }, null, 2) + '\n')
+  const executableSha256 = createHash('sha256').update(readFileSync(executable)).digest('hex')
+  writeFileSync(join(stage, 'provenance.json'), JSON.stringify({
+    ...manifest,
+    target,
+    executable: basename(executable),
+    executableSha256,
+  }, null, 2) + '\n')
   process.stdout.write(`Staged OpenHamClock ${manifest.version} (${actual}) for ${target}\n`)
 } finally {
   rmSync(temp, { recursive: true, force: true })

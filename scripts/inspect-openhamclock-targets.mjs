@@ -28,9 +28,9 @@ for (const target of targets) {
     size: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     packageStatus: 'VERIFIED',
-    runtimeStatus: target === 'macos-arm64' ? 'VERIFIED' : 'EXTERNAL',
-    runtimeEvidence: target === 'macos-arm64' ? 'packaged health, route, asset, persistence, collision, restart, and browser probes on the build host' : 'resource format and closure inspected on macOS; execution not claimed',
-    runtimeReason: target === 'macos-arm64' ? '' : 'Native runtime execution requires the target operating system/architecture',
+    runtimeStatus: 'EXTERNAL',
+    runtimeEvidence: 'Package format and resource closure inspected; runtime is not inferred from the target string',
+    runtimeReason: 'A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture',
   })
 }
 

@@ -34,7 +34,8 @@ export const MAX_LOGBOOK_PAGES = Math.ceil(MAX_LOGBOOK_CONTACTS / PAGE_SIZE)
 const OPENHAMCLOCK_ID_FIELD = 'APP_OPENHAMCLOCK_ID'
 export const LOGBOOK_CHUNK_ROWS = 500
 export const LOGBOOK_CHUNK_BYTES = 512 * 1024
-export const LOGBOOK_ROW_BYTES = 1024 * 1024
+const LOGBOOK_MESSAGE_OVERHEAD_BYTES = 2 * 1024
+export const LOGBOOK_ROW_BYTES = LOGBOOK_CHUNK_BYTES - LOGBOOK_MESSAGE_OVERHEAD_BYTES
 
 type OpenHamQso = Record<string, unknown> & { id?: string; call?: string }
 type BridgeMessage = { source?: string; type?: string; payload?: Record<string, unknown> | OpenHamQso[] }
@@ -46,8 +47,8 @@ export function chunkOpenHamLogbook(rows: OpenHamQso[]): OpenHamQso[][] {
   let bytes = 2
   for (const row of rows) {
     const rowBytes = encoder.encode(JSON.stringify(row)).length + 1
-    if (rowBytes > LOGBOOK_ROW_BYTES) throw new Error('An OpenHamClock logbook row exceeds the 1 MiB bridge safety limit')
-    if (chunk.length > 0 && (chunk.length >= LOGBOOK_CHUNK_ROWS || bytes + rowBytes > LOGBOOK_CHUNK_BYTES)) {
+    if (rowBytes > LOGBOOK_ROW_BYTES) throw new Error('An OpenHamClock logbook row exceeds the bridge safety limit')
+    if (chunk.length > 0 && (chunk.length >= LOGBOOK_CHUNK_ROWS || bytes + rowBytes > LOGBOOK_ROW_BYTES)) {
       chunks.push(chunk)
       chunk = []
       bytes = 2
@@ -57,6 +58,16 @@ export function chunkOpenHamLogbook(rows: OpenHamQso[]): OpenHamQso[][] {
   }
   if (chunk.length > 0) chunks.push(chunk)
   return chunks
+}
+
+export function openHamBridgeMessageBytes(message: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(message)).length
+}
+
+function assertBoundedBridgeMessage(message: unknown) {
+  if (openHamBridgeMessageBytes(message) > LOGBOOK_CHUNK_BYTES) {
+    throw new Error('An OpenHamClock logbook message exceeds the 512 KiB bridge safety limit')
+  }
 }
 
 function asText(value: unknown): string | null {
@@ -425,13 +436,19 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
     const messageRevision = ++logRevision.current
     const chunks = chunkOpenHamLogbook(rows)
     const ack = await postAndWaitForMirror(messageRevision, () => {
-      target.postMessage({ source: 'nexus', type: 'logbook:begin', payload: { revision: messageRevision, nativeRevision: sourceRevision, total: rows.length } }, origin)
+      const begin = { source: 'nexus', type: 'logbook:begin', payload: { revision: messageRevision, nativeRevision: sourceRevision, total: rows.length } }
+      assertBoundedBridgeMessage(begin)
+      target.postMessage(begin, origin)
       let offset = 0
       for (const chunk of chunks) {
-        target.postMessage({ source: 'nexus', type: 'logbook:chunk', payload: { revision: messageRevision, offset, rows: chunk } }, origin)
+        const message = { source: 'nexus', type: 'logbook:chunk', payload: { revision: messageRevision, offset, rows: chunk } }
+        assertBoundedBridgeMessage(message)
+        target.postMessage(message, origin)
         offset += chunk.length
       }
-      target.postMessage({ source: 'nexus', type: 'logbook:end', payload: { revision: messageRevision, total: rows.length } }, origin)
+      const end = { source: 'nexus', type: 'logbook:end', payload: { revision: messageRevision, total: rows.length } }
+      assertBoundedBridgeMessage(end)
+      target.postMessage(end, origin)
     })
     if (ack.status === 'failed') throw new Error('OpenHamClock rejected the logbook snapshot')
     if (ack.revision < sourceRevision) throw new Error('OpenHamClock acknowledged an older logbook revision')
@@ -482,11 +499,13 @@ export function HamClockView({ snap, onSnap }: { snap: AppSnapshot; onSnap: (sna
     const target = frame.current?.contentWindow
     if (!target || !origin) throw new Error('OpenHamClock frame is not ready for logbook delta sync')
     const messageRevision = ++logRevision.current
+    const message = {
+      source: 'nexus', type: 'logbook:delta',
+      payload: { messageRevision, baseRevision: since, revision: delta.revision, upserts, deleted: [...deletedProjected] },
+    }
+    if (openHamBridgeMessageBytes(message) > LOGBOOK_CHUNK_BYTES) return refreshLogbookNow()
     const ack = await postAndWaitForMirror(messageRevision, () => {
-      target.postMessage({
-        source: 'nexus', type: 'logbook:delta',
-        payload: { messageRevision, baseRevision: since, revision: delta.revision, upserts, deleted: [...deletedProjected] },
-      }, origin)
+      target.postMessage(message, origin)
     })
     if (ack.status === 'reset') return refreshLogbookNow()
     if (ack.status === 'failed') throw new Error('OpenHamClock rejected the logbook delta')

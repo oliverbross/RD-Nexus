@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runtimeReceiptForTarget } from './openhamclock-runtime-receipt.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const integration = join(repo, 'integrations', 'openhamclock')
@@ -18,6 +20,7 @@ if (!existsSync(inventoryPath) || !existsSync(provenancePath)) {
 const inventory = JSON.parse(readFileSync(inventoryPath, 'utf8'))
 const provenance = JSON.parse(readFileSync(provenancePath, 'utf8'))
 const platforms = existsSync(platformPath) ? JSON.parse(readFileSync(platformPath, 'utf8')) : { targets: [] }
+const candidateSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim()
 const rows = []
 const external = []
 
@@ -93,10 +96,13 @@ for (const [capability, upstream, seam, evidence, status = 'VERIFIED', reason = 
 
 for (const target of platforms.targets || []) {
   add('Platform package', target.target, 'pinned upstream application plus pinned Node runtime', 'Executable and all notices/provenance are included in the single RD-Nexus installer resource tree', `${target.format}; ${target.size} bytes; sha256 ${target.sha256}`, target.packageStatus || 'VERIFIED', target.reason || '')
-  if (target.runtimeStatus === 'VERIFIED') {
-    add('Native runtime', target.target, 'OpenHamClock health/version and UI', 'Launched by the RD-Nexus native supervisor', target.runtimeEvidence, 'VERIFIED')
+  const receipt = target.target === provenance.target
+    ? runtimeReceiptForTarget({ repo, integration, candidateSha, targetEntry: target })
+    : { valid: false, reason: target.runtimeReason || 'Execute on the target operating system/architecture' }
+  if (receipt.valid) {
+    add('Native runtime', target.target, 'OpenHamClock health/version and UI', 'Launched by the RD-Nexus native supervisor', receipt.evidence, 'VERIFIED')
   } else {
-    external.push({ layer: `Native runtime: ${target.target}`, evidence: target.runtimeEvidence || 'not executed on this host', required: target.runtimeReason || 'Execute on the target operating system/architecture' })
+    external.push({ layer: `Native runtime: ${target.target}`, evidence: target.runtimeEvidence || 'not executed on this host', required: receipt.reason })
   }
 }
 

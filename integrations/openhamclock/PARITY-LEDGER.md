@@ -6,8 +6,8 @@ Generated from the pinned, staged OpenHamClock source and package locks. It is d
 - Version: 26.8.0
 - Commit: `6cfb6b2d8011828a8067e6d9f3659044168cbef1`
 - License: MIT
-- Generated parity rows: 1393
-- Status counts: VERIFIED=897, VERIFIED-NON-RUNTIME=494, VERIFIED-CONFIG-ONLY=1, VERIFIED-ADAPTED=1
+- Generated parity rows: 1392
+- Status counts: VERIFIED=896, VERIFIED-NON-RUNTIME=494, VERIFIED-CONFIG-ONLY=1, VERIFIED-ADAPTED=1
 
 | Category | Capability | Upstream source/evidence | RD-Nexus seam | Verification evidence | Status | Reason |
 |---|---|---|---|---|---|---|
@@ -1403,7 +1403,6 @@ Generated from the pinned, staged OpenHamClock source and package locks. It is d
 | Platform package | linux-arm64 | pinned upstream application plus pinned Node runtime | Executable and all notices/provenance are included in the single RD-Nexus installer resource tree | ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=33d9f7d4a0e9d1f4534dd79728f4a647079672b2, for GNU/Linux 3.7.0, stripped; 171680099 bytes; sha256 5177dbbc09518300c4e43ae29d5350cd2ff70f4785f240c7bb7be00a1ca8a712 | VERIFIED |  |
 | Platform package | macos-x64 | pinned upstream application plus pinned Node runtime | Executable and all notices/provenance are included in the single RD-Nexus installer resource tree | Mach-O 64-bit executable x86_64; 166630576 bytes; sha256 1371d6d4c612a017264d39df3452a2888a6e8e004bb4c69f49be55c220bc78ec | VERIFIED |  |
 | Platform package | macos-arm64 | pinned upstream application plus pinned Node runtime | Executable and all notices/provenance are included in the single RD-Nexus installer resource tree | Mach-O 64-bit executable arm64; 163262416 bytes; sha256 7adb09be2f572ce2d210e52018937a80fe2d2a00605943fab154262f254cbc6e | VERIFIED |  |
-| Native runtime | macos-arm64 | OpenHamClock health/version and UI | Launched by the RD-Nexus native supervisor | packaged health, route, asset, persistence, collision, restart, and browser probes on the build host | VERIFIED |  |
 
 ## External evidence layer
 
@@ -1415,5 +1414,6 @@ These rows are acceptance work outside source/package parity; none is represente
 | Native runtime: linux-x64 | resource format and closure inspected on macOS; execution not claimed | Native runtime execution requires the target operating system/architecture |
 | Native runtime: linux-arm64 | resource format and closure inspected on macOS; execution not claimed | Native runtime execution requires the target operating system/architecture |
 | Native runtime: macos-x64 | resource format and closure inspected on macOS; execution not claimed | Native runtime execution requires the target operating system/architecture |
+| Native runtime: macos-arm64 | Package format and resource closure inspected; runtime is not inferred from the target string | No SHA-bound runtime receipt is present |
 | Live amateur-radio hardware | Source, adapter, safety, and simulated refusal/un-key paths are verified | Operator-supervised CAT/PTT/rotator run with real station hardware |
 | Account-bound and Internet providers | All upstream configuration, routes, panels, and failure states are verified | Valid operator accounts/keys and reachable QRZ, LoTW, eQSL, cluster, weather, satellite, and optional auxiliary providers |
