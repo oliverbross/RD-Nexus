@@ -2734,6 +2734,7 @@ mod tests {
             ));
         }
         for status in [418, 499] {
+            let path = temp_file(&format!("ambiguous-{status}"));
             let draft = Draft {
                 id: format!("ambiguous-{status}"),
                 state: "posting".into(),
@@ -2744,8 +2745,12 @@ mod tests {
             let failure = classify_final_post_status(status, format!("HTTP {status}"));
             assert!(matches!(failure, FinalPostError::Ambiguous(_)));
             record_final_post_failure(&mut store, 0, draft, failure);
-            assert_eq!(store.drafts[0].state, "delivery_unknown");
-            assert!(requires_delivery_reconciliation(&store.drafts[0]));
+            write_store_to(&path, &store).unwrap();
+            let reloaded = read_store_with_recovery_at(&path).unwrap();
+            assert_eq!(reloaded.drafts[0].state, "delivery_unknown");
+            assert!(requires_delivery_reconciliation(&reloaded.drafts[0]));
+            assert!(ensure_draft_mutable(&reloaded, &format!("ambiguous-{status}")).is_err());
+            let _ = fs::remove_file(path);
         }
         for status in [404, 408, 409, 425, 429, 500, 502, 503, 504] {
             assert!(matches!(
@@ -2812,10 +2817,7 @@ mod tests {
         assert_eq!(saved.group_id, "original-group");
         assert_eq!(saved.topic_id.as_deref(), Some("original-topic"));
         assert_eq!(saved.reply_message_number.as_deref(), Some("7"));
-        assert_eq!(
-            saved.reply_api_message_id.as_deref(),
-            Some("api-original")
-        );
+        assert_eq!(saved.reply_api_message_id.as_deref(), Some("api-original"));
         assert_eq!(saved.kind, "reply");
         assert_eq!(saved.subject, "Edited");
         assert_eq!(saved.body, "New body");
