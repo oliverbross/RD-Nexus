@@ -71,6 +71,7 @@
     "cloudlogUpload": false,
     "clublogUpload": false,
     "clusterEnabled": true,
+    "rbnEnabled": true,
     "clusterHost": "ve7cc.net:23",
     "clusterHosts": [
       "ve7cc.net:23",

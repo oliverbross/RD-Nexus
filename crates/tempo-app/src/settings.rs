@@ -1417,12 +1417,12 @@ pub struct Settings {
     /// before an event, and one thing to point at afterwards.
     ///
     /// While on it SUPPRESSES every assistance source at once: the DeepCW AI CW decoder,
-    /// DX cluster / RBN spot ingestion, and the PSK Reporter reception-report feed that
+    /// DX cluster spots, RBN spots, and the PSK Reporter reception-report feed that
     /// drives the Needed board. Each state change is journaled with a timestamp so the
     /// operator can show what was running during the event.
     ///
     /// **It overrides, never overwrites.** `ai_cw_enabled` / `cluster_enabled` /
-    /// `pskreporter` keep the operator's own values untouched; the effective getters
+    /// `rbn_enabled` / `pskreporter` keep the operator's own values untouched; the effective getters
     /// below ([`Settings::ai_cw_active`] and friends) fold this flag in. Turning the
     /// switch back off therefore restores the operator's setup exactly, with no saved
     /// shadow copy to drift out of sync.
@@ -1671,11 +1671,13 @@ pub struct Settings {
     pub source: SourceKind,
     /// Upload heard stations to PSK Reporter.
     pub pskreporter: bool,
-    /// Connect to spot networks for need-aware spots (takes effect at startup). When on,
-    /// the RBN CW (7000) + RBN digital (7001) skimmer firehoses are connected for the big
-    /// CW + digital evidence, PLUS the human DX-cluster node in `cluster_host` for SSB/phone
-    /// (which RBN doesn't carry). SpotCollector-style multi-source aggregation.
+    /// Connect to human DX-cluster nodes for need-aware spots (takes effect at startup).
+    /// These are the SSB/phone source; RBN is controlled independently by `rbn_enabled`.
     pub cluster_enabled: bool,
+    /// Connect to the Reverse Beacon Network CW (7000) and digital (7001) skimmer feeds.
+    /// Kept separate from `cluster_enabled` because operators may want human DX-cluster
+    /// spots without the RBN firehose.
+    pub rbn_enabled: bool,
     /// LEGACY single human DX-cluster endpoint — kept only to seed `cluster_hosts` on
     /// upgrade (and for back-compat). `cluster_hosts` is the live source of truth.
     pub cluster_host: String,
@@ -4196,10 +4198,10 @@ impl Default for Settings {
             companion_addr: "127.0.0.1:2237".to_string(),
             source: SourceKind::Native,
             // Live by default (once a real call is set) — a ham dashboard should
-            // arrive connected, like HamClock/GridTracker. Both are public read
-            // feeds; cluster_host is the RBN endpoint, so this gives RBN spots free.
+            // arrive connected, like HamClock/GridTracker. Both are public read feeds.
             pskreporter: true,
             cluster_enabled: true,
+            rbn_enabled: true,
             // A public human DX-cluster node for SSB/phone + human spots (the RBN CW +
             // digital skimmer feeds are wired automatically). VE7CC-1 is the community
             // default — CC-Cluster, human-spot-rich, and skimmer OFF by default, so it
@@ -4400,11 +4402,16 @@ impl Settings {
         self.cluster_nodes_auto = auto;
     }
 
-    /// Is DX cluster / RBN spot ingestion EFFECTIVELY on? Cluster and RBN spots are
+    /// Is human DX-cluster spot ingestion EFFECTIVELY on? Cluster spots are
     /// callsign-and-frequency identification from other people's receivers — the textbook
     /// QSO-finding assistance, named by both CQ WW and ARRL.
     pub fn cluster_active(&self) -> bool {
         self.cluster_enabled && !self.unassisted_mode
+    }
+
+    /// Is Reverse Beacon Network spot ingestion EFFECTIVELY on?
+    pub fn rbn_active(&self) -> bool {
+        self.rbn_enabled && !self.unassisted_mode
     }
 
     /// Is the PSK Reporter feed EFFECTIVELY available as need EVIDENCE (who can I work)?
@@ -4422,10 +4429,11 @@ impl Settings {
     /// `(label, effectively_on)` — the single list the journal records and the UI reads,
     /// so a new assistance source cannot be added to the app and forgotten by Unassisted
     /// mode. Order is stable: it is display order and journal order.
-    pub fn assistance_sources(&self) -> [(&'static str, bool); 3] {
+    pub fn assistance_sources(&self) -> [(&'static str, bool); 4] {
         [
             ("AI CW decoder", self.ai_cw_active()),
-            ("DX cluster / RBN", self.cluster_active()),
+            ("DX cluster", self.cluster_active()),
+            ("RBN", self.rbn_active()),
             ("PSK Reporter needs", self.pskr_evidence_active()),
         ]
     }
@@ -5041,6 +5049,9 @@ impl Settings {
         // reason as `satDoppler`: once parsed, the field's default cannot be told from a saved
         // `true`, and a file without the key is one from before the choice existed.
         let mut node_choice_saved = false;
+        // `rbnEnabled` split from the old combined `clusterEnabled` switch. A file without
+        // the new key must preserve that combined choice instead of taking today's default.
+        let mut rbn_choice_saved = false;
         let mut s: Settings = match std::fs::read_to_string(path) {
             // Missing file: a normal first run.
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Settings::default(),
@@ -5074,6 +5085,15 @@ impl Settings {
                     node_choice_saved = serde_json::from_str::<NodeChoice>(&text)
                         .ok()
                         .and_then(|c| c.auto)
+                        .is_some();
+                    #[derive(Deserialize)]
+                    struct RbnChoice {
+                        #[serde(rename = "rbnEnabled")]
+                        enabled: Option<bool>,
+                    }
+                    rbn_choice_saved = serde_json::from_str::<RbnChoice>(&text)
+                        .ok()
+                        .and_then(|c| c.enabled)
                         .is_some();
                     s
                 }
@@ -5154,6 +5174,11 @@ impl Settings {
             if !has_human_host {
                 s.cluster_hosts = DEFAULT_CLUSTER_HOSTS.map(str::to_string).to_vec();
             }
+        }
+        // Migration (2026-09-27): the old switch governed BOTH human cluster nodes and RBN.
+        // Copy it only when the new key is absent; once saved, both operator choices are final.
+        if !rbn_choice_saved {
+            s.rbn_enabled = s.cluster_enabled;
         }
         // Migration: `cluster_hosts` (the multi-cluster aggregator) is newer than the single
         // `cluster_host`. An OLD config has no `clusterHosts` key → the field default leaves it
@@ -6228,10 +6253,10 @@ mod tests {
         // rename, not a parser hole.
         assert_eq!(
             labels.len(),
-            3,
+            4,
             "assistance_sources changed shape: {labels:?}"
         );
-        for needed in ["DX cluster / RBN", "PSK Reporter needs"] {
+        for needed in ["DX cluster", "RBN", "PSK Reporter needs"] {
             assert!(
                 labels.contains(&needed),
                 "{needed:?} left assistance_sources() — update FdAdvisories.tsx's match list too"
@@ -9777,6 +9802,69 @@ mod tests {
     }
 
     #[test]
+    fn load_migrates_the_old_combined_spot_switch_to_rbn() {
+        for combined in [false, true] {
+            let path = scratch_dir(if combined { "rbnmig-on" } else { "rbnmig-off" })
+                .join("settings.json");
+            let mut value = serde_json::to_value(Settings {
+                cluster_enabled: combined,
+                ..Settings::default()
+            })
+            .unwrap();
+            value.as_object_mut().unwrap().remove("rbnEnabled");
+            std::fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+            let back = Settings::load(&path);
+            assert_eq!(back.cluster_enabled, combined);
+            assert_eq!(
+                back.rbn_enabled, combined,
+                "an old combined switch must keep governing RBN after upgrade"
+            );
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
+    fn dx_cluster_and_rbn_are_independent_assistance_sources() {
+        let mut s = Settings::default();
+        s.cluster_enabled = true;
+        s.rbn_enabled = false;
+        assert!(s.cluster_active());
+        assert!(!s.rbn_active());
+
+        s.cluster_enabled = false;
+        s.rbn_enabled = true;
+        assert!(!s.cluster_active());
+        assert!(s.rbn_active());
+
+        s.unassisted_mode = true;
+        assert!(!s.cluster_active());
+        assert!(!s.rbn_active());
+    }
+
+    #[test]
+    fn all_four_spot_source_states_survive_save_and_restart_without_cross_enabling() {
+        for (cluster_enabled, rbn_enabled) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let path = scratch_dir(&format!("spotstate-{cluster_enabled}-{rbn_enabled}"))
+                .join("settings.json");
+            Settings {
+                cluster_enabled,
+                rbn_enabled,
+                ..Settings::default()
+            }
+            .save(&path)
+            .unwrap();
+
+            let back = Settings::load(&path);
+            assert_eq!(back.cluster_enabled, cluster_enabled);
+            assert_eq!(back.rbn_enabled, rbn_enabled);
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    #[test]
     fn load_recovers_a_disabled_legacy_rbn_config() {
         // The exact stale state that silently killed phone spots: a pre-multi-cluster config
         // whose single `cluster_host` is an RBN port, an empty `cluster_hosts` list, and the
@@ -10910,6 +10998,7 @@ mod tests {
         // A maximally-assisted station: everything the operator can turn on, on.
         s.ai_cw_enabled = true;
         s.cluster_enabled = true;
+        s.rbn_enabled = true;
         s.pskreporter = true;
         assert!(
             s.assistance_sources().iter().all(|(_, on)| *on),
@@ -10934,6 +11023,7 @@ mod tests {
         let mut s = Settings::default();
         s.ai_cw_enabled = true;
         s.cluster_enabled = true;
+        s.rbn_enabled = true;
         s.pskreporter = true;
 
         s.unassisted_mode = true;
@@ -10942,6 +11032,7 @@ mod tests {
             "the operator's own preference must not be rewritten"
         );
         assert!(s.cluster_enabled);
+        assert!(s.rbn_enabled);
         assert!(s.pskreporter);
 
         s.unassisted_mode = false;
@@ -10958,6 +11049,7 @@ mod tests {
         let mut s = Settings::default();
         s.ai_cw_enabled = false;
         s.cluster_enabled = false;
+        s.rbn_enabled = false;
         s.unassisted_mode = true;
         s.unassisted_mode = false;
         assert!(!s.ai_cw_active(), "AI CW was off before; it must stay off");
@@ -10965,6 +11057,7 @@ mod tests {
             !s.cluster_active(),
             "cluster was off before; it must stay off"
         );
+        assert!(!s.rbn_active(), "RBN was off before; it must stay off");
     }
 
     /// Outbound PSK Reporter uploads are explicitly NOT assistance — ARRL's glossary says

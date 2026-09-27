@@ -89,7 +89,7 @@ describe('the event banner hosts the warn-only advisories', () => {
     // Dormant: the DTO's assistanceOn is live, the shipped policy allows everything.
     render(
       <ContestView
-        fieldDay={fd({ assistanceOn: ['DX cluster / RBN', 'PSK Reporter needs'] })}
+        fieldDay={fd({ assistanceOn: ['DX cluster', 'RBN', 'PSK Reporter needs'] })}
         onSetMode={() => {}}
         fdActive
         fdRuleset={WFD_RULES}
@@ -102,7 +102,7 @@ describe('the event banner hosts the warn-only advisories', () => {
     // Positive control: a restricted ruleset flips the very same wiring visible.
     render(
       <ContestView
-        fieldDay={fd({ assistanceOn: ['DX cluster / RBN', 'PSK Reporter needs'] })}
+        fieldDay={fd({ assistanceOn: ['DX cluster', 'RBN', 'PSK Reporter needs'] })}
         onSetMode={() => {}}
         fdActive
         fdRuleset={{ ...WFD_RULES, clusterAllowed: false }}

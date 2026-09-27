@@ -98,7 +98,7 @@ describe('the event the advisory names', () => {
 })
 
 describe('the assistance advisory', () => {
-  const LIVE = ['AI CW decoder', 'DX cluster / RBN', 'PSK Reporter needs']
+  const LIVE = ['AI CW decoder', 'DX cluster', 'RBN', 'PSK Reporter needs']
 
   it('DORMANT (the shipped 2026 seed): everything allowed ⇒ invisible even with every source live', () => {
     render(<FdAdvisories fdActive ruleset={WFD} assistanceOn={LIVE} showAssistance />)
@@ -111,7 +111,8 @@ describe('the assistance advisory', () => {
     const cluster = document.querySelector('.fd-advisory.cluster')
     const spotting = document.querySelector('.fd-advisory.spotting')
     expect(cluster, 'cluster restricted + cluster live ⇒ advisory').not.toBeNull()
-    expect(cluster!.textContent).toContain('DX cluster / RBN')
+    expect(cluster!.textContent).toContain('DX cluster')
+    expect(cluster!.textContent).toContain('RBN')
     expect(cluster!.textContent).toContain('2026')
     expect(spotting, 'spotting restricted + spot feeds live ⇒ advisory').not.toBeNull()
     expect(spotting!.textContent).toContain('PSK Reporter needs')

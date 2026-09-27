@@ -83,5 +83,10 @@ export function parseConfiguration(raw:unknown,kind:'settings'|'programming'):Se
  * A newer setting the station did not send shows what that station does
  * (NEWER_SETTINGS); one it did send is never overridden. */
 export function settingsForm(doc:SettingsConfiguration):Settings {
-  return {...NEWER_SETTINGS,...doc.settings,...Object.fromEntries(WITHHELD_SETTINGS_KEYS.map(k=>[k,k==='voiceMessages'?[]:''])),...Object.fromEntries(STATION_LOCAL_SETTINGS_KEYS.map(k=>[k,k==='contestEmail'?'':false]))} as unknown as Settings
+  const settings = {...NEWER_SETTINGS,...doc.settings} as Record<string, unknown>
+  // Before the split, clusterEnabled was the combined DX Cluster + RBN preference.
+  if (!Object.prototype.hasOwnProperty.call(doc.settings, 'rbnEnabled')) {
+    settings.rbnEnabled = doc.settings.clusterEnabled ?? true
+  }
+  return {...settings,...Object.fromEntries(WITHHELD_SETTINGS_KEYS.map(k=>[k,k==='voiceMessages'?[]:''])),...Object.fromEntries(STATION_LOCAL_SETTINGS_KEYS.map(k=>[k,k==='contestEmail'?'':false]))} as unknown as Settings
 }

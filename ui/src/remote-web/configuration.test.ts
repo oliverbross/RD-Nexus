@@ -66,14 +66,14 @@ it('accepts an older station that predates the contest email field', () => {
   expect(() => parseConfiguration(leaked, 'settings')).toThrow()
 })
 
-// A 1.13.0 station predates two settings this page knows: automatic cluster-node choice and the
-// login SSID. The page required every key it knew, so the relay deploy that carries it would have
+// A 1.13.0 station predates settings this page knows: automatic cluster-node choice, the login
+// SSID and the split RBN switch. The page required every key it knew, so the relay deploy would have
 // refused the whole settings document of every station still on 1.13.0 over two fields it never had.
 // It is accepted, and the form describes what that station actually does: it connects to its node
 // list as written, and logs in with the bare callsign.
 it('accepts a 1.13.0 station, which predates the cluster node choice and the login SSID', () => {
   const older = structuredClone(settings) as unknown as {settings: Record<string, unknown>}
-  for (const key of ['clusterNodesAuto', 'clusterSsid']) {
+  for (const key of ['clusterNodesAuto', 'clusterSsid', 'rbnEnabled']) {
     expect(older.settings, `positive control: the fixture sends ${key}`).toHaveProperty(key)
     delete older.settings[key]
   }
@@ -83,6 +83,7 @@ it('accepts a 1.13.0 station, which predates the cluster node choice and the log
   const form = settingsForm(parsed)
   expect(form.clusterNodesAuto).toBe(false)
   expect(form.clusterSsid).toBe('')
+  expect(form.rbnEnabled).toBe(form.clusterEnabled)
 })
 
 // The tolerance is for ABSENCE, of those settings only. A station that sends one is read exactly as

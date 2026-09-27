@@ -38665,6 +38665,7 @@ mod tests {
             s.fd_class = "3A".into();
             s.fd_section = "WI".into();
             s.cluster_enabled = true;
+            s.rbn_enabled = true;
             s.unassisted_mode = false;
             e.apply_settings(s);
         }
@@ -38677,7 +38678,7 @@ mod tests {
             .collect();
         // Control: the setup really has a live source, so an empty DTO list fails.
         assert!(
-            expected.iter().any(|l| l == "DX cluster / RBN"),
+            expected.iter().any(|l| l == "DX cluster") && expected.iter().any(|l| l == "RBN"),
             "control broken: cluster should be effectively ON in this setup"
         );
         let fd = e.snapshot().field_day.expect("in Field Day");
@@ -38691,8 +38692,10 @@ mod tests {
         }
         let fd = e.snapshot().field_day.expect("still in Field Day");
         assert!(
-            !fd.assistance_on.iter().any(|l| l == "DX cluster / RBN"),
-            "Unassisted mode is on — cluster must no longer be listed as live"
+            !fd.assistance_on
+                .iter()
+                .any(|l| l == "DX cluster" || l == "RBN"),
+            "Unassisted mode is on — cluster and RBN must no longer be listed as live"
         );
     }
 

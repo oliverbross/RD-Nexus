@@ -144,6 +144,7 @@ export const SETTINGS_KEYS = [
   'source',
   'pskreporter',
   'clusterEnabled',
+  'rbnEnabled',
   'clusterHost',
   'clusterHosts',
   'clusterNodesAuto',
@@ -315,6 +316,8 @@ export const STATION_LOCAL_SETTINGS_KEYS = [
  *  holds this list to the keys a 1.13.0 station does not send, and holds that none is writable - so
  *  no edit is ever offered for a key the station did not report. */
 export const NEWER_SETTINGS = {
+  // A station before the split uses clusterEnabled for both human cluster and RBN feeds.
+  rbnEnabled: true,
   // A 1.13.0 station connects to its node list as written: it has no automatic choice.
   clusterNodesAuto: false,
   // It logs in with the bare callsign.
@@ -516,6 +519,7 @@ export const SETTINGS_SHAPES = {
   "source": "string",
   "pskreporter": "boolean",
   "clusterEnabled": "boolean",
+  "rbnEnabled": "boolean",
   "clusterHost": "string",
   "clusterHosts": "array",
   "clusterNodesAuto": "boolean",

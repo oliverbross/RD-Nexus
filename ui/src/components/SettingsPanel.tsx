@@ -9455,6 +9455,26 @@ export function SettingsPanel({
                   </span>
                 </div>
 
+                <div className="settings-field">
+                  <label className="settings-toggle">
+                    <span className="settings-label">
+                      {t('settings.integrations.rbnSpots.label')}
+                    </span>
+                    <button disabled={remote}
+                      type="button"
+                      role="switch"
+                      aria-checked={form.rbnEnabled ?? form.clusterEnabled ?? true}
+                      className={`toggle${(form.rbnEnabled ?? form.clusterEnabled ?? true) ? ' on' : ''}`}
+                      onClick={() => updateBool('rbnEnabled', !(form.rbnEnabled ?? form.clusterEnabled ?? true))}
+                    >
+                      <span className="toggle-knob" />
+                    </button>
+                  </label>
+                  <span className="settings-hint">
+                    {t('settings.integrations.rbnSpots.hint')}
+                  </span>
+                </div>
+
                 <SettingsClusterNodes
                   auto={form.clusterNodesAuto ?? true}
                   onAutoChange={(auto) => updateBool('clusterNodesAuto', auto)}

@@ -55,6 +55,12 @@ impl NodeConfig {
     }
 }
 
+/// Whether human DX-cluster spots are currently admitted. Feed threads read this instead of
+/// taking the engine lock, so turning the setting off takes effect on the next packet.
+pub(crate) fn active() -> bool {
+    lock(&CONFIG).active
+}
+
 /// The mirror. Starts inactive: nothing runs before `lib.rs` has published the real settings.
 static CONFIG: Mutex<NodeConfig> = Mutex::new(NodeConfig {
     active: false,
@@ -82,15 +88,27 @@ pub(crate) struct Feed {
     /// True while its session is logged in — the flag `tempo_net::cluster::run` keeps, with the
     /// meaning it has always had there: a login prompt was answered.
     connected: Arc<AtomicBool>,
+    generation: u64,
+    start_delay: std::time::Duration,
 }
 
 impl Feed {
     /// A feed's flags, for `lib.rs` to start a thread on.
     pub(crate) fn new(host: &str) -> Self {
+        Self::new_for_transition(
+            host,
+            FEED_GENERATION.load(Ordering::SeqCst),
+            std::time::Duration::ZERO,
+        )
+    }
+
+    fn new_for_transition(host: &str, generation: u64, start_delay: std::time::Duration) -> Self {
         Self {
             host: host.to_string(),
             stop: Arc::new(AtomicBool::new(false)),
             connected: Arc::new(AtomicBool::new(false)),
+            generation,
+            start_delay,
         }
     }
 
@@ -100,6 +118,10 @@ impl Feed {
 
     pub(crate) fn flags(&self) -> (Arc<AtomicBool>, Arc<AtomicBool>) {
         (self.stop.clone(), self.connected.clone())
+    }
+
+    pub(crate) fn start_guard(&self) -> (u64, std::time::Duration) {
+        (self.generation, self.start_delay)
     }
 
     fn is_connected(&self) -> bool {
@@ -198,6 +220,25 @@ impl Feeds {
 
 /// Every running node feed.
 pub(crate) static FEEDS: Mutex<Feeds> = Mutex::new(Feeds::new());
+static FEED_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RETIRE_UNTIL: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+fn retirement_delay(removed: bool, now: std::time::Instant) -> std::time::Duration {
+    let mut until = lock(&RETIRE_UNTIL);
+    if removed {
+        *until = Some(
+            now + std::time::Duration::from_secs(tempo_net::FEED_STOP_OBSERVE_SECS + 1),
+        );
+    }
+    until
+        .as_ref()
+        .map(|deadline| deadline.saturating_duration_since(now))
+        .unwrap_or_default()
+}
+
+pub(crate) fn generation_is_current(generation: u64) -> bool {
+    FEED_GENERATION.load(Ordering::Relaxed) == generation
+}
 
 /// Read the registry.
 pub(crate) fn feeds() -> MutexGuard<'static, Feeds> {
@@ -324,8 +365,8 @@ fn desired(config: &NodeConfig, pool: &NodePool, feeds: &Feeds, now: u64) -> Vec
 /// Bring the running node feeds in line with the settings mirror and the pool, starting feeds
 /// through `lib.rs` and stopping them by their flags. Returns the hosts stopped and started.
 ///
-/// Does nothing while the cluster is off (or Unassisted) or there is no real callsign: turning the
-/// cluster off has always left running feeds alone until a restart, and this does not change that.
+/// Turning the cluster off (or entering Unassisted) reconciles to an empty set, so running human
+/// node sockets stop without affecting the independently managed RBN feeds.
 ///
 /// `restarting` is the callsign-change drain's own call. Everything else stands aside while a
 /// drain is in flight — checked under the registry lock, after the drain's `stop_all` took the
@@ -340,13 +381,28 @@ pub(crate) fn reconcile(
         return Default::default();
     }
     let config = lock(&CONFIG).clone();
-    if !config.active || !is_real_call(&config.mycall) {
+    let want = if config.active && is_real_call(&config.mycall) {
+        desired(&config, &lock(&HEALTH).pool, &feeds, now_secs())
+    } else {
+        Vec::new()
+    };
+    let changed = feeds.0.len() != want.len()
+        || want
+            .iter()
+            .any(|host| !feeds.0.iter().any(|feed| feed.host.eq_ignore_ascii_case(host)));
+    if !changed {
         return Default::default();
     }
-    let want = desired(&config, &lock(&HEALTH).pool, &feeds, now_secs());
+    let removed = feeds.0.iter().any(|feed| {
+        !want
+            .iter()
+            .any(|host| host.eq_ignore_ascii_case(&feed.host))
+    });
+    let generation = FEED_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    let start_delay = retirement_delay(removed, std::time::Instant::now());
     let call = tempo_net::cluster::login_call(&config.mycall, &config.ssid);
     feeds.reconcile(&want, |host| {
-        let feed = Feed::new(host);
+        let feed = Feed::new_for_transition(host, generation, start_delay);
         crate::start_human_cluster_feed(spots, health, &feed, &call);
         feed
     })
@@ -354,6 +410,8 @@ pub(crate) fn reconcile(
 
 /// Stop every node feed — see [`Feeds::stop_all`].
 pub(crate) fn stop_all() {
+    FEED_GENERATION.fetch_add(1, Ordering::SeqCst);
+    retirement_delay(true, std::time::Instant::now());
     lock(&FEEDS).stop_all();
 }
 
@@ -369,7 +427,7 @@ pub(crate) fn on_outcome(
     let other_live = other_feed_live_at(
         now,
         health.cluster_last.load(Ordering::Relaxed),
-        health.cluster_connected.load(Ordering::Relaxed),
+        crate::rbn_any_connected(),
         lock(&FEEDS).any_other_connected(host),
     );
     let config = lock(&CONFIG).clone();
@@ -550,6 +608,125 @@ mod tests {
             !feeds.any_connected(),
             "but post_spot must not queue a spot for it"
         );
+    }
+
+    #[test]
+    fn disabling_dx_cluster_stops_the_actual_node_feed() {
+        let mut feeds = Feeds::new();
+        let host = "a.example.net:7300".to_string();
+        feeds.reconcile(std::slice::from_ref(&host), Feed::new);
+        let stop = flags_of(&feeds, &host).stop.clone();
+
+        let disabled_desired: Vec<String> = Vec::new();
+        let (stopped, started) = feeds.reconcile(&disabled_desired, Feed::new);
+
+        assert_eq!(stopped, vec![host]);
+        assert!(started.is_empty());
+        assert!(feeds.is_empty());
+        assert!(stop.load(Ordering::SeqCst), "the socket loop was told to stop");
+    }
+
+    #[test]
+    fn rapid_dx_reenable_is_nonblocking_but_delays_the_new_socket_past_retirement() {
+        let now = std::time::Instant::now();
+        let before = std::time::Instant::now();
+        let delay = retirement_delay(true, now);
+        assert!(before.elapsed() < std::time::Duration::from_millis(100));
+        assert_eq!(
+            delay,
+            std::time::Duration::from_secs(tempo_net::FEED_STOP_OBSERVE_SECS + 1)
+        );
+        let reenable_delay = retirement_delay(false, now);
+        assert_eq!(reenable_delay, delay);
+    }
+
+    #[test]
+    fn all_four_live_spot_source_states_reconcile_only_their_own_sockets() {
+        for (dx_enabled, rbn_enabled, expected_dx, expected_rbn) in [
+            (false, false, 0, 0),
+            (true, false, 1, 0),
+            (false, true, 0, 2),
+            (true, true, 1, 2),
+        ] {
+            let mut dx = Feeds::new();
+            let mut rbn = crate::RbnFeeds::new();
+            let dx_hosts = if dx_enabled {
+                vec!["dx.example.net:7300".to_string()]
+            } else {
+                Vec::new()
+            };
+            let rbn_hosts: &[&str] = if rbn_enabled {
+                &[crate::RBN_CW_HOST, crate::RBN_DIGITAL_HOST]
+            } else {
+                &[]
+            };
+
+            dx.reconcile(&dx_hosts, Feed::new);
+            rbn.set_test_hosts(rbn_hosts);
+
+            assert_eq!(dx.0.len(), expected_dx, "DX={dx_enabled} RBN={rbn_enabled}");
+            assert_eq!(rbn.0.len(), expected_rbn, "DX={dx_enabled} RBN={rbn_enabled}");
+        }
+    }
+
+    #[test]
+    fn identity_restart_drains_both_families_before_replacements_start() {
+        let mut dx = Feeds::new();
+        let dx_host = "dx.example.net:7300".to_string();
+        dx.reconcile(std::slice::from_ref(&dx_host), Feed::new);
+        let old_dx_stop = flags_of(&dx, &dx_host).stop.clone();
+
+        let mut rbn = crate::RbnFeeds::new();
+        rbn.set_test_hosts(&[crate::RBN_CW_HOST, crate::RBN_DIGITAL_HOST]);
+        let old_rbn_stops: Vec<_> = rbn.0.iter().map(|feed| feed.stop.clone()).collect();
+
+        dx.stop_all();
+        rbn.take_stopping();
+        assert!(old_dx_stop.load(Ordering::SeqCst));
+        assert!(old_rbn_stops.iter().all(|stop| stop.load(Ordering::SeqCst)));
+
+        dx.reconcile(std::slice::from_ref(&dx_host), Feed::new);
+        rbn.set_test_hosts(&[crate::RBN_CW_HOST, crate::RBN_DIGITAL_HOST]);
+        assert_eq!(dx.0.len(), 1);
+        assert_eq!(rbn.0.len(), 2);
+        assert!(!flags_of(&dx, &dx_host).stop.load(Ordering::SeqCst));
+        assert!(rbn.0.iter().all(|feed| !feed.stop.load(Ordering::SeqCst)));
+    }
+
+    #[test]
+    fn unassisted_entry_stops_both_families_and_exit_restarts_without_duplicates() {
+        let mut settings = tempo_app::settings::Settings {
+            cluster_enabled: true,
+            rbn_enabled: true,
+            unassisted_mode: false,
+            ..Default::default()
+        };
+        let dx_host = "dx.example.net:7300".to_string();
+        let mut dx = Feeds::new();
+        let mut rbn = crate::RbnFeeds::new();
+
+        let mut reconcile = |settings: &tempo_app::settings::Settings| {
+            let dx_want = if settings.cluster_active() {
+                std::slice::from_ref(&dx_host)
+            } else {
+                &[]
+            };
+            let rbn_want: &[&str] = if settings.rbn_active() {
+                &[crate::RBN_CW_HOST, crate::RBN_DIGITAL_HOST]
+            } else {
+                &[]
+            };
+            dx.reconcile(dx_want, Feed::new);
+            rbn.set_test_hosts(rbn_want);
+            (dx.0.len(), rbn.0.len())
+        };
+
+        assert_eq!(reconcile(&settings), (1, 2));
+        settings.unassisted_mode = true;
+        assert_eq!(reconcile(&settings), (0, 0));
+        settings.unassisted_mode = false;
+        reconcile(&settings);
+        assert_eq!(reconcile(&settings), (1, 2));
     }
 
     #[test]

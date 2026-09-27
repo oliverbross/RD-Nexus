@@ -3470,8 +3470,8 @@ export interface Settings {
   fdActive: boolean
   /** UNASSISTED MODE (persisted) — the operator's declaration that this contest entry uses no
    * QSO-finding assistance. One switch: while on, the backend suppresses the AI CW decoder,
-   * DX cluster / RBN ingestion, and the PSK Reporter needs feed together, and journals each
-   * change. It OVERRIDES rather than overwrites — aiCwEnabled / clusterEnabled / pskreporter
+   * DX cluster spots, RBN spots, and the PSK Reporter needs feed together, and journals each
+   * change. It OVERRIDES rather than overwrites — aiCwEnabled / clusterEnabled / rbnEnabled / pskreporter
    * keep the operator's own values, so ending it restores their station exactly. Default false;
    * only the operator's toggle sets it. */
   unassistedMode?: boolean
@@ -3715,8 +3715,10 @@ export interface Settings {
   hrdUdpAddr: string
   /** Upload spots to PSK Reporter's global map. */
   pskreporter: boolean
-  /** Connect to a DX cluster / RBN for need-aware spots (opt-in; needs restart). */
+  /** Connect to human DX-cluster nodes for need-aware spots. */
   clusterEnabled?: boolean
+  /** Connect to Reverse Beacon Network CW and digital skimmer feeds. */
+  rbnEnabled?: boolean
   /**
    * Periodically call CQ to announce presence. OFF = passive (hunt & pounce):
    * Tempo only transmits when the operator acts. This is the ONLY auto-TX path.
