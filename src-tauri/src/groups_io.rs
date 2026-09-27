@@ -469,16 +469,53 @@ fn try_store_transaction() -> Result<MutexGuard<'static, ()>, String> {
 
 #[cfg(windows)]
 const WINDOWS_DURABLE_REPLACE_FLAGS: u32 = 0x0000_0001 | 0x0000_0008;
+#[cfg(windows)]
+const WINDOWS_FILE_ATTRIBUTE_NORMAL: u32 = 0x0000_0080;
+#[cfg(windows)]
+const WINDOWS_FILE_ATTRIBUTE_TEMPORARY: u32 = 0x0000_0100;
+#[cfg(windows)]
+const WINDOWS_INVALID_FILE_ATTRIBUTES: u32 = u32::MAX;
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetFileAttributesW(file_name: *const u16) -> u32;
+    fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    fn SetFileAttributesW(file_name: *const u16, attributes: u32) -> i32;
+}
+
+#[cfg(windows)]
+fn windows_path(path: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    path.as_os_str().encode_wide().chain(Some(0)).collect()
+}
+
+#[cfg(windows)]
+fn windows_file_attributes(path: &Path) -> Result<u32, String> {
+    let path = windows_path(path);
+    let attributes = unsafe { GetFileAttributesW(path.as_ptr()) };
+    if attributes == WINDOWS_INVALID_FILE_ATTRIBUTES {
+        Err(format!(
+            "couldn't read Windows file attributes: {}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        Ok(attributes)
+    }
+}
 
 #[cfg(windows)]
 fn replace_path_durably(temp: &Path, target: &Path) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    let existing = windows_path(temp);
+    let replacement = windows_path(target);
+    // NamedTempFile uses FILE_ATTRIBUTE_TEMPORARY on Windows. Normalize it before replacement so
+    // the committed store is not left with temporary-file cache semantics.
+    if unsafe { SetFileAttributesW(existing.as_ptr(), WINDOWS_FILE_ATTRIBUTE_NORMAL) } == 0 {
+        return Err(format!(
+            "couldn't normalize Windows temporary-file attributes: {}",
+            std::io::Error::last_os_error()
+        ));
     }
-    let existing: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
-    let replacement: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
     // MOVEFILE_REPLACE_EXISTING preserves overwrite semantics; MOVEFILE_WRITE_THROUGH makes the
     // replacement durable before this function reports success.
     let result = unsafe {
@@ -2911,9 +2948,17 @@ mod tests {
         assert_ne!(WINDOWS_DURABLE_REPLACE_FLAGS & 0x0000_0001, 0);
         let path = temp_file("windows-write-through");
         write_store_to(&path, &Store::default()).unwrap();
+        assert_eq!(
+            windows_file_attributes(&path).unwrap() & WINDOWS_FILE_ATTRIBUTE_TEMPORARY,
+            0
+        );
         let mut second = Store::default();
         second.settings.default_lookback_days = 77;
         write_store_to(&path, &second).unwrap();
+        assert_eq!(
+            windows_file_attributes(&path).unwrap() & WINDOWS_FILE_ATTRIBUTE_TEMPORARY,
+            0
+        );
         assert_eq!(
             read_store_from(&path)
                 .unwrap()
