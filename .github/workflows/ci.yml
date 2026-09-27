@@ -921,8 +921,8 @@ jobs:
   #
   # Since 1.5.0 macOS IS a supported platform: release.yml's `macos` job does the signed,
   # notarized, statically-linked .dmg (and `smoke-macos` proves it on a clean runner). This
-  # This job proves the actual `.app` layout on every push: Tauri resource assembly, all bundled
-  # Hamlib tools/dylibs, strict outer resource sealing, and the microphone entitlement. It uses
+  # This job proves the actual `.app` layout on every push: Tauri resource assembly, the bundled
+  # Neural DX companion, all Hamlib tools/dylibs, strict outer resource sealing, and the microphone entitlement. It uses
   # the local ad-hoc signing path and ships nothing; Developer ID signing, notarization, DMG mount,
   # updater signature and installed-upgrade checks remain release.yml/real-Mac gates.
   #
@@ -952,6 +952,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          submodules: recursive
 
       # gfortran (via gcc), cmake/ninja for the libtempo CMake project, fftw and boost
       # for the modem — the darwin equivalents of the apt list the Linux job installs.
@@ -967,6 +970,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
 
       - name: Install UI and Tauri tooling
         run: |
@@ -987,8 +994,21 @@ jobs:
       - name: Stage bundled Hamlib
         run: bash scripts/fetch-hamlib-unix.sh
 
+      # This is an ephemeral package-contract rehearsal, not a distributable artifact: the job
+      # has no upload step and the runner is destroyed afterwards. Public release jobs never set
+      # this override; they remain blocked by check-neural-dx-redistribution.mjs until written
+      # redistribution permission is archived in the repository.
+      - name: Stage and verify Neural DX for the non-distributed package check
+        env:
+          NEURAL_DX_PRIVATE_BUILD: "1"
+        run: |
+          node scripts/stage-neural-dx.mjs
+          node scripts/check-neural-dx-staged.mjs
+          node scripts/check-neural-dx-consumer.mjs
+
       # NO LIBRARY_PATH export: tempo-fast-sys must derive Homebrew's gfortran/FFTW paths itself.
-      # scripts/build-macos.sh performs the Tauri build and then verifies the complete app contract.
+      # scripts/build-macos.sh performs the Tauri build and then verifies the complete app contract,
+      # including the executable Neural DX sidecar and its pinned provenance inside the `.app`.
       - name: Build and verify the ad-hoc RD-Nexus.app
         run: bash scripts/build-macos.sh --debug
 

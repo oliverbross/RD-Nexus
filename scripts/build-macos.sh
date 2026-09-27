@@ -11,6 +11,7 @@ if [[ "${1:-}" == "--debug" ]]; then
 fi
 app="$repo/src-tauri/target/$profile/bundle/macos/RD-Nexus.app"
 app_hamlib="$app/Contents/Resources/resources/hamlib"
+app_neural="$app/Contents/Resources/resources/neural-dx"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "scripts/build-macos.sh is for macOS." >&2
@@ -32,6 +33,43 @@ for file in rigctld rigctl rotctld rotctl libhamlib.4.dylib libusb-1.0.0.dylib; 
   }
 done
 "$app_hamlib/rigctld" --version >/dev/null
+
+# Neural DX is an integral bundled companion, not an optional README-only resource. Verify the
+# assembled app rather than the staging directory so a Tauri glob/layout regression cannot pass.
+neural="$app_neural/neural-dx-watcher"
+for file in "$neural" "$app_neural/provenance.json" "$app_neural/UPSTREAM-README.txt" \
+  "$app_neural/SOURCE-PERMISSION.txt"; do
+  [[ -s "$file" ]] || {
+    echo "missing bundled Neural DX resource: $file" >&2
+    exit 1
+  }
+done
+[[ -x "$neural" ]] || { echo "bundled Neural DX sidecar is not executable: $neural" >&2; exit 1; }
+expected_neural_commit="$(jq -er '.commit' "$repo/docs/neural-dx/upstream.json")"
+bundled_neural_commit="$(jq -er '.commit' "$app_neural/provenance.json")"
+[[ "$bundled_neural_commit" == "$expected_neural_commit" ]] || {
+  echo "bundled Neural DX pin mismatch: $bundled_neural_commit != $expected_neural_commit" >&2
+  exit 1
+}
+[[ "$(jq -er '.platform' "$app_neural/provenance.json")" == "darwin" ]] || {
+  echo "bundled Neural DX provenance is not macOS" >&2
+  exit 1
+}
+[[ "$(jq -er '.arch' "$app_neural/provenance.json")" == "arm64" ]] || {
+  echo "bundled Neural DX provenance is not Apple Silicon" >&2
+  exit 1
+}
+file "$neural" | grep -q 'Mach-O.*arm64' || {
+  echo "bundled Neural DX sidecar is not an arm64 Mach-O executable" >&2
+  exit 1
+}
+neural_tmp="$(mktemp -d)"
+trap 'rm -rf "$neural_tmp"' EXIT
+neural_self_test="$(cd "$neural_tmp" && NEURAL_DX_SELF_TEST=1 "$neural")"
+grep -Eq '^NEURAL_DX_SELF_TEST=.*"ok":true' <<<"$neural_self_test" || {
+  echo "bundled Neural DX self-test failed: $neural_self_test" >&2
+  exit 1
+}
 
 # A local Tauri build has no Developer ID identity, but macOS still leaves an outer signature
 # placeholder that fails its resource seal once bundled resources are present. Seal only the
