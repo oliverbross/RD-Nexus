@@ -674,8 +674,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
 
   // Parsec presence mode stopped a transmission because the operator's Parsec session dropped.
   // The lane, not a toast: the operator was not there to see a toast, so the reason must still be
-  // on screen when they reconnect. The station keeps the report until they transmit again. Not on
-  // the Remote page, like the log notices above: a station-side feature, and that page is frozen.
+  // on screen when they reconnect. The station keeps the report until its once-per-second watcher
+  // observes another protected latch; a finite/short transmission does not promise to retire it.
+  // Not on the Remote page, like the log notices above: a station-side feature, and that page is frozen.
   useEffect(() => {
     setStatus('parsecStop', remote ? null : parsecStopLane(snap?.parsecPresence))
   }, [snap?.parsecPresence?.stoppedAt, snap?.parsecPresence?.stopped.join(','), remote])

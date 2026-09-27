@@ -96,8 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Settings ▸ Radio ▸ Transmit limits & sharing has a new switch, **Stop latched transmissions if my
   Parsec session drops**, off unless you turn it on (Windows only). Nexus watches Parsec's own log
   on the shack PC, and if the Parsec session that was connected drops, or the log can no longer be
-  read, it stops a latched PTT, continuous RTTY or PSK, and Tune, exactly as their own Stop does.
-  The Now-Bar then says what was stopped and when, until you transmit again. It only ever stops:
+  read, it stops Nexus's latched Phone PTT, embedded Ham Clock PTT, continuous RTTY or PSK, and
+  Tune, exactly as their own Stop does. A generic external CAT client's PTT remains that client's
+  responsibility. The Now-Bar says what was stopped and when until the once-per-second watcher
+  observes another protected latch; a short or finite transmission may not retire it. It only stops:
   it never keys, never turns TX back on, and leaves FT8/FT4 alone (an over ends by itself and the
   TX watchdog still applies). At the shack with no Parsec session, nothing happens. Parsec itself
   can take about a minute to give up on a session after a pulled network cable, so this backs up

@@ -6658,8 +6658,10 @@ export function SettingsPanel({
             </div>
 
             {/* PARSEC PRESENCE MODE (operator sign-off 2026-09-27 — a transmit-path feature, scoped
-                exactly): when the operator's Parsec session drops, the station stops a latched PTT,
-                continuous RTTY/PSK and Tune through their own stop paths. Stop-only and OFF by
+                exactly): when the operator's Parsec session drops, the station stops Nexus's
+                latched Phone PTT, embedded Ham Clock PTT, continuous RTTY/PSK and Tune through
+                their own stop paths. Generic external CAT PTT remains its client's responsibility.
+                Stop-only and OFF by
                 default; the engine is the guard (engine/parsec_presence.rs) and this is the switch
                 and its explanation. Offered where the watcher runs — a Windows station, the Parsec
                 host — explained as unavailable elsewhere, and never on the Remote page: the key is

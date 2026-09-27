@@ -67,8 +67,8 @@ pub(crate) struct ParsecPresence {
     /// The last verdict the watcher passed in, for the Settings readout. `None` until the first
     /// read after the mode was switched on.
     last: Option<Verdict>,
-    /// The last stop this mode made — unix seconds and what it ended — until the operator
-    /// transmits again.
+    /// The last stop this mode made — unix seconds and what it ended — until the watcher
+    /// observes another protected latch.
     stopped: Option<(u64, Vec<PresenceStop>)>,
 }
 
