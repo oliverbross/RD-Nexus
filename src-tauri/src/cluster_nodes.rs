@@ -94,6 +94,7 @@ pub(crate) struct Feed {
 
 impl Feed {
     /// A feed's flags, for `lib.rs` to start a thread on.
+    #[cfg(test)]
     pub(crate) fn new(host: &str) -> Self {
         Self::new_for_transition(
             host,
