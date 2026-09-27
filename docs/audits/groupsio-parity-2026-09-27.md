@@ -6,7 +6,7 @@
 - Source revision reviewed: `636d25c` (`codex/f17-resolution-20260923`); refreshed `origin/main` was `4fdb14c`.
 - Source implementation reviewed: `services/application/src/groupsio/service.ts`, `services/application/src/groupsio/routes.ts`, `web/src/groupsio/GroupsIoWorkspace.tsx`, `web/src/groupsio/groupsio.css`, the Groups.io node/web tests, and the two Groups.io QA scripts.
 - RD-Nexus base reviewed and merged initially at `68d89dd3`, then refreshed and merged again at `kd9taw/Nexus` `upstream/main` `35ec66ca` (Landing 61).
-- RD-Nexus Groups.io implementation revision: `8322c3ef`; refreshed-upstream merge revision: `12431d14`.
+- RD-Nexus Groups.io implementation revision: `8322c3ef`; refreshed-upstream merge revision: `12431d14`; final crash-safety review revision is recorded after the review gate below.
 - Provider contract carried forward: `https://groups.io/api/v1`, revision marker `2026-07-31`.
 
 `COMPLETE` below means the ShackCQ behavior has an RD-Nexus implementation and local executable or rendered evidence. `EXTERNAL` means implementation is present but proof requires an operator-owned Groups.io account/key and is deliberately not represented as local proof.
@@ -39,9 +39,11 @@
 | Server drafts | list/page/open local copy/delete | `/getdrafts`, `/deletedraft`; draft dialog | component UI; account call | EXTERNAL |
 | Server draft attachments | list and explicitly delete | `/getattachments`, `/deleteattachment`; draft dialog controls | native/UI implementation; account call | EXTERNAL |
 | Explicit posting | create/update draft, upload, review confirmation, foreground `/postdraft` | `groups_io_send_draft(confirmed)` and confirmation UI | native state-machine tests/source; account send deliberately not exercised | EXTERNAL |
-| Delivery ambiguity | Deterministic HTTP rejection is retryable; transport/unreadable success is `delivery_unknown`; never auto-retry | `FinalPostError`, `record_final_post_failure`; receipt shown with server-draft/recent-message reconciliation surfaces | Rust state tests and source inspection | COMPLETE |
-| Duplicate prevention | No retry after ambiguous final POST; operator must reconcile | `delivery_unknown` state has no automatic retry path | native/UI implementation inspection | COMPLETE |
+| Delivery ambiguity | Deterministic HTTP rejection is retryable; transport/unreadable success is `delivery_unknown`; never auto-retry | `FinalPostError`, `record_final_post_failure`; receipt shown with server-draft/recent-message reconciliation surfaces | Rust deterministic/ambiguous failure tests and source inspection | COMPLETE |
+| Crash-safe final posting | Persist a stable final-post attempt before `/postdraft`; a restart or receipt-write failure must not make that attempt sendable | `final_post_attempt_id`, `posting`, startup recovery to `delivery_unknown` | Rust restart, provider-success-before-receipt and receipt-persistence-failure tests | COMPLETE |
+| Duplicate prevention | No retry after an interrupted or ambiguous final POST; operator must reconcile as delivered or confirmed-not-delivered | backend rejects edit/queue/delete/send while uncertain; explicit reconciliation command and UI controls | Rust recovery tests and `GroupsIoView.test.tsx` uncertain-delivery case | COMPLETE |
 | Outbox receipts | Persist posted, moderated and uncertain receipts | `Store.outbox`, drafts/outbox dialog | store persistence path; UI | COMPLETE |
+| Concurrent persistence | Independent settings, draft and attachment mutations cannot overwrite one another; replacement never exposes partial JSON | process-wide transaction lock plus same-directory `NamedTempFile` sync/persist | concurrent mutation and repeated atomic replacement Rust tests | COMPLETE |
 | Outgoing attachments | private local staging, cap, SHA-256 identity, multipart upload, remove | `groups_io_add_attachment`, `groups_io_remove_attachment`, multipart send | native safety tests; account upload | COMPLETE / EXTERNAL network proof |
 | Incoming attachments | discover, preview, download, optional cache | incoming attachment commands and dialog | component pagination/attachment test; account download | EXTERNAL |
 | Attachment failure isolation | Auto-download failure never rolls back a complete message page | best-effort `cache_incoming_for_message` call after message upsert | native implementation inspection | COMPLETE |
@@ -49,7 +51,7 @@
 | Download bounds | Reject Content-Length overflow and stop streaming at limit+1; also cap chunked/missing/lying length | `read_limited`, `read_limited_response`; caps for JSON, attachments, previews and official ZIP | Rust missing/lying/declared length test | COMPLETE |
 | Bearer isolation | Redirects disabled and attachment-host requests never receive API Authorization | `Client` redirect policy `none`; `attachment_get` has no bearer | Rust request-header negative test | COMPLETE |
 | Archive sync | bounded descending pages, date cutoff, cursor resume, duplicate replacement | `groups_io_archive`, `ArchiveState` | native implementation and UI status | COMPLETE / EXTERNAL network proof |
-| Archive pause/cancel | foreground cancel, preserve completed pages and cursor | `ARCHIVE_CANCEL`, `groups_io_pause_archive` | native/UI implementation | COMPLETE |
+| Archive pause/cancel | foreground cancel, preserve completed pages and cursor | `ARCHIVE_CANCEL` is signalled before waiting for the store transaction; `groups_io_pause_archive` | native/UI implementation | COMPLETE |
 | Official archive | permission-gated `/downloadarchives` ZIP with hard stream cap | `groups_io_official_archive`; conditional UI action | native implementation; account permission/download | EXTERNAL |
 | Clear cache | remove downloaded/cache files, preserve drafts/outbox/key | confirmed Settings action; `groups_io_clear_cache(false)` | component/source inspection | COMPLETE |
 | Delete all local | remove downloads, drafts, receipts and staged files; preserve key until disconnect | confirmed Settings action; `groups_io_clear_cache(true)` | component/source inspection | COMPLETE |
@@ -61,10 +63,11 @@
 
 ## Verification record
 
-- `npm run build`: PASS after integration and upstream merge.
-- Post-upstream UI selection (Groups.io components, i18n guards/runtime, feature registry): PASS (248 tests).
-- Rust Groups.io tests with the CI-required `radio` feature: PASS (9 tests; 719 filtered).
+- `npm run build`: PASS after integration, upstream merge and crash-safety fixes.
+- Post-upstream UI selection (Groups.io components, i18n guards/runtime, feature registry): PASS (257 tests across 7 files).
+- Rust Groups.io tests with the CI-required `radio` feature: PASS (15 tests; 719 filtered), including concurrent mutations, repeated atomic replacement and final-post crash/recovery boundaries.
 - `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`: PASS.
+- A full UI-suite diagnostic run also exercised the Groups.io tests successfully, but it was not a repository-wide pass: eight failures were reported in unrelated stop-line, CW/phone cockpit density/keyer and phone-scope tests under concurrent shared-host builds. It is not counted as Groups.io acceptance evidence.
 - Real rendered browser evidence:
   - `/Users/oliver/.codex/visualizations/2026/09/27/01a0e2aa-3b8f-7b00-868d-80aba8311f7e/groupsio-screen.png`
   - `/Users/oliver/.codex/visualizations/2026/09/27/01a0e2aa-3b8f-7b00-868d-80aba8311f7e/groupsio-settings.png`

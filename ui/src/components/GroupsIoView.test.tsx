@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   loadMore: vi.fn(),
   incoming: vi.fn(),
   serverDrafts: vi.fn(),
+  reconcile: vi.fn(),
 }))
 
 vi.mock('../api', async (importOriginal) => ({
@@ -20,6 +21,7 @@ vi.mock('../api', async (importOriginal) => ({
   loadMoreGroupsIoMessages: api.loadMore,
   getGroupsIoIncomingAttachments: api.incoming,
   getGroupsIoServerDrafts: api.serverDrafts,
+  reconcileGroupsIoDraft: api.reconcile,
   getGroupsIoDraftAttachments: vi.fn(async () => []),
 }))
 
@@ -74,5 +76,22 @@ describe('GroupsIoView', () => {
     await waitFor(() => expect(api.loadOlder).toHaveBeenCalledWith('g1', 'older'))
     expect(api.loadMore).toHaveBeenCalledWith('g1', 't1', 'more')
     expect(api.incoming).toHaveBeenCalledWith('g1', '1')
+  })
+
+  it('blocks editing an uncertain final post until explicit reconciliation', async () => {
+    const next = status(true)
+    next.drafts = [{
+      id: 'd1', groupId: 'g1', topicId: null, replyMessageNumber: null,
+      replyApiMessageId: null, remoteDraftId: 'remote-1', finalPostAttemptId: 'post-attempt-1',
+      kind: 'new_topic', subject: 'Possibly delivered', body: 'Body', replyDestination: '',
+      state: 'delivery_unknown', note: 'Reconcile first', updatedUnix: 1,
+    }]
+    api.getStatus.mockResolvedValue(next)
+    render(<GroupsIoView onOpenSettings={() => {}} />)
+    await screen.findByText('Nexus Users')
+    fireEvent.click(screen.getByText('Drafts & outbox'))
+    expect(await screen.findByText('Mark delivered')).toBeTruthy()
+    expect(screen.getByText('Mark not delivered / allow retry')).toBeTruthy()
+    expect(screen.getByText('Open').hasAttribute('disabled')).toBe(true)
   })
 })

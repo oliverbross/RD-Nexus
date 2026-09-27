@@ -92,6 +92,7 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+tempfile = "3"
 # Remote's outbound task is isolated from CAT/audio. These packages are already
 # in the graph except the reviewed WebSocket adapter and its framing dependencies.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }

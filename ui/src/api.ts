@@ -3051,6 +3051,7 @@ export interface GroupsIoDraft {
   replyMessageNumber: string | null
   replyApiMessageId: string | null
   remoteDraftId: string | null
+  finalPostAttemptId: string | null
   kind: 'new_topic' | 'reply'
   subject: string
   body: string
@@ -3177,6 +3178,8 @@ export const downloadGroupsIoOfficialArchive = (groupId: string, startMessageNum
   invoke('groups_io_official_archive', { groupId, startMessageNumber: startMessageNumber ?? null })
 export const sendGroupsIoDraft = (id: string, confirmed: boolean): Promise<GroupsIoStatus> =>
   invoke('groups_io_send_draft', { id, confirmed })
+export const reconcileGroupsIoDraft = (id: string, resolution: 'delivered' | 'not_delivered'): Promise<GroupsIoStatus> =>
+  invoke('groups_io_reconcile_draft', { id, resolution })
 export const archiveGroupsIo = (groupId: string, rangeDays: number | null): Promise<GroupsIoStatus> =>
   invoke('groups_io_archive', { groupId, rangeDays })
 export const pauseGroupsIoArchive = (): Promise<GroupsIoStatus> => invoke('groups_io_pause_archive')

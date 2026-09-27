@@ -29351,6 +29351,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             groups_io::groups_io_download_incoming_attachment,
             groups_io::groups_io_official_archive,
             groups_io::groups_io_send_draft,
+            groups_io::groups_io_reconcile_draft,
             groups_io::groups_io_archive,
             groups_io::groups_io_pause_archive,
             groups_io::groups_io_clear_cache,

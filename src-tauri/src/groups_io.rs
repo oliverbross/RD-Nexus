@@ -16,7 +16,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Mutex,
+    Mutex, MutexGuard,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,6 +32,9 @@ const MAX_ARCHIVE_PAGES: usize = 200;
 const MAX_API_RESPONSE_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_OFFICIAL_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
 static STORE_LOCK: Mutex<()> = Mutex::new(());
+// Serializes every read-modify-write command across its full transaction, including provider
+// work. STORE_LOCK still protects individual atomic file reads/replacements and status readers.
+static STORE_TRANSACTION_LOCK: Mutex<()> = Mutex::new(());
 static NETWORK_LOCK: Mutex<()> = Mutex::new(());
 static ARCHIVE_CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -147,6 +150,7 @@ pub struct Draft {
     pub reply_message_number: Option<String>,
     pub reply_api_message_id: Option<String>,
     pub remote_draft_id: Option<String>,
+    pub final_post_attempt_id: Option<String>,
     pub kind: String,
     pub subject: String,
     pub body: String,
@@ -382,17 +386,21 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("couldn't create Groups.io attachment storage: {e}"))?;
-    }
-    let tmp = path.with_extension("tmp");
-    let mut file = fs::File::create(&tmp)
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Groups.io attachment path has no parent".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|e| format!("couldn't create Groups.io attachment storage: {e}"))?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)
         .map_err(|e| format!("couldn't stage the Groups.io attachment: {e}"))?;
     file.write_all(bytes)
-        .and_then(|_| file.sync_all())
         .map_err(|e| format!("couldn't write the Groups.io attachment: {e}"))?;
-    fs::rename(&tmp, path).map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))
+    file.as_file()
+        .sync_all()
+        .map_err(|e| format!("couldn't sync the Groups.io attachment: {e}"))?;
+    file.persist(path)
+        .map(|_| ())
+        .map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -432,24 +440,86 @@ fn read_store_from(path: &Path) -> Result<Store, String> {
 }
 
 fn read_store() -> Result<Store, String> {
+    read_store_with_recovery_at(&store_path())
+}
+
+fn read_store_with_recovery_at(path: &Path) -> Result<Store, String> {
+    // A free transaction lock means there is no in-process mutation that could legitimately
+    // have a `posting` draft in flight. Hold it while recovering so a new mutation cannot race
+    // the recovery write. When a command already owns the transaction, return its live state
+    // unchanged; after a process restart the lock is free and the durable intent is recovered.
+    let recovery_transaction = STORE_TRANSACTION_LOCK.try_lock().ok();
     let _guard = STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    read_store_from(&store_path())
+    if recovery_transaction.is_some() {
+        load_recovered_store_from(path)
+    } else {
+        read_store_from(path)
+    }
+}
+
+fn store_transaction() -> MutexGuard<'static, ()> {
+    STORE_TRANSACTION_LOCK
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
+fn mutate_store_at<T>(
+    path: &Path,
+    mutation: impl FnOnce(&mut Store) -> Result<T, String>,
+) -> Result<(Store, T), String> {
+    let _transaction = store_transaction();
+    let _store = STORE_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+    let mut store = load_recovered_store_from(path)?;
+    let result = mutation(&mut store)?;
+    write_store_to(path, &store)?;
+    Ok((store, result))
+}
+
+fn mutate_store<T>(
+    mutation: impl FnOnce(&mut Store) -> Result<T, String>,
+) -> Result<(Store, T), String> {
+    mutate_store_at(&store_path(), mutation)
+}
+
+fn recover_interrupted_posts(store: &mut Store) -> bool {
+    let mut changed = false;
+    for draft in &mut store.drafts {
+        if draft.state == "posting" {
+            draft.state = "delivery_unknown".into();
+            draft.note = "Final post was interrupted; reconcile recent messages and server drafts before choosing delivered or retry.".into();
+            draft.updated_unix = now();
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn load_recovered_store_from(path: &Path) -> Result<Store, String> {
+    let mut store = read_store_from(path)?;
+    if recover_interrupted_posts(&mut store) {
+        write_store_to(path, &store)?;
+    }
+    Ok(store)
 }
 
 fn write_store_to(path: &Path, store: &Store) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("couldn't create the Groups.io data folder: {e}"))?;
-    }
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Groups.io data path has no parent".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|e| format!("couldn't create the Groups.io data folder: {e}"))?;
     let bytes = serde_json::to_vec_pretty(store)
         .map_err(|e| format!("couldn't encode Groups.io local data: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    let mut file =
-        fs::File::create(&tmp).map_err(|e| format!("couldn't stage Groups.io local data: {e}"))?;
+    let mut file = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| format!("couldn't stage Groups.io local data: {e}"))?;
     file.write_all(&bytes)
-        .and_then(|_| file.sync_all())
         .map_err(|e| format!("couldn't write Groups.io local data: {e}"))?;
-    fs::rename(&tmp, path).map_err(|e| format!("couldn't commit Groups.io local data: {e}"))
+    file.as_file()
+        .sync_all()
+        .map_err(|e| format!("couldn't sync Groups.io local data: {e}"))?;
+    file.persist(path)
+        .map(|_| ())
+        .map_err(|e| format!("couldn't commit Groups.io local data: {e}"))
 }
 
 fn write_store(store: &Store) -> Result<(), String> {
@@ -652,6 +722,9 @@ fn record_final_post_failure(
                 .into(),
         ),
     };
+    if state == "failed_retryable" {
+        draft.final_post_attempt_id = None;
+    }
     draft.state = state.into();
     draft.note = note;
     draft.updated_unix = now();
@@ -674,6 +747,40 @@ fn post_final(client: &Client, key: &str, draft_id: String) -> Result<Value, Fin
         ));
     }
     response_json(response).map_err(FinalPostError::Ambiguous)
+}
+
+fn begin_final_post(store: &mut Store, index: usize, mut draft: Draft, remote_id: &str) -> Draft {
+    if draft.final_post_attempt_id.is_none() {
+        let identity = format!("{}\0{}\0{}", draft.id, remote_id, now());
+        draft.final_post_attempt_id = Some(format!("post-{}", &sha256(identity.as_bytes())[..24]));
+    }
+    draft.state = "posting".into();
+    draft.note = format!(
+        "Final post intent {} committed before provider submission.",
+        draft.final_post_attempt_id.as_deref().unwrap_or("unknown")
+    );
+    draft.updated_unix = now();
+    store.drafts[index] = draft.clone();
+    draft
+}
+
+fn complete_final_post(store: &mut Store, index: usize, mut draft: Draft, response: &Value) {
+    draft.state = if text(response, &["extra"])
+        .to_lowercase()
+        .contains("pending")
+    {
+        "pending_moderation".into()
+    } else {
+        "posted".into()
+    };
+    draft.note = "Submitted explicitly from RD-Nexus.".into();
+    draft.updated_unix = now();
+    store.drafts.remove(index);
+    store.outbox.push(draft);
+}
+
+fn requires_delivery_reconciliation(draft: &Draft) -> bool {
+    matches!(draft.state.as_str(), "posting" | "delivery_unknown")
 }
 
 fn safe_html(input: &str) -> String {
@@ -1123,9 +1230,10 @@ pub fn groups_io_status() -> Result<Status, String> {
 
 #[tauri::command(async)]
 pub fn groups_io_save_settings(settings: GroupsIoSettings) -> Result<Status, String> {
-    let mut store = read_store()?;
-    store.settings = validate_settings(settings);
-    write_store(&store)?;
+    let (store, ()) = mutate_store(|store| {
+        store.settings = validate_settings(settings);
+        Ok(())
+    })?;
     Ok(status_for(store))
 }
 
@@ -1135,6 +1243,7 @@ pub fn groups_io_connect(api_key_value: String) -> Result<Status, String> {
     if key.len() < 8 || key.len() > 4096 {
         return Err("Enter a valid Groups.io API key".into());
     }
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -1164,6 +1273,7 @@ pub fn groups_io_disconnect() -> Result<Status, String> {
 
 #[tauri::command(async)]
 pub fn groups_io_sync(group_id: Option<String>) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -1203,6 +1313,7 @@ pub fn groups_io_load_older_topics(
     group_id: String,
     page_token: Option<String>,
 ) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -1247,6 +1358,7 @@ pub fn groups_io_load_more_messages(
     topic_id: String,
     page_token: Option<String>,
 ) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -1313,6 +1425,7 @@ pub fn groups_io_search(
             next_page_token: None,
         });
     }
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -1372,15 +1485,35 @@ pub fn groups_io_save_draft(mut draft: Draft) -> Result<Status, String> {
     if draft.state.is_empty() {
         draft.state = "draft_local".into();
     }
-    let mut store = read_store()?;
-    upsert(&mut store.drafts, draft, |a, b| a.id == b.id);
-    write_store(&store)?;
+    let (store, ()) = mutate_store(|store| {
+        if store
+            .drafts
+            .iter()
+            .any(|saved| saved.id == draft.id && requires_delivery_reconciliation(saved))
+        {
+            return Err(
+                "Reconcile the uncertain Groups.io delivery before editing this draft".into(),
+            );
+        }
+        upsert(&mut store.drafts, draft, |a, b| a.id == b.id);
+        Ok(())
+    })?;
     Ok(status_for(store))
 }
 
 #[tauri::command(async)]
 pub fn groups_io_delete_draft(id: String) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let mut store = read_store()?;
+    if store
+        .drafts
+        .iter()
+        .any(|draft| draft.id == id && requires_delivery_reconciliation(draft))
+    {
+        return Err(
+            "Reconcile the uncertain Groups.io delivery before deleting its receipt".into(),
+        );
+    }
     store.drafts.retain(|d| d.id != id);
     let removed: Vec<String> = store
         .attachments
@@ -1400,12 +1533,16 @@ pub fn groups_io_delete_draft(id: String) -> Result<Status, String> {
 
 #[tauri::command(async)]
 pub fn groups_io_queue_draft(id: String) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let mut store = read_store()?;
     let draft = store
         .drafts
         .iter_mut()
         .find(|draft| draft.id == id)
         .ok_or_else(|| "Groups.io draft was not found".to_string())?;
+    if requires_delivery_reconciliation(draft) {
+        return Err("Reconcile the uncertain Groups.io delivery before queueing a retry".into());
+    }
     if draft.subject.trim().is_empty() || draft.body.trim().is_empty() {
         return Err("A Groups.io subject and message are required".into());
     }
@@ -1433,6 +1570,7 @@ pub fn groups_io_add_attachment(
     media_type: String,
     bytes: Vec<u8>,
 ) -> Result<Vec<Attachment>, String> {
+    let _transaction = store_transaction();
     let mut store = read_store()?;
     if !store.drafts.iter().any(|draft| draft.id == draft_id) {
         return Err("Save the Groups.io draft before adding attachments".into());
@@ -1496,6 +1634,7 @@ pub fn groups_io_remove_attachment(
     draft_id: String,
     attachment_id: String,
 ) -> Result<Vec<Attachment>, String> {
+    let _transaction = store_transaction();
     let mut store = read_store()?;
     let attachment = store
         .attachments
@@ -1739,6 +1878,7 @@ pub fn groups_io_download_incoming_attachment(
     attachment_id: String,
     preview: bool,
 ) -> Result<FilePayload, String> {
+    let _transaction = store_transaction();
     let mut store = read_store()?;
     if let Some(saved) = store
         .incoming_attachments
@@ -1877,6 +2017,7 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
     if !confirmed {
         return Err("Confirm the foreground send before posting to Groups.io".into());
     }
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -1889,6 +2030,11 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
         .position(|d| d.id == id)
         .ok_or_else(|| "Groups.io draft was not found".to_string())?;
     let mut draft = store.drafts[index].clone();
+    if requires_delivery_reconciliation(&draft) {
+        return Err(
+            "Groups.io delivery must be reconciled before this draft can be sent again".into(),
+        );
+    }
     if draft.subject.trim().is_empty() || draft.body.trim().is_empty() {
         return Err("A Groups.io subject and message are required".into());
     }
@@ -2038,21 +2184,10 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
         }
         write_store(&store)?;
     }
-    draft.state = "posting".into();
-    store.drafts[index] = draft.clone();
+    draft = begin_final_post(&mut store, index, draft, &remote_id);
     write_store(&store)?;
     match post_final(&client, &key, remote_id) {
-        Ok(value) => {
-            draft.state = if text(&value, &["extra"]).to_lowercase().contains("pending") {
-                "pending_moderation".into()
-            } else {
-                "posted".into()
-            };
-            draft.note = "Submitted explicitly from RD-Nexus.".into();
-            draft.updated_unix = now();
-            store.drafts.remove(index);
-            store.outbox.push(draft);
-        }
+        Ok(value) => complete_final_post(&mut store, index, draft, &value),
         Err(failure) => {
             let error = record_final_post_failure(&mut store, index, draft, failure);
             write_store(&store)?;
@@ -2064,7 +2199,46 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
 }
 
 #[tauri::command(async)]
+pub fn groups_io_reconcile_draft(id: String, resolution: String) -> Result<Status, String> {
+    let _transaction = store_transaction();
+    let mut store = read_store()?;
+    let index = store
+        .drafts
+        .iter()
+        .position(|draft| draft.id == id)
+        .ok_or_else(|| "Groups.io draft was not found".to_string())?;
+    if !matches!(
+        store.drafts[index].state.as_str(),
+        "posting" | "delivery_unknown"
+    ) {
+        return Err("Only an uncertain Groups.io delivery can be reconciled".into());
+    }
+    match resolution.as_str() {
+        "delivered" => {
+            let mut draft = store.drafts.remove(index);
+            draft.state = "reconciled_posted".into();
+            draft.note = "Operator reconciled this final-post attempt as delivered.".into();
+            draft.updated_unix = now();
+            store.outbox.push(draft);
+        }
+        "not_delivered" => {
+            let draft = &mut store.drafts[index];
+            draft.state = "failed_retryable".into();
+            draft.note =
+                "Operator reconciled this attempt as not delivered; explicit retry is now allowed."
+                    .into();
+            draft.final_post_attempt_id = None;
+            draft.updated_unix = now();
+        }
+        _ => return Err("Choose delivered or not_delivered for Groups.io reconciliation".into()),
+    }
+    write_store(&store)?;
+    Ok(status_for(store))
+}
+
+#[tauri::command(async)]
 pub fn groups_io_archive(group_id: String, range_days: Option<u32>) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let _network = NETWORK_LOCK
         .try_lock()
         .map_err(|_| "another Groups.io operation is already running".to_string())?;
@@ -2152,7 +2326,10 @@ pub fn groups_io_archive(group_id: String, range_days: Option<u32>) -> Result<St
 
 #[tauri::command(async)]
 pub fn groups_io_pause_archive() -> Result<Status, String> {
+    // Signal the running archive before waiting for its transaction; otherwise pause would wait
+    // behind the archive and could never cause its loop to stop.
     ARCHIVE_CANCEL.store(true, Ordering::Release);
+    let _transaction = store_transaction();
     let mut store = read_store()?;
     store.archive.state = "paused".into();
     store.archive.message = "Archive paused; completed pages were preserved.".into();
@@ -2162,6 +2339,7 @@ pub fn groups_io_pause_archive() -> Result<Status, String> {
 
 #[tauri::command(async)]
 pub fn groups_io_clear_cache(delete_all: bool) -> Result<Status, String> {
+    let _transaction = store_transaction();
     let mut store = read_store()?;
     for attachment in &store.incoming_attachments {
         let _ = fs::remove_file(incoming_attachment_path(
@@ -2193,6 +2371,8 @@ pub fn groups_io_clear_cache(delete_all: bool) -> Result<Status, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_file(name: &str) -> PathBuf {
@@ -2357,5 +2537,138 @@ mod tests {
         assert!(error.contains("delivery is unknown"));
         assert_eq!(ambiguous.drafts[0].state, "delivery_unknown");
         assert!(ambiguous.drafts[0].note.contains("reconciled before retry"));
+    }
+
+    #[test]
+    fn concurrent_store_mutations_do_not_lose_independent_updates() {
+        let path = Arc::new(temp_file("concurrent"));
+        write_store_to(&path, &Store::default()).unwrap();
+        let barrier = Arc::new(Barrier::new(3));
+        let handles: Vec<_> = (0..3)
+            .map(|worker| {
+                let path = Arc::clone(&path);
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    barrier.wait();
+                    mutate_store_at(&path, |store| {
+                        match worker {
+                            0 => store.drafts.push(Draft {
+                                id: "draft-a".into(),
+                                ..Draft::default()
+                            }),
+                            1 => store.attachments.push(Attachment {
+                                id: "attachment-b".into(),
+                                draft_id: "draft-a".into(),
+                                ..Attachment::default()
+                            }),
+                            _ => store.settings.default_lookback_days = 77,
+                        }
+                        Ok(())
+                    })
+                    .unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let stored = read_store_from(&path).unwrap();
+        assert_eq!(stored.drafts.len(), 1);
+        assert_eq!(stored.attachments.len(), 1);
+        assert_eq!(stored.settings.default_lookback_days, 77);
+        let _ = fs::remove_file(path.as_ref());
+    }
+
+    #[test]
+    fn repeated_atomic_replacement_never_exposes_torn_json() {
+        let path = temp_file("replace");
+        write_store_to(&path, &Store::default()).unwrap();
+        for index in 0..64 {
+            mutate_store_at(&path, |store| {
+                store.drafts.push(Draft {
+                    id: format!("draft-{index}"),
+                    body: "x".repeat(index * 17),
+                    ..Draft::default()
+                });
+                Ok(())
+            })
+            .unwrap();
+            let bytes = fs::read(&path).unwrap();
+            let decoded: Store = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(decoded.drafts.len(), index + 1);
+            assert!(!path.with_extension("json.tmp").exists());
+        }
+        let _ = fs::remove_file(path);
+    }
+
+    fn posting_store() -> Store {
+        let mut store = Store::default();
+        let draft = Draft {
+            id: "crash-draft".into(),
+            remote_draft_id: Some("remote-42".into()),
+            subject: "Crash boundary".into(),
+            body: "Body".into(),
+            ..Draft::default()
+        };
+        store.drafts.push(draft.clone());
+        begin_final_post(&mut store, 0, draft, "remote-42");
+        store
+    }
+
+    #[test]
+    fn restart_after_final_post_intent_requires_reconciliation() {
+        let path = temp_file("intent-crash");
+        write_store_to(&path, &posting_store()).unwrap();
+        let recovered = load_recovered_store_from(&path).unwrap();
+        assert_eq!(recovered.drafts[0].state, "delivery_unknown");
+        assert!(requires_delivery_reconciliation(&recovered.drafts[0]));
+        assert!(recovered.drafts[0].final_post_attempt_id.is_some());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn status_read_does_not_recover_an_active_final_post() {
+        let path = temp_file("active-final-post");
+        write_store_to(&path, &posting_store()).unwrap();
+        let transaction = store_transaction();
+        let active = read_store_with_recovery_at(&path).unwrap();
+        assert_eq!(active.drafts[0].state, "posting");
+        drop(transaction);
+        let restarted = read_store_with_recovery_at(&path).unwrap();
+        assert_eq!(restarted.drafts[0].state, "delivery_unknown");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn provider_success_before_receipt_commit_still_requires_reconciliation() {
+        let path = temp_file("accepted-crash");
+        let persisted = posting_store();
+        write_store_to(&path, &persisted).unwrap();
+        let mut memory = persisted.clone();
+        complete_final_post(&mut memory, 0, persisted.drafts[0].clone(), &json!({}));
+        assert!(memory.drafts.is_empty());
+        assert_eq!(memory.outbox[0].state, "posted");
+        let recovered = load_recovered_store_from(&path).unwrap();
+        assert_eq!(recovered.drafts[0].state, "delivery_unknown");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn receipt_persistence_failure_leaves_durable_attempt_reconcilable() {
+        let path = temp_file("receipt-failure");
+        let persisted = posting_store();
+        write_store_to(&path, &persisted).unwrap();
+        let mut memory = persisted.clone();
+        complete_final_post(&mut memory, 0, persisted.drafts[0].clone(), &json!({}));
+
+        let blocker = temp_file("blocked-parent");
+        fs::write(&blocker, b"not a directory").unwrap();
+        assert!(write_store_to(&blocker.join("store.json"), &memory).is_err());
+
+        let recovered = load_recovered_store_from(&path).unwrap();
+        assert_eq!(recovered.drafts[0].state, "delivery_unknown");
+        assert!(requires_delivery_reconciliation(&recovered.drafts[0]));
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(blocker);
     }
 }
