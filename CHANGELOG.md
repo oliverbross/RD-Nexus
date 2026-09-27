@@ -143,6 +143,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   period. Clicking works exactly as before: left-click sets RX, right-click or Shift-click sets TX
   for a split, and Ctrl-click sets both. A click inside a marker tunes to the spot you clicked. WSPR,
   MSK144, FT2 and the Tempo modes keep the single line.
+- **Changing a setting no longer holds up the radio.** A band pick, the Pwr slider, a TX offset,
+  a switch in Settings: every change used to make the loop that runs the radio wait while the
+  settings file was written to disk, a few milliseconds on a fast drive and longer on a slow one
+  or while an antivirus scanned the file. The file is now written in the background, always with
+  the newest change, and Nexus writes the last one before it quits, restarts, reopens for
+  another radio or installs an update. What each setting does, and when it takes effect, is
+  unchanged.
 
 ### Fixed
 
@@ -150,6 +157,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   overs, so during a Phone over, CW, RTTY, PSK or SSTV, a tune carrier, or with the mic keyed at
   the radio itself, it read a green RX while the cockpit's ON AIR sign was red. It now shows TX
   whenever the ON AIR sign does. Nothing about when or how the radio keys has changed.
+- **"Transmitting" and the TX / RX earcon follow every transmission.** With a screen reader
+  running, Nexus says "Transmitting" and "Receiving" as the radio keys and unkeys, and the
+  optional TX / RX earcon (Settings ▸ Appearance ▸ Accessibility & eyes-free) plays a rising tone
+  and a falling one. Both followed only FT8/FT4-style timed overs, so a Phone over, CW, RTTY, PSK,
+  SSTV, a tune carrier or the mic keyed at the radio itself went by in silence. They now follow
+  the ON AIR sign. Speech and sound only: nothing about keying has changed.
+- **The amplifier strip locks during every transmission.** The Standby/Operate and band ◀ ▶
+  buttons in the cockpit header are refused while you transmit, because changing band on a keyed
+  amplifier can damage it. With an amplifier that reports no transmit state of its own (the
+  Elecraft KPA), or one whose own flag still read idle, they stayed live during a Phone over, CW,
+  RTTY, PSK, SSTV, a tune carrier or Nexus's own PTT. They now lock whenever the ON AIR sign is
+  lit. The strip only refuses more: nothing about keying has changed. NEEDS-BENCH with an
+  amplifier connected: key a voice over and check that the strip's buttons go grey until it ends.
+- **Operate's QSO strip shows ▲ TRANSMITTING for every transmission.** The strip's red wash and
+  its "▲ TRANSMITTING" followed only the FT over itself, so Operate's own Tune, the mic keyed at the
+  radio, or an over started from another screen showed "▼ Receiving" in green while the rig was
+  keyed. It now follows the ON AIR sign. Display only: nothing about keying has changed.
+- **A Remote Stop says "Stopped" only when nothing is transmitting.** After Stop TX in a Remote
+  browser, the note beside it says "Stop sent" until the station reports its transmitter free, and
+  "Stopped" after that. A voice, CW or RTTY over still running at the station could already read
+  "Stopped", because only the FT and mic-key flags were checked. It now waits for the same reading
+  as the ON AIR sign. The Stop itself works exactly as before.
 - **Band Activity and Rx Frequency scroll instead of cutting off on a short window.** When a decode
   pane's header, with its filter chips, is taller than the pane (a small window with large text,
   or a big UI scale), the pane now scrolls and its decode list keeps at least one row. Before,
@@ -166,6 +195,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Stations filters in the Classic layout wrap instead of cutting off the last one.** On a
   narrow window the Needed filter was cut off at the panel's edge; the filters now take a second
   line when they need one.
+- **A WSPR beacon is spotted on the frequency you set.** Nexus started WSPR's four tones at your
+  TX offset, so stations decoding it with WSJT-X or wsprd spotted it 2.2 Hz higher, and that is
+  what reached WSPRnet: set to 1500 Hz on a 10.1387 MHz dial, it was spotted at 10.140202
+  instead of 10.140200. The tones are now centred on the offset, the way WSJT-X sends WSPR. The
+  message, the timing and the schedule are unchanged.
 
 ### Corrections to 1.15.0
 
