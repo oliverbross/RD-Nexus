@@ -23694,22 +23694,37 @@ fn cloudlog_push_qso_impl(
 #[tauri::command(async)]
 async fn wavelog_v2_sync(state: State<'_, SharedEngine>) -> Result<wavelog_v2::SyncReport, String> {
     let engine = state.inner().clone();
-    let (url, station_id) = {
+    let (url, station_id, full_interval_seconds) = {
         let eng = engine_lock(&engine);
         (
             eng.settings().cloudlog_url.trim().to_string(),
             eng.settings().cloudlog_station_id.trim().to_string(),
+            u64::from(eng.settings().wavelog_full_sync_hours.clamp(1, 168)) * 60 * 60,
         )
     };
     let token = cloudlog_keychain()?
         .get_password()
         .map_err(|_| "No Wavelog API v2 token stored — set it in Settings.".to_string())?;
     let sync_state = shared_data_dir().join("wavelog-v2-sync.json");
-    let report = tauri::async_runtime::spawn_blocking(move || {
-        wavelog_v2::sync(&engine, &url, &token, &station_id, &sync_state)
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        wavelog_v2::sync(
+            &engine,
+            &url,
+            &token,
+            &station_id,
+            &sync_state,
+            full_interval_seconds,
+        )
     })
     .await
-    .map_err(|e| format!("Wavelog sync task failed: {e}"))??;
+    .map_err(|e| format!("Wavelog sync task failed: {e}"))?;
+    let report = match result {
+        Ok(report) => report,
+        Err(error) => {
+            wavelog_v2::record_error(Some(error.clone()));
+            return Err(error);
+        }
+    };
     conn_log(
         "Wavelog v2",
         "ok",
@@ -23720,6 +23735,30 @@ async fn wavelog_v2_sync(state: State<'_, SharedEngine>) -> Result<wavelog_v2::S
         ),
     );
     Ok(report)
+}
+
+#[tauri::command]
+fn wavelog_v2_cancel_sync() {
+    wavelog_v2::cancel_sync();
+}
+
+#[tauri::command(async)]
+async fn wavelog_v2_confirm_unknown_not_delivered(
+    state: State<'_, SharedEngine>,
+) -> Result<usize, String> {
+    let (url, station_id) = {
+        let eng = engine_lock(&state);
+        (
+            eng.settings().cloudlog_url.trim().to_string(),
+            eng.settings().cloudlog_station_id.trim().to_string(),
+        )
+    };
+    let sync_state = shared_data_dir().join("wavelog-v2-sync.json");
+    tauri::async_runtime::spawn_blocking(move || {
+        wavelog_v2::confirm_unknown_creates_not_delivered(&url, &station_id, &sync_state)
+    })
+    .await
+    .map_err(|error| format!("Wavelog recovery task failed: {error}"))?
 }
 
 #[tauri::command]
@@ -28070,7 +28109,7 @@ fn start_on_the_logbook(
         let sync_engine = engine.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_secs(300));
-            let (enabled, url, station_id) = {
+            let (enabled, url, station_id, full_interval_seconds) = {
                 let eng = engine_lock_result(&sync_engine).unwrap_or_else(|e| e.into_inner());
                 let s = eng.settings();
                 (
@@ -28091,7 +28130,34 @@ fn start_on_the_logbook(
                 _ => continue,
             };
             let sync_state = shared_data_dir().join("wavelog-v2-sync.json");
-            match wavelog_v2::sync(&sync_engine, &url, &token, &station_id, &sync_state) {
+            let now = now_unix().max(0) as u64;
+            let full_due = wavelog_v2::status(&sync_engine, &url, &station_id, &sync_state)
+                .map(|status| {
+                    status.last_full_sync_unix == 0
+                        || now.saturating_sub(status.last_full_sync_unix) >= full_interval_seconds
+                })
+                .unwrap_or(true);
+            let result = if full_due {
+                wavelog_v2::sync(
+                    &sync_engine,
+                    &url,
+                    &token,
+                    &station_id,
+                    &sync_state,
+                    full_interval_seconds,
+                )
+            } else {
+                wavelog_v2::sync_incremental(
+                    &sync_engine,
+                    &url,
+                    &token,
+                    &station_id,
+                    &sync_state,
+                    full_interval_seconds,
+                )
+            };
+            match result {
+                    u64::from(s.wavelog_full_sync_hours.clamp(1, 168)) * 60 * 60,
                 Ok(r)
                     if r.downloaded
                         + r.uploaded
@@ -28105,14 +28171,18 @@ fn start_on_the_logbook(
                         "Wavelog v2",
                         "ok",
                         format!(
-                            "automatic two-way sync: {} down, {} up, {} local edit(s), {} remote edit(s), {} local delete(s), {} remote delete(s)",
+                            "automatic {} sync: {} down, {} up, {} local edit(s), {} remote edit(s), {} local delete(s), {} remote delete(s)",
+                            if full_due { "full two-way" } else { "incremental" },
                             r.downloaded, r.uploaded, r.local_updates, r.remote_updates,
                             r.local_deletes, r.remote_deletes
                         ),
                     );
                 }
                 Ok(_) => {}
-                Err(e) => conn_log("Wavelog v2", "error", format!("automatic sync — {e}")),
+                Err(e) => {
+                    wavelog_v2::record_error(Some(e.clone()));
+                    conn_log("Wavelog v2", "error", format!("automatic sync — {e}"));
+                }
             }
         });
     }
@@ -29489,6 +29559,8 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             send_cw,
             set_cw_peer_info,
             set_cw_wpm,
+            wavelog_v2_cancel_sync,
+            wavelog_v2_confirm_unknown_not_delivered,
             set_decode_depth,
             stop_cw,
             set_cw_keyer,

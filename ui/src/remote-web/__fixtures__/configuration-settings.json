@@ -69,6 +69,7 @@
     "clearDxAfterLog": false,
     "clockCheck": true,
     "cloudlogUpload": false,
+    "wavelogFullSyncHours": 24,
     "clublogUpload": false,
     "clusterEnabled": true,
     "clusterHost": "ve7cc.net:23",

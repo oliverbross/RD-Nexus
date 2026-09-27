@@ -123,11 +123,12 @@ afterEach(cleanup)
 
 /** The log the engine holds: `askLog` answers from it as the engine does (features/logAnswers.testkit). */
 const engineLog = vi.hoisted(() => vi.fn())
+const wavelogStatus = vi.hoisted(() => vi.fn(async () => ({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: false, lastError: null, deliveryUnknownCreates: 0 })))
 vi.mock('./api', () => {
   const noop = () => vi.fn()
   return {
     askLog: vi.fn(async (q: LogQuestion) => (await import('./features/logAnswers.testkit')).answerAs(q, await engineLog())),
-    getWavelogV2Status: vi.fn(async () => ({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, intervalSeconds: 300 })),
+    getWavelogV2Status: wavelogStatus,
     deleteQsoById: noop(), editQsoById: noop(), exportGeneralLog: noop(), importAdif: noop(),
     logOperators: vi.fn(() => Promise.resolve([] as string[])), exportLogForOperator: noop(),
     logActivations: vi.fn(() => Promise.resolve([])), exportLogForActivation: noop(),
@@ -210,4 +211,12 @@ describe('the Logbook row-action menu stays compact and complete', () => {
     expect(danger).not.toBeNull()
     expect(danger?.getAttribute('aria-label')).toContain('K0ABC')
   })
+})
+
+it('shows delivery_unknown creates ahead of an otherwise-current Wavelog status', async () => {
+  wavelogStatus.mockResolvedValueOnce({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: false, lastError: null, deliveryUnknownCreates: 2 })
+  engineLog.mockResolvedValue([])
+  render(<Logbook defaultBand="20m" defaultFreqMhz={14.074} defaultMode="FT8" />)
+  await waitFor(() => expect(document.body.textContent).toContain(t('logbook.sync.deliveryUnknown', { count: 2 })))
+  expect(document.body.textContent).not.toContain(t('logbook.sync.current'))
 })

@@ -404,10 +404,9 @@ export function Logbook({
   const [moreColumns, setMoreColumns] = useState(loadMoreColumns)
   const [wavelogStatus, setWavelogStatus] = useState<WavelogV2SyncStatus | null>(null)
   useEffect(() => {
-    // Remote browsers and the component test harness have no Tauri IPC surface. Keeping this
-    // local-only status call behind that capability also avoids presenting station-wide counts
-    // to an observing browser that may hold only a paged window of the log.
-    if (!control || import.meta.env.MODE === 'test') return
+    // Keep this behind local station control so an observing browser never gets station-wide
+    // counts for a paged log. Desktop tests mock the IPC call, which also exercises priority.
+    if (!control) return
     let alive = true
     const load = () => {
       void getWavelogV2Status()
@@ -2389,12 +2388,23 @@ export function Logbook({
           <span><strong>{wavelogStatus.localTotal.toLocaleString()}</strong> {t('logbook.sync.local')}</span>
           <span><strong>{wavelogStatus.remoteTotal.toLocaleString()}</strong> {t('logbook.sync.remote')}</span>
           <span><strong>{wavelogStatus.syncedLocal.toLocaleString()}</strong> {t('logbook.sync.linked')}</span>
-          <span className={wavelogStatus.localOnly + wavelogStatus.remoteOnly === 0 ? 'ok' : 'pending'}>
-            {wavelogStatus.localOnly + wavelogStatus.remoteOnly === 0
-              ? t('logbook.sync.current')
-              : t('logbook.sync.pending', { count: wavelogStatus.localOnly + wavelogStatus.remoteOnly })}
+          <span className={wavelogStatus.deliveryUnknownCreates > 0 || wavelogStatus.lastError ? 'error' : wavelogStatus.syncing ? 'pending' : wavelogStatus.localOnly + wavelogStatus.remoteOnly === 0 ? 'ok' : 'pending'}>
+            {wavelogStatus.deliveryUnknownCreates > 0
+              ? t('logbook.sync.deliveryUnknown', { count: wavelogStatus.deliveryUnknownCreates })
+              : wavelogStatus.lastError
+              ? t('logbook.sync.attention')
+              : wavelogStatus.syncing
+                ? t('logbook.sync.running')
+                : wavelogStatus.localOnly + wavelogStatus.remoteOnly === 0
+                  ? t('logbook.sync.current')
+                  : t('logbook.sync.pending', { count: wavelogStatus.localOnly + wavelogStatus.remoteOnly })}
           </span>
-          <span className="wavelog-sync-cadence">{t('logbook.sync.cadence', { minutes: Math.round(wavelogStatus.intervalSeconds / 60) })}</span>
+          <span className="wavelog-sync-cadence" title={wavelogStatus.lastError ?? undefined}>
+            {t('logbook.sync.cadence', {
+              minutes: Math.round(wavelogStatus.incrementalIntervalSeconds / 60),
+              hours: Math.round(wavelogStatus.fullSyncIntervalSeconds / 3600),
+            })}
+          </span>
         </div>
       )}
       <div className="log-searchbar">

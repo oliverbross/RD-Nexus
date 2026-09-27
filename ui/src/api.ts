@@ -2055,12 +2055,26 @@ export interface WavelogV2SyncStatus {
   localOnly: number
   remoteOnly: number
   lastSyncUnix: number
-  intervalSeconds: number
+  lastIncrementalSyncUnix: number
+  lastFullSyncUnix: number
+  incrementalIntervalSeconds: number
+  fullSyncIntervalSeconds: number
+  syncing: boolean
+  lastError: string | null
+  deliveryUnknownCreates: number
 }
 
 /** Reconcile additions, edits and binding-safe deletions in both directions through API v2. */
 export async function syncWavelogV2(): Promise<WavelogV2SyncReport> {
   return invoke<WavelogV2SyncReport>('wavelog_v2_sync')
+}
+
+export async function cancelWavelogV2(): Promise<void> {
+  return invoke<void>('wavelog_v2_cancel_sync')
+}
+
+export async function confirmWavelogUnknownNotDelivered(): Promise<number> {
+  return invoke<number>('wavelog_v2_confirm_unknown_not_delivered')
 }
 
 /** Last durable reconciliation totals; this is local-only and performs no network request. */

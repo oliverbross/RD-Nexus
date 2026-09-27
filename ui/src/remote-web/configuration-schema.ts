@@ -264,6 +264,7 @@ export const SETTINGS_KEYS = [
   'wrlUpload',
   'n3fjpUpload',
   'cloudlogUpload',
+  'wavelogFullSyncHours',
   'openingRegional',
   'macros',
   'contestCategoryAssisted',
@@ -329,6 +330,8 @@ export const NEWER_SETTINGS = {
   // for a key such a station cannot store.
   alertContinents: [],
   alertEntities: [],
+  // Wavelog v2 full audits default to the native 24-hour cadence on older stations.
+  wavelogFullSyncHours: 24,
 } as const
 /** The per-radio withheld list, mirroring Rust RADIO_WITHHELD_KEYS. Empty today by design: it
  *  exists so the first per-radio credential has somewhere to go that is not the wire, and so the
@@ -636,6 +639,7 @@ export const SETTINGS_SHAPES = {
   "wrlUpload": "boolean",
   "n3fjpUpload": "boolean",
   "cloudlogUpload": "boolean",
+  "wavelogFullSyncHours": "number",
   "openingRegional": "boolean",
   "macros": "object",
   "contestCategoryAssisted": "string",

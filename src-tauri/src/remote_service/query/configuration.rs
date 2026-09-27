@@ -109,6 +109,7 @@ pub(super) const SETTINGS_KEYS: &[&str] = &[
     "clearDxAfterLog",
     "clockCheck",
     "cloudlogUpload",
+    "wavelogFullSyncHours",
     "clublogUpload",
     "clusterEnabled",
     "clusterHost",
@@ -731,6 +732,7 @@ pub(super) const WRITE_DENIED_KEYS: &[&str] = &[
     "wrlUpload",
     "n3fjpUpload",
     "cloudlogUpload",
+    "wavelogFullSyncHours",
     "dxkeeperUploads",
     "n1mmUpload",
     // Field Day: its own programme. It changes how the station logs and hosts a network scoreboard.
@@ -1046,6 +1048,7 @@ impl Serialize for SettingsView<'_> {
         out.serialize_field("wrlUpload", &self.0.wrl_upload)?;
         out.serialize_field("n3fjpUpload", &self.0.n3fjp_upload)?;
         out.serialize_field("cloudlogUpload", &self.0.cloudlog_upload)?;
+        out.serialize_field("wavelogFullSyncHours", &self.0.wavelog_full_sync_hours)?;
         out.serialize_field("openingRegional", &self.0.opening_regional)?;
         out.serialize_field("macros", &self.0.macros)?;
         out.end()

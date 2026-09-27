@@ -1204,7 +1204,10 @@ export const EN = {
   'logbook.sync.linked': 'linked',
   'logbook.sync.current': 'in sync',
   'logbook.sync.pending': '{{count}} pending',
-  'logbook.sync.cadence': 'automatic every {{minutes}} min',
+  'logbook.sync.running': 'synchronising…',
+  'logbook.sync.attention': 'needs attention',
+  'logbook.sync.deliveryUnknown': '{{count}} create delivery outcome(s) unknown',
+  'logbook.sync.cadence': 'remote creates + all local changes every {{minutes}} min · remote edits/deletes every {{hours}} h',
   'logbook.filter.needsConfirmation.label': 'needs confirmation',
   'logbook.filter.needsConfirmation.title':
     "Show only contacts without an award-eligible (LoTW/paper) confirmation. Rows you've already sent a QSL request for stay here — a request is not a confirmation.",
@@ -6923,13 +6926,30 @@ export const EN = {
     'Wavelog ▸ Account ▸ API Keys — use a v2 read/write token beginning wl2_. Stored in the OS keychain, never on disk.',
   'settings.confirmations.cloudlog.upload.label': 'Automatic Wavelog sync',
   'settings.confirmations.cloudlog.upload.hint':
-    'API v2 keeps both logbooks aligned every five minutes and forwards new QSOs immediately. Bound deletions are mirrored in either direction.',
+    'Every five minutes, API v2 imports new remote QSOs and sends all local additions, edits and bound deletions. Remote edits and deletes wait for the configured full audit.',
   'settings.confirmations.cloudlog.sync.action': 'Sync both logbooks now',
   'settings.confirmations.cloudlog.sync.busy': 'Synchronising…',
+  'settings.confirmations.cloudlog.sync.cancel': 'Cancel sync',
+  'settings.confirmations.cloudlog.sync.cancelRequested':
+    'Cancellation requested — waiting for the current HTTP request (bounded to 30 seconds).',
+  'settings.confirmations.cloudlog.deliveryUnknown.action': 'Resolve uncertain upload…',
+  'settings.confirmations.cloudlog.deliveryUnknown.title':
+    'Use only after checking Wavelog for the missing QSO',
+  'settings.confirmations.cloudlog.deliveryUnknown.confirm':
+    'Only continue after you have checked Wavelog and confirmed the uncertain QSO uploads were not delivered. RD-Nexus will then permit one retry. Continue?',
+  'settings.confirmations.cloudlog.deliveryUnknown.failed': 'Could not unlock the uncertain upload',
+  'settings.confirmations.cloudlog.deliveryUnknown.none': 'No uncertain Wavelog uploads are waiting',
+  'settings.confirmations.cloudlog.deliveryUnknown.cleared':
+    'Unlocked {{count}} operator-confirmed upload(s); retrying now',
+  'settings.confirmations.cloudlog.deliveryUnknown.status':
+    '{{count}} create delivery outcome(s) are unknown. Verify each QSO in Wavelog before using operator recovery.',
   'settings.confirmations.cloudlog.sync.hint':
-    'Reconciles additions, edits and binding-safe deletions in both directions. A bulk-deletion guard stops an implausible disappearance before either log changes.',
+    'The five-minute pass imports remote creates and sends every local change. Remote edits/deletes are applied only by a full audit; a bulk-deletion guard runs before changes.',
   'settings.confirmations.cloudlog.sync.summary':
     'Wavelog sync complete: {{downloaded}} down, {{uploaded}} up, {{localUpdates}} local edits, {{remoteUpdates}} remote edits, {{localDeletes}} local deletes, {{remoteDeletes}} remote deletes.',
+  'settings.confirmations.cloudlog.fullAudit.label': 'Full remote audit interval (hours)',
+  'settings.confirmations.cloudlog.fullAudit.hint':
+    'Wavelog API v2 has only a new-row cursor. Remote edits and deletes are therefore detected only by this complete audit; new remote QSOs and all local changes run every five minutes.',
   'settings.connections.cloudlog.sync.failed': 'Wavelog API v2 sync failed',
 
   // ── Settings ▸ Appearance ▸ Workspace ───────────────────────────────────────────────

@@ -161,7 +161,7 @@ import { elementBandParts } from '../features/elementBands'
 import { discoverFlex } from '../api'
 import { civDiagnosticLog, civDiagnosticStatus } from '../api'
 import { allTxtLocation, diagLogLocation, recordingsLocation, revealAllTxt, revealDiagLog, revealRecordings } from '../api'
-import { getCloudlogStations, syncWavelogV2, type CloudlogStation } from '../api'
+import { cancelWavelogV2, confirmWavelogUnknownNotDelivered, getCloudlogStations, getWavelogV2Status, syncWavelogV2, type CloudlogStation, type WavelogV2SyncStatus } from '../api'
 import { findDaxDevices, isDaxPaired } from '../features/dax'
 import { sayExportLacks } from '../features/exportLacks'
 import type { AssistanceEvent, ConnEvent, CredStatus, FieldDayStatus } from '../types'
@@ -342,7 +342,7 @@ const CTCSS_TONES = [
   167.9, 173.8, 179.9, 186.2, 192.8, 203.5, 210.7, 218.1, 225.7, 233.6, 241.8, 250.3,
 ]
 
-const NUMERIC_KEYS: FieldKey[] = ['dialMhz', 'baud', 'ratedWatts', 'rigctldPort', 'rigModel', 'txWatchdogMin', 'catBrokerPort', 'tuneTimeoutSecs', 'aprsIsPort', 'aprsIsRadiusKm', 'aprsStationTtlMin', 'contestCqZone', 'contestItuZone']
+const NUMERIC_KEYS: FieldKey[] = ['dialMhz', 'baud', 'ratedWatts', 'rigctldPort', 'rigModel', 'txWatchdogMin', 'catBrokerPort', 'tuneTimeoutSecs', 'aprsIsPort', 'aprsIsRadiusKm', 'aprsStationTtlMin', 'contestCqZone', 'contestItuZone', 'wavelogFullSyncHours']
 
 /** Clamp a typed zone to `0..=max`, as the STRING `update` takes (0 = not set).
  *
@@ -1499,7 +1499,30 @@ export function SettingsPanel({
   const [cloudlogStationsBusy, setCloudlogStationsBusy] = useState(false)
   const [cloudlogStationsError, setCloudlogStationsError] = useState<string | null>(null)
   const [wavelogSyncing, setWavelogSyncing] = useState(false)
+  const [wavelogStatus, setWavelogStatus] = useState<WavelogV2SyncStatus | null>(null)
+  const [wavelogCancelRequested, setWavelogCancelRequested] = useState(false)
   const [wavelogSyncSummary, setWavelogSyncSummary] = useState<string | null>(null)
+  useEffect(() => {
+    if (remote) return
+    let live = true
+    const read = () => {
+      void getWavelogV2Status()
+        .then((status) => {
+          if (!live) return
+          setWavelogStatus(status)
+          if (!status.syncing) setWavelogCancelRequested(false)
+        })
+        .catch(() => {})
+    }
+    read()
+    // The compact native status sidecar makes this polling independent of the 67k-QSO ledger.
+    // Two seconds makes a scheduler-started full audit expose Cancel without a stale panel.
+    const timer = window.setInterval(read, 2_000)
+    return () => {
+      live = false
+      window.clearInterval(timer)
+    }
+  }, [remote])
   const findCloudlogStations = async () => {
     setCloudlogStationsBusy(true)
     setCloudlogStationsError(null)
@@ -3082,6 +3105,32 @@ export function SettingsPanel({
       pushToast(summary, 'success')
     }
     setWavelogSyncing(false)
+    void getWavelogV2Status().then(setWavelogStatus).catch(() => {})
+  }
+
+  const onCancelWavelogV2 = async () => {
+    setWavelogCancelRequested(true)
+    try {
+      await cancelWavelogV2()
+    } catch {
+      setWavelogCancelRequested(false)
+    }
+  }
+
+  const onRetryUnknownWavelogCreates = async () => {
+    if (!window.confirm(t('settings.confirmations.cloudlog.deliveryUnknown.confirm'))) return
+    const cleared = await withErrorToast(
+      () => confirmWavelogUnknownNotDelivered(),
+      t('settings.confirmations.cloudlog.deliveryUnknown.failed'),
+    )
+    if (cleared === null) return
+    void getWavelogV2Status().then(setWavelogStatus).catch(() => {})
+    if (cleared === 0) {
+      pushToast(t('settings.confirmations.cloudlog.deliveryUnknown.none'), 'success')
+      return
+    }
+    pushToast(t('settings.confirmations.cloudlog.deliveryUnknown.cleared', { count: cleared }), 'success')
+    await onSyncWavelogV2()
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -11300,23 +11349,77 @@ export function SettingsPanel({
                   </span>
                   <div className="settings-input-row">
                     <button
-                      disabled={remote || wavelogSyncing}
+                      disabled={remote || wavelogSyncing || Boolean(wavelogStatus?.syncing)}
                       type="button"
                       className="settings-refresh"
                       onClick={() => void onSyncWavelogV2()}
                     >
-                      {wavelogSyncing
+                      {wavelogSyncing || wavelogStatus?.syncing
                         ? t('settings.confirmations.cloudlog.sync.busy')
                         : t('settings.confirmations.cloudlog.sync.action')}
                     </button>
+                    {(wavelogSyncing || wavelogStatus?.syncing) && (
+                      <button
+                        disabled={remote || wavelogCancelRequested}
+                        type="button"
+                        className="settings-refresh"
+                        onClick={() => void onCancelWavelogV2()}
+                      >
+                        {t('settings.confirmations.cloudlog.sync.cancel')}
+                      </button>
+                    )}
+                    {!wavelogSyncing && !wavelogStatus?.syncing && Boolean(wavelogStatus?.deliveryUnknownCreates) && (
+                      <button
+                        disabled={remote}
+                        type="button"
+                        className="settings-refresh"
+                        onClick={() => void onRetryUnknownWavelogCreates()}
+                        title={t('settings.confirmations.cloudlog.deliveryUnknown.title')}
+                      >
+                        {t('settings.confirmations.cloudlog.deliveryUnknown.action')}
+                      </button>
+                    )}
                   </div>
                   <span className="settings-hint">
                     {t('settings.confirmations.cloudlog.sync.hint')}
                   </span>
+                  {wavelogCancelRequested && (
+                    <span className="settings-note" role="status">
+                      {t('settings.confirmations.cloudlog.sync.cancelRequested')}
+                    </span>
+                  )}
+                  {Boolean(wavelogStatus?.deliveryUnknownCreates) && (
+                    <span className="settings-note error" role="alert">
+                      {t('settings.confirmations.cloudlog.deliveryUnknown.status', {
+                        count: wavelogStatus?.deliveryUnknownCreates ?? 0,
+                      })}
+                    </span>
+                  )}
+                  {!wavelogStatus?.deliveryUnknownCreates && wavelogStatus?.lastError && (
+                    <span className="settings-note error" role="alert">{wavelogStatus.lastError}</span>
+                  )}
                   {wavelogSyncSummary && (
                     <span className="settings-note" role="status">{wavelogSyncSummary}</span>
                   )}
                 </div>
+
+                <label className="settings-field">
+                  <span className="settings-label">
+                    {t('settings.confirmations.cloudlog.fullAudit.label')}
+                  </span>
+                  <input disabled={remote}
+                    className="settings-input"
+                    type="number"
+                    min={1}
+                    max={168}
+                    step={1}
+                    value={form.wavelogFullSyncHours ?? 24}
+                    onChange={(event) => update('wavelogFullSyncHours', event.target.value)}
+                  />
+                  <span className="settings-hint">
+                    {t('settings.confirmations.cloudlog.fullAudit.hint')}
+                  </span>
+                </label>
               </div>
             </div>
           </fieldset>

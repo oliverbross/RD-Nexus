@@ -2585,6 +2585,11 @@ pub struct Settings {
     /// Auto-forward each logged QSO to the Cloudlog/Wavelog instance above. Off by default.
     #[serde(default)]
     pub cloudlog_upload: bool,
+    /// Hours between complete Wavelog v2 audits. The five-minute incremental pass covers newly
+    /// created remote contacts and all local mutations; only a full audit can discover remote
+    /// edits/deletes because the provider exposes no modification cursor.
+    #[serde(default = "default_wavelog_full_sync_hours")]
+    pub wavelog_full_sync_hours: u32,
 
     /// Watch near-region spots (not just your own paths) so opening detection can
     /// flag "a band is open around you" before you've worked anyone. On by default;
@@ -2855,6 +2860,10 @@ fn default_prop_engine() -> String {
 
 fn default_qrz_sync_hours() -> u32 {
     1
+}
+
+fn default_wavelog_full_sync_hours() -> u32 {
+    24
 }
 
 fn default_lotw_auto_upload_hours() -> u32 {
@@ -4356,6 +4365,7 @@ impl Default for Settings {
             cloudlog_station_id: String::new(),
             cloudlog_key: String::new(),
             cloudlog_upload: false,
+            wavelog_full_sync_hours: default_wavelog_full_sync_hours(),
             opening_regional: true,
             macros: Macros::default(),
             voice_messages: default_voice_messages(),

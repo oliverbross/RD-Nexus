@@ -14020,6 +14020,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .wavelog-sync-name { color: var(--text); font-weight: 750; }
 .wavelog-sync-strip .ok { color: var(--state-good); }
 .wavelog-sync-strip .pending { color: var(--state-warn); }
+.wavelog-sync-strip .error { color: var(--state-bad); }
 .wavelog-sync-cadence { margin-left: auto; color: var(--text-faint); }
 
 /* One menu button replaces the old 300+ px action strip, giving the actual QSO fields room. */

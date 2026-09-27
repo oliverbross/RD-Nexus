@@ -89,6 +89,7 @@ beforeEach(() => {
   api.get('getConnectionLog').mockImplementation(() => Promise.resolve([]))
   api.get('detectRigs').mockImplementation(() => Promise.resolve([]))
   api.get('appVersion').mockImplementation(() => Promise.resolve('1.6.1'))
+  api.get('getWavelogV2Status').mockImplementation(() => Promise.resolve({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: false, lastError: null, deliveryUnknownCreates: 0 }))
 })
 
 afterEach(() => {
@@ -129,5 +130,24 @@ describe('Cloudlog/Wavelog station profile id (#226)', () => {
     renderPanel()
     fireEvent.click(await screen.findByRole('tab', { name: 'Logging & Connectors' }))
     expect(await screen.findByText(/station location number/i)).toBeTruthy()
+  })
+})
+
+describe('Wavelog scheduled synchronization status', () => {
+  it('polls native status and exposes Cancel for a scheduler-started audit', async () => {
+    mockSettings('3')
+    api.get('getWavelogV2Status').mockImplementation(() => Promise.resolve({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: true, lastError: null, deliveryUnknownCreates: 0 }))
+    renderPanel()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Logging & Connectors' }))
+    expect(await screen.findByRole('button', { name: 'Cancel sync' })).toBeTruthy()
+  })
+
+  it('surfaces delivery_unknown as an alert and only then offers operator recovery', async () => {
+    mockSettings('3')
+    api.get('getWavelogV2Status').mockImplementation(() => Promise.resolve({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: false, lastError: null, deliveryUnknownCreates: 2 }))
+    renderPanel()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Logging & Connectors' }))
+    expect((await screen.findByRole('alert')).textContent).toMatch(/2 create delivery outcome/i)
+    expect(screen.getByRole('button', { name: /Resolve uncertain upload/i })).toBeTruthy()
   })
 })

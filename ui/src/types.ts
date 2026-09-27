@@ -3858,6 +3858,8 @@ export interface Settings {
   cloudlogStationId?: string
   /** Auto-forward each logged QSO to the Cloudlog/Wavelog instance above. */
   cloudlogUpload?: boolean
+  /** Complete remote edit/delete audit cadence; incremental creation/local-change sync stays 5 min. */
+  wavelogFullSyncHours?: number
   /** N1MM contact broadcast target ("host" or "host:port"). Empty = off. */
   n1mmAddr?: string
   /** Broadcast the N1MM contact datagram for EVERY logged QSO, not just Field Day. Default off. */
