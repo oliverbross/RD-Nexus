@@ -28,6 +28,7 @@ const MAX_JSON_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_REMOTE_QSOS: usize = 2_000_000;
 const MAX_REMOTE_PAGES: usize = 10_000;
 const MAX_DELETIONS_PER_SYNC: usize = 25;
+const IMPORT_BATCH_SIZE: usize = 250;
 const STATE_VERSION: u32 = 2;
 pub const INCREMENTAL_INTERVAL_SECONDS: u64 = 300;
 pub const DEFAULT_FULL_INTERVAL_SECONDS: u64 = 24 * 60 * 60;
@@ -78,6 +79,7 @@ struct CommonQso {
     time_off: Option<String>,
     freq_hz: Option<u64>,
     freq_rx_hz: Option<u64>,
+    band_rx: Option<String>,
     rst_sent: Option<String>,
     rst_rcvd: Option<String>,
     gridsquare: Option<String>,
@@ -88,10 +90,17 @@ struct CommonQso {
     tx_pwr: Option<String>,
     prop_mode: Option<String>,
     sat_name: Option<String>,
+    sat_mode: Option<String>,
     state: Option<String>,
+    cnty: Option<String>,
+    cqz: Option<String>,
+    ituz: Option<String>,
+    qsl_via: Option<String>,
+    darc_dok: Option<String>,
     iota: Option<String>,
     sota_ref: Option<String>,
     pota_ref: Option<String>,
+    wwff_ref: Option<String>,
     sig: Option<String>,
     sig_info: Option<String>,
     srx: Option<String>,
@@ -205,14 +214,6 @@ pub struct SyncStatus {
     pub syncing: bool,
     pub last_error: Option<String>,
     pub delivery_unknown_creates: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StatusState {
-    version: u32,
-    endpoint: String,
-    station_id: String,
-    status: SyncStatus,
 }
 
 fn api_base(input: &str) -> Result<String, String> {
@@ -340,6 +341,7 @@ fn adif_extras(obj: &Map<String, Value>) -> BTreeMap<String, String> {
         "SUBMODE",
         "FREQ",
         "FREQ_RX",
+        "BAND_RX",
         "RST_SENT",
         "RST_RCVD",
         "GRIDSQUARE",
@@ -350,10 +352,17 @@ fn adif_extras(obj: &Map<String, Value>) -> BTreeMap<String, String> {
         "TX_PWR",
         "PROP_MODE",
         "SAT_NAME",
+        "SAT_MODE",
         "STATE",
+        "CNTY",
+        "CQZ",
+        "ITUZ",
+        "QSL_VIA",
+        "DARC_DOK",
         "IOTA",
         "SOTA_REF",
         "POTA_REF",
+        "WWFF_REF",
         "SIG",
         "SIG_INFO",
         "SRX",
@@ -428,6 +437,8 @@ fn remote_from_value(value: Value) -> Option<RemoteQso> {
             freq_hz,
             freq_rx_hz: text_field(&obj, &["freq_rx", "col_freq_rx"])
                 .and_then(|s| parse_freq_hz(&s)),
+            band_rx: text_field(&obj, &["band_rx", "col_band_rx"])
+                .map(|value| value.to_ascii_uppercase()),
             rst_sent: text_field(&obj, &["rst_sent", "col_rst_sent"]),
             rst_rcvd: text_field(&obj, &["rst_rcvd", "col_rst_rcvd"]),
             gridsquare: text_field(&obj, &["gridsquare", "col_gridsquare"]),
@@ -439,10 +450,17 @@ fn remote_from_value(value: Value) -> Option<RemoteQso> {
                 .map(|value| canonical_number(&value)),
             prop_mode: text_field(&obj, &["prop_mode", "col_prop_mode"]),
             sat_name: text_field(&obj, &["sat_name", "col_sat_name"]),
+            sat_mode: text_field(&obj, &["sat_mode", "col_sat_mode"]),
             state: text_field(&obj, &["state", "col_state"]),
+            cnty: text_field(&obj, &["cnty", "col_cnty"]),
+            cqz: text_field(&obj, &["cqz", "col_cqz"]),
+            ituz: text_field(&obj, &["ituz", "col_ituz"]),
+            qsl_via: text_field(&obj, &["qsl_via", "col_qsl_via"]),
+            darc_dok: text_field(&obj, &["darc_dok", "col_darc_dok"]),
             iota: text_field(&obj, &["iota", "col_iota"]),
             sota_ref: text_field(&obj, &["sota_ref", "col_sota_ref"]),
             pota_ref: text_field(&obj, &["pota_ref", "col_pota_ref"]),
+            wwff_ref: text_field(&obj, &["wwff_ref", "col_wwff_ref"]),
             sig: text_field(&obj, &["sig", "col_sig"]),
             sig_info: text_field(&obj, &["sig_info", "col_sig_info"]),
             srx: text_field(&obj, &["srx", "col_srx"]),
@@ -547,6 +565,7 @@ fn fetch_qsos_filtered(
             return Err("Wavelog returned an implausibly large QSO page".into());
         }
         let body = limited_json(response, MAX_PAGE_BYTES, "QSO page")?;
+        cancelled()?;
         let meta: PaginationMeta = serde_json::from_value(
             body.get("meta")
                 .cloned()
@@ -575,6 +594,7 @@ fn fetch_qsos_filtered(
             return Err("Wavelog returned contradictory QSO pagination metadata".into());
         }
         for row in &rows {
+            cancelled()?;
             let Value::Object(obj) = row else {
                 return Err("Wavelog returned a non-object QSO row".into());
             };
@@ -590,6 +610,7 @@ fn fetch_qsos_filtered(
             return Err("Wavelog returned a QSO shape RD-Nexus could not safely interpret".into());
         }
         for row in &parsed {
+            cancelled()?;
             if !remote_ids.insert(row.id.clone()) {
                 return Err(
                     "Wavelog repeated a QSO id during pagination; no changes were applied".into(),
@@ -696,6 +717,7 @@ fn create_qso_json(qso: &CommonQso, station_id: &str) -> Value {
     optional(&mut o, "time_off", qso.time_off.as_deref().map(format_time));
     optional(&mut o, "freq", qso.freq_hz);
     optional(&mut o, "freq_rx", qso.freq_rx_hz);
+    optional(&mut o, "band_rx", qso.band_rx.clone());
     optional(&mut o, "rst_sent", qso.rst_sent.clone());
     optional(&mut o, "rst_rcvd", qso.rst_rcvd.clone());
     optional(&mut o, "gridsquare", qso.gridsquare.clone());
@@ -706,10 +728,17 @@ fn create_qso_json(qso: &CommonQso, station_id: &str) -> Value {
     optional(&mut o, "tx_pwr", qso.tx_pwr.clone());
     optional(&mut o, "prop_mode", qso.prop_mode.clone());
     optional(&mut o, "sat_name", qso.sat_name.clone());
+    optional(&mut o, "sat_mode", qso.sat_mode.clone());
     optional(&mut o, "state", qso.state.clone());
+    optional(&mut o, "cnty", qso.cnty.clone());
+    optional(&mut o, "cqz", qso.cqz.clone());
+    optional(&mut o, "ituz", qso.ituz.clone());
+    optional(&mut o, "qsl_via", qso.qsl_via.clone());
+    optional(&mut o, "darc_dok", qso.darc_dok.clone());
     optional(&mut o, "iota", qso.iota.clone());
     optional(&mut o, "sota_ref", qso.sota_ref.clone());
     optional(&mut o, "pota_ref", qso.pota_ref.clone());
+    optional(&mut o, "wwff_ref", qso.wwff_ref.clone());
     optional(&mut o, "sig", qso.sig.clone());
     optional(&mut o, "sig_info", qso.sig_info.clone());
     optional(&mut o, "srx", qso.srx.clone());
@@ -734,6 +763,7 @@ fn patch_qso_json(qso: &CommonQso, station_id: &str) -> Value {
         "time_off",
         "freq",
         "freq_rx",
+        "band_rx",
         "rst_sent",
         "rst_rcvd",
         "gridsquare",
@@ -744,10 +774,17 @@ fn patch_qso_json(qso: &CommonQso, station_id: &str) -> Value {
         "tx_pwr",
         "prop_mode",
         "sat_name",
+        "sat_mode",
         "state",
+        "cnty",
+        "cqz",
+        "ituz",
+        "qsl_via",
+        "darc_dok",
         "iota",
         "sota_ref",
         "pota_ref",
+        "wwff_ref",
         "sig",
         "sig_info",
         "srx",
@@ -1010,10 +1047,38 @@ fn unix_from_date_time(date: &str, time: &str) -> Option<u64> {
         .map(|days| days * 86_400 + hour * 3_600 + minute * 60 + second)
 }
 
+fn take_extra(extra: &mut BTreeMap<String, String>, name: &str) -> Option<String> {
+    let key = extra
+        .keys()
+        .find(|key| key.eq_ignore_ascii_case(name))
+        .cloned()?;
+    optional_text(&extra.remove(&key))
+}
+
+fn patch_equivalent(left: &CommonQso, right: &CommonQso) -> bool {
+    let mut left = left.clone();
+    let mut right = right.clone();
+    // Stock API v2 accepts arbitrary ADIF fields only on create. Read-only confirmation and
+    // identity metadata therefore remains locally preserved but cannot make an incremental pass
+    // claim that PATCH persisted it. Every provider-editable extra is projected into an explicit
+    // CommonQso field above and remains part of this comparison.
+    left.extra.clear();
+    right.extra.clear();
+    left == right
+}
+
 fn local_common(r: &QsoRecord) -> CommonQso {
     let (qso_date, time_on) = date_time(r.when_unix);
     let time_off = r.time_off_unix.map(|v| date_time(v).1);
     let mut extra: BTreeMap<String, String> = r.extra.iter().cloned().collect();
+    let band_rx = take_extra(&mut extra, "BAND_RX");
+    let sat_mode = take_extra(&mut extra, "SAT_MODE");
+    let cnty = take_extra(&mut extra, "CNTY");
+    let cqz = take_extra(&mut extra, "CQZ");
+    let ituz = take_extra(&mut extra, "ITUZ");
+    let qsl_via = take_extra(&mut extra, "QSL_VIA");
+    let darc_dok = take_extra(&mut extra, "DARC_DOK");
+    let wwff_ref = take_extra(&mut extra, "WWFF_REF");
     for (name, value) in [
         ("COUNTRY", r.country.clone()),
         ("DXCC", r.dxcc.map(|v| v.to_string())),
@@ -1059,6 +1124,7 @@ fn local_common(r: &QsoRecord) -> CommonQso {
             .freq_rx_mhz
             .filter(|f| *f > 0.0)
             .map(|f| (f * 1_000_000.0).round() as u64),
+        band_rx,
         rst_sent: optional_text(&r.rst_sent),
         rst_rcvd: optional_text(&r.rst_rcvd),
         gridsquare: optional_text(&r.grid),
@@ -1069,7 +1135,13 @@ fn local_common(r: &QsoRecord) -> CommonQso {
         tx_pwr: r.tx_power.map(|v| canonical_number(&v.to_string())),
         prop_mode: optional_text(&r.prop_mode),
         sat_name: optional_text(&r.sat_name),
+        sat_mode,
         state: optional_text(&r.state),
+        cnty,
+        cqz,
+        ituz,
+        qsl_via,
+        darc_dok,
         iota: optional_text(&r.ota.iota),
         sota_ref: (their_program == "SOTA")
             .then(|| r.ota.their_ref.clone())
@@ -1077,6 +1149,7 @@ fn local_common(r: &QsoRecord) -> CommonQso {
         pota_ref: (their_program == "POTA")
             .then(|| r.ota.their_ref.clone())
             .flatten(),
+        wwff_ref,
         sig: optional_text(&r.ota.their_program),
         sig_info: optional_text(&r.ota.their_ref),
         srx: r
@@ -1116,11 +1189,21 @@ fn scope_digest(endpoint: &str, station_id: &str) -> String {
 }
 
 fn scoped_state_path(legacy_path: &Path, endpoint: &str, station_id: &str) -> PathBuf {
+    let stem = legacy_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| {
+            !stem.is_empty()
+                && stem.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || character == '-' || character == '_'
+                })
+        })
+        .unwrap_or("wavelog-v2-sync");
     legacy_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(format!(
-            "wavelog-v2-sync-{}.json",
+            "{stem}-{}.json",
             scope_digest(endpoint, station_id)
         ))
 }
@@ -1203,8 +1286,7 @@ fn save_state(path: &Path, state: &SyncState) -> Result<(), String> {
     let bytes =
         serde_json::to_vec(state).map_err(|_| "could not encode Wavelog sync state".to_string())?;
     atomic_write(path, &bytes)
-        .map_err(|error| format!("could not durably save Wavelog sync state: {error}"))?;
-    save_status_state(path, state)
+        .map_err(|error| format!("could not durably save Wavelog sync state: {error}"))
 }
 
 fn temp_path(path: &Path) -> PathBuf {
@@ -1287,6 +1369,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     atomic_write_with_hooks(path, bytes, || Ok(()), || Ok(()))
 }
 
+#[cfg(test)]
 fn status_path(state_path: &Path) -> std::path::PathBuf {
     state_path.with_extension("status.json")
 }
@@ -1327,19 +1410,6 @@ fn status_from_state(state: &SyncState) -> SyncStatus {
     }
 }
 
-fn save_status_state(state_path: &Path, state: &SyncState) -> Result<(), String> {
-    let path = status_path(state_path);
-    let bytes = serde_json::to_vec(&StatusState {
-        version: STATE_VERSION,
-        endpoint: state.endpoint.clone(),
-        station_id: state.station_id.clone(),
-        status: status_from_state(state),
-    })
-    .map_err(|_| "could not encode Wavelog sync status".to_string())?;
-    atomic_write(&path, &bytes)
-        .map_err(|error| format!("could not durably save Wavelog sync status: {error}"))
-}
-
 fn collect_local(engine: &Mutex<Engine>) -> Result<HashMap<String, QsoRecord>, String> {
     let rows = engine_lock(engine).log_rows();
     let mut found = HashMap::new();
@@ -1374,37 +1444,12 @@ pub fn status(
     state_path: &Path,
 ) -> Result<SyncStatus, String> {
     let base = api_base(url)?;
-    let scoped_path = scoped_state_path(state_path, &base, station_id);
-    let compact_path = status_path(&scoped_path);
-    if compact_path.exists() {
-        let bytes = fs::read(&compact_path)
-            .map_err(|error| format!("could not read Wavelog sync status: {error}"))?;
-        let saved = serde_json::from_slice::<StatusState>(&bytes).map_err(|_| {
-            "Wavelog sync status is corrupt; synchronization is stopped".to_string()
-        })?;
-        if saved.version != STATE_VERSION
-            || saved.endpoint != base
-            || saved.station_id != station_id.trim()
-        {
-            return Err(
-                "Wavelog sync status belongs to a different endpoint, station, or version; synchronization is stopped"
-                    .into(),
-            );
-        }
-        let mut status = saved.status;
-        status.syncing = SYNC_RUNNING.load(Ordering::Acquire);
-        status.last_error = LAST_ERROR
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clone();
-        return Ok(status);
-    }
-    let (scoped_path, state) = load_scoped_state(state_path, &base, station_id)?;
-    // One-time migration for an existing complete ledger. Every later render reads the compact
-    // sidecar above instead of reparsing tens of megabytes of delete-safety bindings.
-    let status = status_from_state(&state);
-    save_status_state(&scoped_path, &state)?;
-    Ok(status)
+    let (_, state) = load_scoped_state(state_path, &base, station_id)?;
+    // The binding ledger is the sole authority. A compact status sidecar cannot be committed
+    // atomically with a differently named file on every supported filesystem; trusting it can
+    // therefore hide a durable pending create or retain a phantom delivery_unknown after a
+    // crash. Older sidecars are deliberately ignored and the strict ledger parser fails closed.
+    Ok(status_from_state(&state))
 }
 
 struct SyncRun {
@@ -1479,6 +1524,82 @@ pub fn record_error(error: Option<String>) {
         .unwrap_or_else(|poisoned| poisoned.into_inner()) = error;
 }
 
+fn set_record_extra(extra: &mut Vec<(String, String)>, name: &str, value: Option<&String>) {
+    extra.retain(|(key, _)| !key.eq_ignore_ascii_case(name));
+    if let Some(value) = value.and_then(|value| optional_text(&Some(value.clone()))) {
+        extra.push((name.to_string(), value));
+        extra.sort_by(|left, right| left.0.cmp(&right.0));
+    }
+}
+
+fn apply_remote_fields(row: &mut QsoRecord, remote: &CommonQso) {
+    row.call = remote.call.clone();
+    row.band = remote.band.clone();
+    row.mode = remote.mode.clone();
+    row.freq_mhz = remote.freq_hz.unwrap_or_default() as f64 / 1_000_000.0;
+    row.freq_rx_mhz = remote.freq_rx_hz.map(|value| value as f64 / 1_000_000.0);
+    row.rst_sent = remote.rst_sent.clone();
+    row.rst_rcvd = remote.rst_rcvd.clone();
+    row.grid = remote.gridsquare.clone();
+    row.name = remote.name.clone();
+    row.qth = remote.qth.clone();
+    row.comment = remote.comment.clone();
+    row.notes = remote.notes.clone();
+    row.tx_power = remote
+        .tx_pwr
+        .as_deref()
+        .and_then(|value| value.parse().ok());
+    row.prop_mode = remote.prop_mode.clone();
+    row.sat_name = remote.sat_name.clone();
+    row.state = remote.state.clone();
+    row.ota.iota = remote.iota.clone();
+    if remote.sota_ref.is_some() {
+        row.ota.their_program = Some("SOTA".into());
+        row.ota.their_ref = remote.sota_ref.clone();
+    } else if remote.pota_ref.is_some() {
+        row.ota.their_program = Some("POTA".into());
+        row.ota.their_ref = remote.pota_ref.clone();
+    } else if remote.sig.is_some() || remote.sig_info.is_some() {
+        row.ota.their_program = remote.sig.clone();
+        row.ota.their_ref = remote.sig_info.clone();
+    } else {
+        row.ota.their_program = None;
+        row.ota.their_ref = None;
+    }
+    if row.contest.is_some()
+        || remote.srx.is_some()
+        || remote.stx.is_some()
+        || remote.srx_string.is_some()
+        || remote.stx_string.is_some()
+    {
+        let contest = row.contest.get_or_insert_with(Default::default);
+        contest.srx = remote.srx.as_deref().and_then(|value| value.parse().ok());
+        contest.stx = remote.stx.as_deref().and_then(|value| value.parse().ok());
+        contest.srx_string = remote.srx_string.clone();
+        contest.stx_string = remote.stx_string.clone();
+    }
+    for (name, value) in [
+        ("BAND_RX", remote.band_rx.as_ref()),
+        ("SAT_MODE", remote.sat_mode.as_ref()),
+        ("CNTY", remote.cnty.as_ref()),
+        ("CQZ", remote.cqz.as_ref()),
+        ("ITUZ", remote.ituz.as_ref()),
+        ("QSL_VIA", remote.qsl_via.as_ref()),
+        ("DARC_DOK", remote.darc_dok.as_ref()),
+        ("WWFF_REF", remote.wwff_ref.as_ref()),
+    ] {
+        set_record_extra(&mut row.extra, name, value);
+    }
+    if let Some(when) = unix_from_date_time(&remote.qso_date, &remote.time_on) {
+        row.when_unix = when;
+        row.time_known = true;
+    }
+    row.time_off_unix = remote
+        .time_off
+        .as_deref()
+        .and_then(|time| unix_from_date_time(&remote.qso_date, time));
+}
+
 fn apply_remote(
     engine: &Mutex<Engine>,
     local: &QsoRecord,
@@ -1495,44 +1616,7 @@ fn apply_remote(
             &key,
             move |stored| {
                 let mut row = stored.clone();
-                row.call = remote.call.clone();
-                row.band = remote.band.clone();
-                row.mode = remote.mode.clone();
-                row.freq_mhz = remote.freq_hz.unwrap_or_default() as f64 / 1_000_000.0;
-                row.freq_rx_mhz = remote.freq_rx_hz.map(|v| v as f64 / 1_000_000.0);
-                row.rst_sent = remote.rst_sent.clone();
-                row.rst_rcvd = remote.rst_rcvd.clone();
-                row.grid = remote.gridsquare.clone();
-                row.name = remote.name.clone();
-                row.qth = remote.qth.clone();
-                row.comment = remote.comment.clone();
-                row.notes = remote.notes.clone();
-                row.tx_power = remote.tx_pwr.as_deref().and_then(|v| v.parse().ok());
-                row.prop_mode = remote.prop_mode.clone();
-                row.sat_name = remote.sat_name.clone();
-                row.state = remote.state.clone();
-                row.ota.iota = remote.iota.clone();
-                if remote.sota_ref.is_some() {
-                    row.ota.their_program = Some("SOTA".into());
-                    row.ota.their_ref = remote.sota_ref.clone();
-                } else if remote.pota_ref.is_some() {
-                    row.ota.their_program = Some("POTA".into());
-                    row.ota.their_ref = remote.pota_ref.clone();
-                } else if remote.sig.is_some() || remote.sig_info.is_some() {
-                    row.ota.their_program = remote.sig.clone();
-                    row.ota.their_ref = remote.sig_info.clone();
-                }
-                let mut extra: BTreeMap<String, String> = row.extra.iter().cloned().collect();
-                extra.extend(remote.extra.clone());
-                row.extra = extra.into_iter().collect();
-                if let Some(when) = unix_from_date_time(&remote.qso_date, &remote.time_on) {
-                    row.when_unix = when;
-                    row.time_known = true;
-                }
-                row.time_off_unix = remote
-                    .time_off
-                    .as_deref()
-                    .and_then(|time| unix_from_date_time(&remote.qso_date, time));
+                apply_remote_fields(&mut row, &remote);
                 row
             },
             |_, _| (),
@@ -1581,10 +1665,18 @@ fn append_remote_adif(remote: &CommonQso, adif: &mut String) {
         ("TX_PWR", remote.tx_pwr.as_deref()),
         ("PROP_MODE", remote.prop_mode.as_deref()),
         ("SAT_NAME", remote.sat_name.as_deref()),
+        ("SAT_MODE", remote.sat_mode.as_deref()),
         ("STATE", remote.state.as_deref()),
+        ("BAND_RX", remote.band_rx.as_deref()),
+        ("CNTY", remote.cnty.as_deref()),
+        ("CQZ", remote.cqz.as_deref()),
+        ("ITUZ", remote.ituz.as_deref()),
+        ("QSL_VIA", remote.qsl_via.as_deref()),
+        ("DARC_DOK", remote.darc_dok.as_deref()),
         ("IOTA", remote.iota.as_deref()),
         ("SOTA_REF", remote.sota_ref.as_deref()),
         ("POTA_REF", remote.pota_ref.as_deref()),
+        ("WWFF_REF", remote.wwff_ref.as_deref()),
         ("SIG", remote.sig.as_deref()),
         ("SIG_INFO", remote.sig_info.as_deref()),
         ("SRX", remote.srx.as_deref()),
@@ -1618,6 +1710,27 @@ fn import_remote_batch(engine: &Mutex<Engine>, remotes: &[RemoteQso]) -> Result<
     durability
         .wait(tempo_app::logstore::DURABLE_WAIT)
         .map_err(|e| e.to_string())
+}
+
+fn import_remote_batches_with(
+    remotes: &[RemoteQso],
+    mut import: impl FnMut(&[RemoteQso]) -> Result<(), String>,
+) -> Result<usize, String> {
+    let mut imported = 0;
+    for batch in remotes.chunks(IMPORT_BATCH_SIZE) {
+        cancelled()?;
+        import(batch)?;
+        imported += batch.len();
+        // A cancellation received during the bounded durable wait stops before another batch can
+        // mutate the log. The completed batch is already a valid ADIF transaction and is matched
+        // by identity on the next run if this pass exits before saving bindings.
+        cancelled()?;
+    }
+    Ok(imported)
+}
+
+fn import_remote_batches(engine: &Mutex<Engine>, remotes: &[RemoteQso]) -> Result<usize, String> {
+    import_remote_batches_with(remotes, |batch| import_remote_batch(engine, batch))
 }
 
 pub fn upload_one(
@@ -1800,8 +1913,7 @@ pub fn sync_incremental(
         }
     }
     if !pending_imports.is_empty() {
-        import_remote_batch(engine, &pending_imports)?;
-        report.downloaded += pending_imports.len();
+        report.downloaded += import_remote_batches(engine, &pending_imports)?;
         local = collect_local(engine)?;
         let mut imported_by_identity: HashMap<String, (String, CommonQso)> = HashMap::new();
         for (id, row) in &local {
@@ -1839,7 +1951,7 @@ pub fn sync_incremental(
         cancelled()?;
         if let Some(row) = local.get(&binding.local_id) {
             let qso = local_common(row);
-            if qso != binding.last_local {
+            if !patch_equivalent(&qso, &binding.last_local) {
                 let provider_qso = patch_qso(&base, token, &remote_id, station_id, &qso)?;
                 state.bindings.insert(
                     remote_id,
@@ -2078,13 +2190,13 @@ pub fn sync(
         if let Some(binding) = state.bindings.get(&rq.id).cloned() {
             if let Some(row) = local.get(&binding.local_id).cloned() {
                 let lq = local_common(&row);
-                let local_changed = lq != binding.last_local;
-                let remote_changed = rq.qso != binding.last_remote;
+                let local_changed = !patch_equivalent(&lq, &binding.last_local);
+                let remote_changed = !patch_equivalent(&rq.qso, &binding.last_remote);
                 let (last_local, last_remote) = if remote_changed {
-                    if local_changed && lq != rq.qso {
+                    if local_changed && !patch_equivalent(&lq, &rq.qso) {
                         report.conflicts_resolved_from_wavelog += 1;
                     }
-                    if lq != rq.qso && apply_remote(engine, &row, &rq.qso)? {
+                    if !patch_equivalent(&lq, &rq.qso) && apply_remote(engine, &row, &rq.qso)? {
                         report.local_updates += 1;
                     }
                     (rq.qso.clone(), rq.qso.clone())
@@ -2133,12 +2245,11 @@ pub fn sync(
         );
     }
 
-    // A first sync can contain tens of thousands of QSOs. Import them as one ADIF transaction,
-    // then scan the local log once; importing and rescanning once per QSO is quadratic and makes
-    // a real-world Wavelog history effectively impossible to initialise.
+    // A first sync can contain tens of thousands of QSOs. Import bounded ADIF transactions so
+    // cancellation is observed between durable batches, then scan the local log once; rescanning
+    // once per QSO would be quadratic and make a real-world history impossible to initialise.
     if !pending_imports.is_empty() {
-        import_remote_batch(engine, &pending_imports)?;
-        report.downloaded += pending_imports.len();
+        report.downloaded += import_remote_batches(engine, &pending_imports)?;
         local = collect_local(engine)?;
         let mut imported_by_identity: HashMap<String, (String, CommonQso)> = HashMap::new();
         for (id, row) in &local {
@@ -2321,6 +2432,33 @@ mod tests {
     }
 
     #[test]
+    fn large_import_cancel_stops_after_one_durable_batch() {
+        let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
+        SYNC_CANCEL.store(false, Ordering::Release);
+        let remotes: Vec<_> = (0..(IMPORT_BATCH_SIZE * 3))
+            .map(|index| RemoteQso {
+                id: index.to_string(),
+                qso: CommonQso::default(),
+            })
+            .collect();
+        let mut durable_ids = Vec::new();
+        let error = import_remote_batches_with(&remotes, |batch| {
+            durable_ids.extend(batch.iter().map(|row| row.id.clone()));
+            cancel_sync();
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(error.contains("cancelled"));
+        assert_eq!(durable_ids.len(), IMPORT_BATCH_SIZE);
+        assert_eq!(durable_ids.first().map(String::as_str), Some("0"));
+        assert_eq!(
+            durable_ids.last(),
+            Some(&(IMPORT_BATCH_SIZE - 1).to_string())
+        );
+        SYNC_CANCEL.store(false, Ordering::Release);
+    }
+
+    #[test]
     fn failed_incremental_fetch_does_not_advance_the_durable_cursor() {
         let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
         let path = test_state_path("incremental-cursor-failure");
@@ -2385,11 +2523,28 @@ mod tests {
             "band": "20m",
             "mode": "SSB",
             "freq": 14075000,
-            "qso_date": "2026-06-16 17:06:00"
+            "qso_date": "2026-06-16 17:06:00",
+            "band_rx": "40m",
+            "sat_mode": "UV",
+            "wwff_ref": "KFF-0001",
+            "darc_dok": "A01",
+            "cnty": "001",
+            "cqz": "05",
+            "ituz": "8",
+            "qsl_via": "N0CALL"
         }))
         .unwrap();
         assert_eq!(q.qso.qso_date, "20260616");
         assert_eq!(q.qso.time_on, "170600");
+        assert_eq!(q.qso.band_rx.as_deref(), Some("40M"));
+        assert_eq!(q.qso.sat_mode.as_deref(), Some("UV"));
+        assert_eq!(q.qso.wwff_ref.as_deref(), Some("KFF-0001"));
+        assert_eq!(q.qso.darc_dok.as_deref(), Some("A01"));
+        assert_eq!(q.qso.cnty.as_deref(), Some("001"));
+        assert_eq!(q.qso.cqz.as_deref(), Some("05"));
+        assert_eq!(q.qso.ituz.as_deref(), Some("8"));
+        assert_eq!(q.qso.qsl_via.as_deref(), Some("N0CALL"));
+        assert!(q.qso.extra.is_empty());
     }
 
     #[test]
@@ -2408,12 +2563,19 @@ mod tests {
     }
 
     #[test]
-    fn status_reads_the_compact_sidecar_without_reopening_the_binding_ledger() {
-        let legacy_path = std::env::temp_dir().join(format!(
-            "rd-nexus-wavelog-status-{}-{}.json",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
+    fn scoped_state_paths_retain_unique_test_legacy_stems() {
+        let endpoint = "https://log.example/index.php/api/v2";
+        let first = test_state_path("parallel-a");
+        let second = test_state_path("parallel-b");
+        assert_ne!(
+            scoped_state_path(&first, endpoint, "1"),
+            scoped_state_path(&second, endpoint, "1")
+        );
+    }
+
+    #[test]
+    fn authoritative_ledger_wins_both_status_sidecar_commit_orders_after_restart() {
+        let legacy_path = test_state_path("status-commit-orders");
         let endpoint = "https://log.example/index.php/api/v2";
         let path = scoped_state_path(&legacy_path, endpoint, "1");
         let mut state = SyncState::fresh(endpoint, "1");
@@ -2428,23 +2590,41 @@ mod tests {
                 last_remote: CommonQso::default(),
             },
         );
+        state.pending.insert(
+            create_op_key("local-unknown"),
+            PendingOperation::Create {
+                local_id: "local-unknown".into(),
+                qso: Box::new(CommonQso::default()),
+            },
+        );
+        // Ledger-first crash: a stale/corrupt sidecar must not hide durable delivery_unknown.
         save_state(&path, &state).unwrap();
-        fs::write(&path, b"not the full ledger anymore").unwrap();
+        fs::write(status_path(&path), b"stale sidecar").unwrap();
 
-        let summary = status(
+        let pending = status(
             &Mutex::new(Engine::new("N0CALL", "AA00", 0)),
             endpoint,
             "1",
             &legacy_path,
         )
         .unwrap();
-        assert_eq!(summary.local_total, 1);
-        assert_eq!(summary.remote_total, 1);
-        assert_eq!(summary.synced_local, 1);
-        assert_eq!(summary.last_sync_unix, 42);
+        assert_eq!(pending.delivery_unknown_creates, 1);
+        assert_eq!(pending.synced_local, 1);
 
-        let _ = fs::remove_file(&path);
-        let _ = fs::remove_file(status_path(&path));
+        // Sidecar-first crash: a phantom delivery_unknown sidecar must not survive the durable
+        // operator-confirmed ledger clear.
+        state.pending.clear();
+        save_state(&path, &state).unwrap();
+        fs::write(status_path(&path), br#"{"deliveryUnknownCreates":99}"#).unwrap();
+        let cleared = status(
+            &Mutex::new(Engine::new("N0CALL", "AA00", 0)),
+            endpoint,
+            "1",
+            &legacy_path,
+        )
+        .unwrap();
+        assert_eq!(cleared.delivery_unknown_creates, 0);
+        remove_test_state(&path);
     }
 
     #[test]
@@ -2658,16 +2838,24 @@ mod tests {
                 "gridsquare",
                 "name",
                 "freq_rx",
+                "band_rx",
                 "rst_sent",
                 "rst_rcvd",
                 "qth",
                 "tx_pwr",
                 "prop_mode",
                 "sat_name",
+                "sat_mode",
                 "state",
+                "cnty",
+                "cqz",
+                "ituz",
+                "qsl_via",
+                "darc_dok",
                 "iota",
                 "sota_ref",
                 "pota_ref",
+                "wwff_ref",
                 "sig",
                 "sig_info",
                 "srx",
@@ -2693,6 +2881,118 @@ mod tests {
         assert_eq!(confirmed.comment.as_deref(), Some("provider-normalized"));
         assert_eq!(confirmed.freq_rx_hz, None);
         assert_eq!(confirmed.pota_ref, None);
+    }
+
+    #[test]
+    fn patch_maps_every_stock_editable_extra_but_not_confirmation_bookkeeping() {
+        let mut qso = CommonQso {
+            call: "K1ABC".into(),
+            band: "20M".into(),
+            mode: "FT8".into(),
+            qso_date: "20260928".into(),
+            time_on: "001500".into(),
+            band_rx: Some("40M".into()),
+            sat_mode: Some("UV".into()),
+            cnty: Some("001".into()),
+            cqz: Some("05".into()),
+            ituz: Some("8".into()),
+            qsl_via: Some("N0CALL".into()),
+            darc_dok: Some("A01".into()),
+            wwff_ref: Some("KFF-0001".into()),
+            ..CommonQso::default()
+        };
+        qso.extra.insert("QSL_RCVD".into(), "Y".into());
+        qso.extra.insert("DXCC".into(), "291".into());
+        let payload = patch_qso_json(&qso, "1");
+        for (key, expected) in [
+            ("band_rx", "40M"),
+            ("sat_mode", "UV"),
+            ("cnty", "001"),
+            ("cqz", "05"),
+            ("ituz", "8"),
+            ("qsl_via", "N0CALL"),
+            ("darc_dok", "A01"),
+            ("wwff_ref", "KFF-0001"),
+        ] {
+            assert_eq!(payload.get(key).and_then(Value::as_str), Some(expected));
+        }
+        assert!(payload.get("qsl_rcvd").is_none());
+        assert!(payload.get("dxcc").is_none());
+        let mut confirmation_only_change = qso.clone();
+        confirmation_only_change
+            .extra
+            .insert("QSL_RCVD".into(), "N".into());
+        assert!(patch_equivalent(&qso, &confirmation_only_change));
+    }
+
+    #[test]
+    fn full_audit_apply_then_incremental_projection_has_no_false_patch_back() {
+        let mut local = tempo_core::logbook::parse_adif(
+            "<CALL:5>K1ABC<BAND:3>20M<MODE:3>FT8<QSO_DATE:8>20260928<TIME_ON:6>001500<SRX:3>123<STX:3>456<SRX_STRING:3>OLD<STX_STRING:3>OLD<SIG:4>POTA<SIG_INFO:6>K-0001<BAND_RX:3>40M<SAT_MODE:2>UV<CNTY:3>001<CQZ:2>05<ITUZ:1>8<QSL_VIA:4>TEST<DARC_DOK:3>A01<WWFF_REF:7>KFF-001<EOR>",
+        )
+        .remove(0);
+        let mut remote = local_common(&local);
+        remote.srx = Some("789".into());
+        remote.stx = Some("987".into());
+        remote.srx_string = Some("NEW-RX".into());
+        remote.stx_string = Some("NEW-TX".into());
+        remote.sota_ref = None;
+        remote.pota_ref = None;
+        remote.sig = Some("WWFF".into());
+        remote.sig_info = Some("KFF-9999".into());
+        remote.band_rx = Some("80M".into());
+        remote.sat_mode = Some("VU".into());
+        remote.cnty = Some("003".into());
+        remote.cqz = Some("04".into());
+        remote.ituz = Some("7".into());
+        remote.qsl_via = Some("N0CALL".into());
+        remote.darc_dok = Some("B02".into());
+        remote.wwff_ref = Some("KFF-9999".into());
+
+        apply_remote_fields(&mut local, &remote);
+        assert_eq!(local.contest.as_ref().unwrap().srx, Some(789));
+        assert_eq!(
+            local.contest.as_ref().unwrap().stx_string.as_deref(),
+            Some("NEW-TX")
+        );
+        assert_eq!(local.ota.their_program.as_deref(), Some("WWFF"));
+        assert_eq!(local.ota.their_ref.as_deref(), Some("KFF-9999"));
+        assert!(patch_equivalent(&local_common(&local), &remote));
+
+        let binding = Binding {
+            local_id: "local-1".into(),
+            last_local: remote.clone(),
+            last_remote: remote.clone(),
+        };
+        assert!(patch_equivalent(&local_common(&local), &binding.last_local));
+
+        remote.srx = None;
+        remote.stx = None;
+        remote.srx_string = None;
+        remote.stx_string = None;
+        remote.sig = None;
+        remote.sig_info = None;
+        remote.band_rx = None;
+        remote.sat_mode = None;
+        remote.cnty = None;
+        remote.cqz = None;
+        remote.ituz = None;
+        remote.qsl_via = None;
+        remote.darc_dok = None;
+        remote.wwff_ref = None;
+        apply_remote_fields(&mut local, &remote);
+        let contest = local.contest.as_ref().unwrap();
+        assert_eq!((contest.srx, contest.stx), (None, None));
+        assert_eq!((&contest.srx_string, &contest.stx_string), (&None, &None));
+        assert_eq!(
+            (&local.ota.their_program, &local.ota.their_ref),
+            (&None, &None)
+        );
+        assert!(local.extra.iter().all(|(name, _)| ![
+            "BAND_RX", "SAT_MODE", "CNTY", "CQZ", "ITUZ", "QSL_VIA", "DARC_DOK", "WWFF_REF"
+        ]
+        .contains(&name.as_str())));
+        assert!(patch_equivalent(&local_common(&local), &remote));
     }
 
     #[test]
@@ -2775,27 +3075,16 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_or_mismatched_scoped_status_fails_closed_without_loading_the_ledger() {
-        let legacy = test_state_path("status-corrupt");
+    fn corrupt_ledger_fails_closed_even_when_a_clean_status_sidecar_exists() {
+        let legacy = test_state_path("ledger-corrupt-with-sidecar");
         let endpoint = "https://log.example/index.php/api/v2";
         let scoped = scoped_state_path(&legacy, endpoint, "1");
         save_state(&scoped, &SyncState::fresh(endpoint, "1")).unwrap();
-        fs::write(status_path(&scoped), b"not-json").unwrap();
+        fs::write(status_path(&scoped), br#"{"deliveryUnknownCreates":0}"#).unwrap();
+        fs::write(&scoped, b"not-json").unwrap();
         let engine = Mutex::new(Engine::new("N0CALL", "AA00", 0));
-        assert!(status(&engine, endpoint, "1", &legacy)
-            .unwrap_err()
-            .contains("status is corrupt"));
-
-        let wrong = StatusState {
-            version: STATE_VERSION,
-            endpoint: "https://other.example/index.php/api/v2".into(),
-            station_id: "1".into(),
-            status: status_from_state(&SyncState::fresh(endpoint, "1")),
-        };
-        atomic_write(&status_path(&scoped), &serde_json::to_vec(&wrong).unwrap()).unwrap();
-        assert!(status(&engine, endpoint, "1", &legacy)
-            .unwrap_err()
-            .contains("different endpoint"));
+        let error = status(&engine, endpoint, "1", &legacy).unwrap_err();
+        assert!(error.contains("state") && error.contains("corrupt"));
         remove_test_state(&scoped);
     }
 

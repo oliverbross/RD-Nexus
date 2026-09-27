@@ -139,7 +139,8 @@ describe('Wavelog scheduled synchronization status', () => {
     api.get('getWavelogV2Status').mockImplementation(() => Promise.resolve({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, lastIncrementalSyncUnix: 1, lastFullSyncUnix: 1, incrementalIntervalSeconds: 300, fullSyncIntervalSeconds: 86_400, syncing: true, lastError: null, deliveryUnknownCreates: 0 }))
     renderPanel()
     fireEvent.click(await screen.findByRole('tab', { name: 'Logging & Connectors' }))
-    expect(await screen.findByRole('button', { name: 'Cancel sync' })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel sync' }))
+    expect(await screen.findByText(/60-second durability timeout/i)).toBeTruthy()
   })
 
   it('surfaces delivery_unknown as an alert and only then offers operator recovery', async () => {

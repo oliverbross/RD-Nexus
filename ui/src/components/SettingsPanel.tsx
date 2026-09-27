@@ -1515,8 +1515,8 @@ export function SettingsPanel({
         .catch(() => {})
     }
     read()
-    // The compact native status sidecar makes this polling independent of the 67k-QSO ledger.
-    // Two seconds makes a scheduler-started full audit expose Cancel without a stale panel.
+    // Two seconds makes a scheduler-started full audit expose Cancel without a stale panel. The
+    // native command derives delivery_unknown from the authoritative ledger, never a sidecar.
     const timer = window.setInterval(read, 2_000)
     return () => {
       live = false

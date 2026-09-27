@@ -255,7 +255,7 @@ spot goes to and which one an APRS tune goes to.
 | **N3FJP** | Real-time Field Day and everyday ACLog QSO push over the official TCP API, with a connection Test button |
 | **APRS-IS** | Read-only network feed with a radius and watched callsigns, plus an optional receive-only iGate that contributes only what your antenna heard |
 | **DXKeeper (DXLab)** | Each logged QSO pushed to DXKeeper's TCP Network Service |
-| **Cloudlog / Wavelog** | Per-QSO push to your self-hosted instance |
+| **Cloudlog / Wavelog** | Wavelog API v2 two-way QSO sync for stock editable fields, with bounded full audits for remote edits/deletes and explicit recovery for uncertain creates; legacy keys remain upload-only |
 | **LoTW** | TQSL upload + two-pull incremental confirmation sync |
 | **QRZ.com** | Callbook autofill, logbook push, two-way sync, and optional hourly confirmation pulls |
 | **ClubLog / eQSL / HRDLog** | Real-time push (official installers bundle the ClubLog API key; source builds supply their own free key) and InBox confirmation import |

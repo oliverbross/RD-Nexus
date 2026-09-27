@@ -6926,12 +6926,12 @@ export const EN = {
     'Wavelog ▸ Account ▸ API Keys — use a v2 read/write token beginning wl2_. Stored in the OS keychain, never on disk.',
   'settings.confirmations.cloudlog.upload.label': 'Automatic Wavelog sync',
   'settings.confirmations.cloudlog.upload.hint':
-    'Every five minutes, API v2 imports new remote QSOs and sends all local additions, edits and bound deletions. Remote edits and deletes wait for the configured full audit.',
+    'Every five minutes, API v2 imports new remote QSOs and sends local additions, bound deletions, and edits to fields supported by stock Wavelog API v2. Local confirmation and account metadata is not updated by PATCH. Remote edits and deletes wait for the configured full audit.',
   'settings.confirmations.cloudlog.sync.action': 'Sync both logbooks now',
   'settings.confirmations.cloudlog.sync.busy': 'Synchronising…',
   'settings.confirmations.cloudlog.sync.cancel': 'Cancel sync',
   'settings.confirmations.cloudlog.sync.cancelRequested':
-    'Cancellation requested — waiting for the current HTTP request (bounded to 30 seconds).',
+    'Cancellation requested — the current HTTP request has a 30-second timeout and the current local batch uses a 60-second durability timeout; then no next batch starts. The OS may take longer to finish an in-flight filesystem flush.',
   'settings.confirmations.cloudlog.deliveryUnknown.action': 'Resolve uncertain upload…',
   'settings.confirmations.cloudlog.deliveryUnknown.title':
     'Use only after checking Wavelog for the missing QSO',
@@ -6944,7 +6944,7 @@ export const EN = {
   'settings.confirmations.cloudlog.deliveryUnknown.status':
     '{{count}} create delivery outcome(s) are unknown. Verify each QSO in Wavelog before using operator recovery.',
   'settings.confirmations.cloudlog.sync.hint':
-    'The five-minute pass imports remote creates and sends every local change. Remote edits/deletes are applied only by a full audit; a bulk-deletion guard runs before changes.',
+    'The five-minute pass imports remote creates and sends local additions, bound deletions, and stock API v2-supported field edits. Local confirmation/account metadata is not PATCHed. Remote edits/deletes are applied only by a full audit; a bulk-deletion guard runs before changes.',
   'settings.confirmations.cloudlog.sync.summary':
     'Wavelog sync complete: {{downloaded}} down, {{uploaded}} up, {{localUpdates}} local edits, {{remoteUpdates}} remote edits, {{localDeletes}} local deletes, {{remoteDeletes}} remote deletes.',
   'settings.confirmations.cloudlog.fullAudit.label': 'Full remote audit interval (hours)',
