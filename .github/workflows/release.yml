@@ -233,6 +233,8 @@ jobs:
           [ -s "$ohc/NODE-RUNTIME-LICENSE.txt" ] || { echo "Node.js runtime license missing from the .deb"; exit 1; }
           grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
             || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
+          node scripts/check-openhamclock-package.mjs \
+            --target linux-x64 --bundle-resources /tmp/dc/usr/lib/Nexus
           # HAMLIB MUST BE IN BOTH ARTIFACTS, and it must RUN from where it lands.
           #
           # Before 1.9.0 the AppImage shipped Hamlib's five licence .txt files and no Hamlib, and
@@ -262,6 +264,8 @@ jobs:
             || { echo "Node.js runtime license missing from the AppImage"; exit 1; }
           grep -q '6cfb6b2d8011828a8067e6d9f3659044168cbef1' "$ohc/provenance.json" \
             || { echo "OpenHamClock provenance is not the reviewed revision"; exit 1; }
+          node scripts/check-openhamclock-package.mjs \
+            --target linux-x64 --bundle-resources squashfs-root/usr/lib/Nexus
           # GSTREAMER PLUGINS, or every alert tone in the app is silently dead. linuxdeploy
           # bundles GStreamer's core libraries and no plugins, then points the plugin search
           # path INSIDE the AppImage at a directory it never created — which also suppresses
@@ -509,6 +513,13 @@ jobs:
             || { echo "NSIS listing has no Node.js runtime license"; exit 1; }
           7z l "$exe" | grep -Eqi 'openhamclock[\\/]+provenance\.json' \
             || { echo "NSIS listing has no OpenHamClock provenance"; exit 1; }
+          rm -rf /tmp/nexus-nsis-check
+          7z x -y -o/tmp/nexus-nsis-check "$exe" >/dev/null
+          ohc_receipt=$(find /tmp/nexus-nsis-check -path '*/resources/openhamclock/build-receipt.json' -print -quit)
+          [ -n "$ohc_receipt" ] || { echo "NSIS payload has no OpenHamClock build receipt"; exit 1; }
+          nsis_root=$(dirname "$(dirname "$(dirname "$ohc_receipt")")")
+          node scripts/check-openhamclock-package.mjs \
+            --target win-x64 --bundle-resources "$nsis_root"
           [ "$sz" -gt 190000000 ] || { echo "installer only $sz bytes — too small to contain the ~150 MB offline WebView2 runtime"; exit 1; }
           mkdir -p out && cp "$exe" out/
           # The updater signature. THE KEY DECIDES WHETHER IT IS REQUIRED — same change, same
