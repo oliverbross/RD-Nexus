@@ -2727,10 +2727,26 @@ mod tests {
 
     #[test]
     fn final_post_http_boundaries_fail_closed() {
-        assert!(matches!(
-            classify_final_post_status(422, "rejected".into()),
-            FinalPostError::Deterministic(_)
-        ));
+        for status in [400, 401, 403, 422] {
+            assert!(matches!(
+                classify_final_post_status(status, format!("HTTP {status}")),
+                FinalPostError::Deterministic(_)
+            ));
+        }
+        for status in [418, 499] {
+            let draft = Draft {
+                id: format!("ambiguous-{status}"),
+                state: "posting".into(),
+                ..Draft::default()
+            };
+            let mut store = Store::default();
+            store.drafts.push(draft.clone());
+            let failure = classify_final_post_status(status, format!("HTTP {status}"));
+            assert!(matches!(failure, FinalPostError::Ambiguous(_)));
+            record_final_post_failure(&mut store, 0, draft, failure);
+            assert_eq!(store.drafts[0].state, "delivery_unknown");
+            assert!(requires_delivery_reconciliation(&store.drafts[0]));
+        }
         for status in [404, 408, 409, 425, 429, 500, 502, 503, 504] {
             assert!(matches!(
                 classify_final_post_status(status, format!("HTTP {status}")),
@@ -2767,6 +2783,7 @@ mod tests {
             group_id: "original-group".into(),
             topic_id: Some("original-topic".into()),
             reply_message_number: Some("7".into()),
+            reply_api_message_id: Some("api-original".into()),
             kind: "reply".into(),
             remote_draft_id: Some("remote-1".into()),
             state: "failed_retryable".into(),
@@ -2780,6 +2797,7 @@ mod tests {
                 group_id: "different-group".into(),
                 topic_id: Some("different-topic".into()),
                 reply_message_number: Some("99".into()),
+                reply_api_message_id: Some("api-replacement".into()),
                 kind: "new_topic".into(),
                 subject: "Edited".into(),
                 body: "New body".into(),
@@ -2794,6 +2812,10 @@ mod tests {
         assert_eq!(saved.group_id, "original-group");
         assert_eq!(saved.topic_id.as_deref(), Some("original-topic"));
         assert_eq!(saved.reply_message_number.as_deref(), Some("7"));
+        assert_eq!(
+            saved.reply_api_message_id.as_deref(),
+            Some("api-original")
+        );
         assert_eq!(saved.kind, "reply");
         assert_eq!(saved.subject, "Edited");
         assert_eq!(saved.body, "New body");
