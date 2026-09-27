@@ -1827,11 +1827,11 @@ export const EN = {
   },
   // The whole sentence, with the settings link as a MARKER — the element comes from the
   // call site, so the catalog cannot introduce one.
-  'needed.phone.off.link': 'Phone source off — <a>turn on “DX Cluster / RBN spots”</a>',
+  'needed.phone.off.link': 'Phone source off — <a>turn on “DX Cluster spots”</a>',
   'needed.phone.off.plain':
-    'Phone source off — turn on “DX Cluster / RBN spots” in Settings ▸ Integrations & Feeds',
+    'Phone source off — turn on “DX Cluster spots” in Settings ▸ Integrations & Feeds',
   'needed.phone.off.title':
-    'Phone/SSB needs come only from a human DX-cluster node. This shows when the DX Cluster feed is disabled OR no human host is set — turn on “DX Cluster / RBN spots” and add a host (e.g. ve7cc.net:23) in Settings ▸ Integrations & Feeds. RBN carries only CW + digital, never SSB.',
+    'Phone/SSB needs come only from a human DX-cluster node. This shows when the DX Cluster feed is disabled OR no human host is set — turn on “DX Cluster spots” and add a host (e.g. ve7cc.net:23) in Settings ▸ Integrations & Feeds. RBN carries only CW + digital, never SSB.',
 
   // The grid. Column headings name a CONCEPT; every value under them is a token.
   'needed.grid.aria': 'Needed now — arrow to move, Enter to work or QSY',
@@ -6533,9 +6533,12 @@ export const EN = {
     'WAVs land in recordings/periods (12 kHz mono, ~360 KB each). "All" writes ~2 GB/day of continuous monitoring — use for decoder debugging, not always-on.',
   'settings.integrations.spotSources.title': 'Spot Sources',
   'settings.integrations.pskreporter.hint': 'upload spots to the global map',
-  'settings.integrations.clusterSpots.label': 'DX Cluster / RBN spots',
+  'settings.integrations.clusterSpots.label': 'DX Cluster spots',
   'settings.integrations.clusterSpots.hint':
-    'Surface "new ones" from the Reverse Beacon Network on the Needed board + Connect. Takes effect on restart.',
+    'Surface spots from human DX-cluster nodes, including Phone/SSB, on the Needed board + Connect.',
+  'settings.integrations.rbnSpots.label': 'RBN spots',
+  'settings.integrations.rbnSpots.hint':
+    'Surface CW and digital "new ones" from the Reverse Beacon Network on the Needed board + Connect.',
   'settings.integrations.clusterNodes.label': 'Phone/SSB cluster nodes',
   'settings.integrations.clusterNodes.empty':
     'No nodes — add one below to get SSB/phone needs (RBN only carries CW + digital).',

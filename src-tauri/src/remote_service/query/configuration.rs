@@ -112,6 +112,7 @@ pub(super) const SETTINGS_KEYS: &[&str] = &[
     "wavelogFullSyncHours",
     "clublogUpload",
     "clusterEnabled",
+    "rbnEnabled",
     "clusterHost",
     "clusterHosts",
     "clusterNodesAuto",
@@ -693,6 +694,7 @@ pub(super) const WRITE_DENIED_KEYS: &[&str] = &[
     "companionAddr",
     "pskreporter",
     "clusterEnabled",
+    "rbnEnabled",
     "clusterHost",
     "clusterHosts",
     "clusterNodesAuto",
@@ -765,7 +767,7 @@ pub(super) const WRITE_DENIED_KEYS: &[&str] = &[
 ];
 impl Serialize for SettingsView<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut out = serializer.serialize_struct("SettingsView", 271)?;
+        let mut out = serializer.serialize_struct("SettingsView", 272)?;
         out.serialize_field("mycall", &self.0.mycall)?;
         out.serialize_field("mygrid", &self.0.mygrid)?;
         out.serialize_field("opName", &self.0.op_name)?;
@@ -928,6 +930,7 @@ impl Serialize for SettingsView<'_> {
         out.serialize_field("source", &self.0.source)?;
         out.serialize_field("pskreporter", &self.0.pskreporter)?;
         out.serialize_field("clusterEnabled", &self.0.cluster_enabled)?;
+        out.serialize_field("rbnEnabled", &self.0.rbn_enabled)?;
         out.serialize_field("clusterHost", &self.0.cluster_host)?;
         out.serialize_field("clusterHosts", &self.0.cluster_hosts)?;
         out.serialize_field("clusterNodesAuto", &self.0.cluster_nodes_auto)?;

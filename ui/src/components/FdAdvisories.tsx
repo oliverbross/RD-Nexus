@@ -27,14 +27,14 @@ import { t } from '../i18n'
  * ⚠️ MIRROR of the backend assistance-source display labels
  * (`Settings::assistance_sources()`, settings.rs) — change neither side alone;
  * guard-tested from Rust (`the_advisory_ui_matches_real_assistance_source_labels`).
- * Cluster restriction maps to the cluster/RBN feed; a spotting restriction
+ * Cluster restriction maps to both cluster spot feeds; a spotting restriction
  * covers both spot-consuming feeds (ARRL's glossary files PSK Reporter's
  * inbound reports under "Spotting/QSO Finding Assistance" — see
  * `pskr_evidence_active`). The AI CW decoder is decoding assistance, not
  * spotting, so neither flag matches it.
  */
-const CLUSTER_SOURCES = ['DX cluster / RBN']
-const SPOTTING_SOURCES = ['DX cluster / RBN', 'PSK Reporter needs']
+const CLUSTER_SOURCES = ['DX cluster', 'RBN']
+const SPOTTING_SOURCES = ['DX cluster', 'RBN', 'PSK Reporter needs']
 
 export function FdAdvisories({
   fdActive,

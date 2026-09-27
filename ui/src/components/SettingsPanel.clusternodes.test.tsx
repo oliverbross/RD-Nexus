@@ -122,6 +122,18 @@ afterEach(() => {
 })
 
 describe('cluster nodes, automatic', () => {
+  it('offers independent DX Cluster and RBN switches', async () => {
+    await openSpotSources()
+    const cluster = screen.getByRole('switch', { name: 'DX Cluster spots' })
+    const rbn = screen.getByRole('switch', { name: 'RBN spots' })
+    expect(cluster.getAttribute('aria-checked')).toBe('true')
+    expect(rbn.getAttribute('aria-checked')).toBe('true')
+
+    fireEvent.click(rbn)
+    expect(cluster.getAttribute('aria-checked')).toBe('true')
+    expect(rbn.getAttribute('aria-checked')).toBe('false')
+  }, 15_000)
+
   it('shows each built-in node with what Nexus is doing with it (T14)', async () => {
     const group = await openSpotSources()
     expect(

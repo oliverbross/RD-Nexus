@@ -502,10 +502,6 @@ type SharedSpots = Arc<Mutex<tempo_net::cluster::SpotBuffer>>;
 /// trend. Distinct payload type → distinct TypeId for `.manage()`.
 type SharedWxHistory = Arc<Mutex<propagation::SpaceWxHistory>>;
 
-/// The cluster thread runs for the process lifetime (a desktop daemon thread);
-/// this stop flag exists only so `cluster::run`'s signature is satisfied.
-static CLUSTER_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// Mirror of `settings.unassisted_mode` for the cluster/RBN socket threads.
 ///
 /// Those threads parse spots on their own thread and must not take the engine lock once per
@@ -516,9 +512,17 @@ static CLUSTER_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBo
 /// Pounce — can surface one, and no socket teardown has to race the operator.
 static UNASSISTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Mirror of `settings.rbn_enabled` for the RBN socket threads. It closes the admission race while
+/// a running feed observes its stop flag, leaving human DX-cluster nodes independent.
+static RBN_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
 /// Is the operator running an UNASSISTED entry right now? See [`UNASSISTED`].
 fn unassisted() -> bool {
     UNASSISTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn rbn_enabled() -> bool {
+    RBN_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The operator's QTH as [`spotter_evidence_rank`] needs it: (callsign, station
@@ -654,9 +658,110 @@ static RBN_DEAD_OUTBOX: std::sync::Mutex<std::collections::VecDeque<String>> =
 /// evidence. SSB/phone has no skimmer network, so it comes from the human nodes (cluster_hosts).
 const RBN_CW_HOST: &str = "telnet.reversebeacon.net:7000";
 const RBN_DIGITAL_HOST: &str = "telnet.reversebeacon.net:7001";
-static RBN_CW_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static RBN_DIGITAL_STARTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+
+struct RbnFeed {
+    host: String,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    connected: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RbnFeed {
+    fn new(host: &str) -> Self {
+        Self {
+            host: host.to_string(),
+            stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            thread: None,
+        }
+    }
+}
+
+struct RbnFeeds(Vec<RbnFeed>);
+
+impl RbnFeeds {
+    const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn take_stopping(&mut self) -> Vec<RbnFeed> {
+        use std::sync::atomic::Ordering::SeqCst;
+        for feed in &self.0 {
+            feed.stop.store(true, SeqCst);
+        }
+        std::mem::take(&mut self.0)
+    }
+
+    #[cfg(test)]
+    fn set_test_hosts(&mut self, desired: &[&str]) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let desired: Vec<String> = desired.iter().map(|host| (*host).to_string()).collect();
+        for feed in &self.0 {
+            if !desired.iter().any(|host| host.eq_ignore_ascii_case(&feed.host)) {
+                feed.stop.store(true, SeqCst);
+            }
+        }
+        self.0.retain(|feed| {
+            desired
+                .iter()
+                .any(|host| host.eq_ignore_ascii_case(&feed.host))
+        });
+        for host in desired {
+            if !self.0.iter().any(|feed| feed.host.eq_ignore_ascii_case(&host)) {
+                self.0.push(RbnFeed::new(&host));
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn any_connected(&self) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        self.0
+            .iter()
+            .any(|feed| feed.connected.load(Relaxed))
+    }
+}
+
+static RBN_FEEDS: Mutex<RbnFeeds> = Mutex::new(RbnFeeds::new());
+static RBN_DESIRED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static RBN_TRANSITION_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+static RBN_DRAIN: Mutex<()> = Mutex::new(());
+
+fn spawn_rbn_transition(
+    mut old: Vec<RbnFeed>,
+    generation: u64,
+    finish: impl FnOnce() + Send + 'static,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let _drain = RBN_DRAIN.lock().unwrap_or_else(|e| e.into_inner());
+        for feed in &mut old {
+            if let Some(thread) = feed.thread.take() {
+                let _ = thread.join();
+            }
+        }
+        if RBN_TRANSITION_GENERATION.load(std::sync::atomic::Ordering::SeqCst) == generation {
+            finish();
+        }
+    })
+}
+
+fn rbn_any_connected() -> bool {
+    RBN_FEEDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .any_connected()
+}
+
+fn rbn_running() -> bool {
+    !RBN_FEEDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty()
+}
 
 /// Recent live PSK Reporter MQTT reception reports (the "getting out" firehose),
 /// fed by the background MQTT thread and merged into the propagation nowcast.
@@ -686,10 +791,10 @@ type SharedOpeningTracker = Arc<Mutex<propagation::OpeningTracker>>;
 #[derive(Clone)]
 struct SharedRegionPaths(Arc<Mutex<propagation::LiveSpots>>);
 
-/// Lifetime stop flag for the PSK Reporter MQTT daemon thread (see CLUSTER_STOP).
+/// Lifetime stop flag for the PSK Reporter MQTT daemon thread.
 static PSKR_STOP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// One-shot latch for the PSK Reporter MQTT daemon thread (see RBN_CW_STARTED).
+/// One-shot latch for the PSK Reporter MQTT daemon thread.
 static PSKR_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// WSPR poller ownership: (generation, callsign being polled). A start for the
 /// SAME call is a no-op (apply_settings calls this on every save); a start for
@@ -721,10 +826,6 @@ struct FeedHealthState {
     cluster_last: std::sync::atomic::AtomicI64,
     /// Last successfully parsed PSK Reporter MQTT report.
     pskr_last_event: std::sync::atomic::AtomicI64,
-    /// Cluster telnet session currently up (set on TCP-established, cleared on drop).
-    /// Lets the pill say "connected" (quiet but healthy) instead of an ambiguous
-    /// "waiting" that reads as broken.
-    cluster_connected: std::sync::atomic::AtomicBool,
     /// PSK Reporter MQTT session currently up (set on accepted CONNACK, cleared on drop).
     pskr_connected: std::sync::atomic::AtomicBool,
     /// Last parsed PHONE-CLASSED spot from any human DX-cluster node — the true "is SSB
@@ -931,57 +1032,94 @@ fn is_real_call(call: &str) -> bool {
         && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '/')
 }
 
-/// Connect ALL enabled spot sources (SpotCollector-style aggregation): the RBN CW + RBN
-/// digital skimmer firehoses, plus the human DX-cluster nodes — the SSB/phone aggregator —
-/// that should run: the nodes Nexus picks, or every node in the operator's own list (see
-/// `cluster_nodes`). RBN endpoints are wired once via fixed latches; the human nodes are
-/// RECONCILED, so a node added in Settings connects on the next save and a node removed
-/// disconnects on it. No-op per feed unless `mycall` is a [`is_real_call`]; the caller owns the
-/// `Settings::cluster_active` gate (which folds in Unassisted mode) and publishes the node
-/// settings (`cluster_nodes::set_config`) first. All push into the one shared `spots` buffer
-/// the need-matcher reads. `restarting` is `restart_live_feeds`' own call — see
-/// `cluster_nodes::reconcile`.
-fn start_cluster_feeds(
+/// Reconcile the Reverse Beacon Network sources independently of human DX-cluster nodes.
+fn sync_rbn_feeds(
     spots: &SharedSpots,
     mycall: &str,
     cluster_ssid: &str,
     health: &SharedHealth,
+    active: bool,
     restarting: bool,
 ) {
-    start_cluster_feed(
-        spots,
-        RBN_CW_HOST,
-        mycall,
-        cluster_ssid,
-        health,
-        &RBN_CW_STARTED,
-    );
-    start_cluster_feed(
-        spots,
-        RBN_DIGITAL_HOST,
-        mycall,
-        cluster_ssid,
-        health,
-        &RBN_DIGITAL_STARTED,
-    );
+    if !restarting && FEED_RESTART_IN_FLIGHT.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let desired: Vec<String> = if active && is_real_call(mycall) {
+        vec![RBN_CW_HOST.to_string(), RBN_DIGITAL_HOST.to_string()]
+    } else {
+        Vec::new()
+    };
+    {
+        let mut wanted = RBN_DESIRED.lock().unwrap_or_else(|e| e.into_inner());
+        if !restarting && *wanted == desired {
+            return;
+        }
+        *wanted = desired.clone();
+    }
+    let generation = RBN_TRANSITION_GENERATION
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        + 1;
+    let old = RBN_FEEDS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take_stopping();
+    let spots = spots.clone();
+    let health = health.clone();
+    let mycall = mycall.to_string();
+    let cluster_ssid = cluster_ssid.to_string();
+    spawn_rbn_transition(old, generation, move || {
+        let mut replacements = RbnFeeds::new();
+        for host in &desired {
+            let mut feed = RbnFeed::new(host);
+            feed.thread = Some(start_rbn_feed(
+                &spots,
+                &feed.host,
+                &mycall,
+                &cluster_ssid,
+                &health,
+                feed.stop.clone(),
+                feed.connected.clone(),
+                generation,
+            ));
+            replacements.0.push(feed);
+        }
+        let mut running = RBN_FEEDS.lock().unwrap_or_else(|e| e.into_inner());
+        if RBN_TRANSITION_GENERATION.load(std::sync::atomic::Ordering::SeqCst) == generation {
+            *running = replacements;
+        } else {
+            let stale = replacements.take_stopping();
+            drop(running);
+            for mut feed in stale {
+                if let Some(thread) = feed.thread.take() {
+                    let _ = thread.join();
+                }
+            }
+        }
+    });
+}
+
+/// Reconcile human DX-cluster nodes — the SSB/phone half of spot ingestion.
+fn start_cluster_feeds(spots: &SharedSpots, health: &SharedHealth, restarting: bool) {
     cluster_nodes::reconcile(spots, health, restarting);
 }
 
-/// Spawn one RBN skimmer telnet feed (CW or digital). Once-latched via `started`; each parsed
+/// Spawn one RBN skimmer telnet feed (CW or digital). Each parsed
 /// spot stamps the aggregate `cluster_last` and the session toggles `cluster_connected`.
-fn start_cluster_feed(
+fn start_rbn_feed(
     spots: &SharedSpots,
     cluster_host: &str,
     mycall: &str,
     cluster_ssid: &str,
     health: &SharedHealth,
-    started: &std::sync::atomic::AtomicBool,
-) {
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    connected: Arc<std::sync::atomic::AtomicBool>,
+    generation: u64,
+) -> std::thread::JoinHandle<()> {
     // The gate reads the BARE call: `is_real_call` admits no '-', so testing the
     // login call here would silently switch every feed off the moment an operator
     // set an SSID.
-    if !is_real_call(mycall) || started.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return;
+    if !is_real_call(mycall) {
+        return std::thread::spawn(|| {});
     }
     let call = tempo_net::cluster::login_call(mycall, cluster_ssid);
     conn_log(
@@ -991,7 +1129,6 @@ fn start_cluster_feed(
     );
     let buf = spots.clone();
     let hp = health.clone();
-    let hp_conn = health.clone();
     let host = cluster_host.to_string();
     std::thread::spawn(move || {
         let mut log = tempo_net::cluster::LogFilter::default();
@@ -1004,7 +1141,11 @@ fn start_cluster_feed(
                 // mid-event flip takes effect on the very next packet without waiting for a
                 // socket teardown. The feed intentionally stays connected and simply
                 // discards — reconnecting later is what would cost the operator spots.
-                if unassisted() {
+                if unassisted()
+                    || !rbn_enabled()
+                    || RBN_TRANSITION_GENERATION.load(std::sync::atomic::Ordering::Relaxed)
+                        != generation
+                {
                     return;
                 }
                 hp.cluster_last
@@ -1022,8 +1163,8 @@ fn start_cluster_feed(
                     b.push_ranked(s, spotter_evidence_rank);
                 }
             },
-            &CLUSTER_STOP,
-            &hp_conn.cluster_connected,
+            stop.as_ref(),
+            connected.as_ref(),
             &RBN_DEAD_OUTBOX, // RBN is receive-only — never post to a skimmer
             |outcome| {
                 if let Some(line) = log.line(&host, outcome) {
@@ -1031,7 +1172,7 @@ fn start_cluster_feed(
                 }
             },
         );
-    });
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1263,18 +1404,30 @@ fn start_human_cluster_feed(
         format!("connecting to {} as {call}", feed.host()),
     );
     let (stop, conn) = feed.flags();
+    let (generation, start_delay) = feed.start_guard();
     let buf = spots.clone();
     let hp = health.clone();
     let host = feed.host().to_string();
     let call = call.to_string();
     std::thread::spawn(move || {
+        if !start_delay.is_zero() {
+            std::thread::sleep(start_delay);
+        }
+        if stop.load(std::sync::atomic::Ordering::SeqCst)
+            || !cluster_nodes::generation_is_current(generation)
+        {
+            return;
+        }
         let mut log = tempo_net::cluster::LogFilter::default();
         tempo_net::cluster::run(
             &host,
             &call,
             |sp| {
-                // UNASSISTED mode: drop at the door — see the RBN callback above.
-                if unassisted() {
+                // Disabled or UNASSISTED: drop at the door — see the RBN callback above.
+                if unassisted()
+                    || !cluster_nodes::active()
+                    || !cluster_nodes::generation_is_current(generation)
+                {
                     return;
                 }
                 let ts = now_unix();
@@ -1603,9 +1756,9 @@ fn read_feed_health(health: &SharedHealth) -> FeedHealth {
     };
     FeedHealth {
         cluster: feed_status(
-            // Any of the cluster sources spawned (RBN CW/digital firehoses + any human node).
-            RBN_CW_STARTED.load(Relaxed) || RBN_DIGITAL_STARTED.load(Relaxed) || nodes_running,
-            health.cluster_connected.load(Relaxed),
+            // Any spot source spawned; connected means any RBN socket or human node is up.
+            rbn_running() || nodes_running,
+            rbn_any_connected() || phone_connected,
             health.cluster_last.load(Relaxed),
             now,
         ),
@@ -12402,9 +12555,9 @@ fn apply_and_persist(
     // upgrade seed would re-inject the stale legacy host on the next launch.
     settings.cluster_host = settings.cluster_hosts.first().cloned().unwrap_or_default();
     // Capture the feed config before `settings` moves into the engine.
-    // `cluster_active()`, not the raw setting: Unassisted mode must also stop the
-    // cluster/RBN feeds from STARTING, not just discard what they deliver.
-    let cluster_active = settings.cluster_active();
+    // The source-specific active checks fold in Unassisted mode, so either family can stop without
+    // changing the other setting and both stop during an unassisted entry.
+    let rbn_active = settings.rbn_active();
     let node_config = cluster_nodes::NodeConfig::of(&settings);
     let cluster_ssid = settings.cluster_ssid.clone();
     let mycall = settings.mycall.clone();
@@ -12461,9 +12614,15 @@ fn apply_and_persist(
     // Published only here and not before the rename check above: a callsign change leaves the
     // node settings to the drain, which re-reads the latest and publishes them itself.
     cluster_nodes::set_config(node_config);
-    if cluster_active {
-        start_cluster_feeds(spots.inner(), &mycall, &cluster_ssid, health.inner(), false);
-    }
+    sync_rbn_feeds(
+        spots.inner(),
+        &mycall,
+        &cluster_ssid,
+        health.inner(),
+        rbn_active,
+        false,
+    );
+    start_cluster_feeds(spots.inner(), health.inner(), false);
     // Reconnects only when the server, filter, callsign or uplink actually changed — the login
     // line carries all of them, so any edit to one needs a fresh session.
     sync_aprs_is_feed(state.inner());
@@ -12573,6 +12732,7 @@ fn save_and_publish(
         published.unassisted_mode,
         std::sync::atomic::Ordering::Relaxed,
     );
+    RBN_ENABLED.store(published.rbn_enabled, std::sync::atomic::Ordering::Relaxed);
     journal_assistance(&published, "settings saved", false);
     // The spot buffer's voice ranking is QTH-relative and the feed threads outlive a
     // save, so it reads this mirror rather than a spawn-time capture.
@@ -12771,7 +12931,7 @@ fn restart_live_feeds(
         "info",
         "callsign changed — restarting cluster + PSK Reporter + WSPR feeds under the new call",
     );
-    CLUSTER_STOP.store(true, SeqCst);
+    sync_rbn_feeds(&spots, "", "", &health, false, true);
     // Node feeds stop on their own flags, and leave the registry now, under its lock: after this
     // no feed can start until the drain below has published the new callsign.
     cluster_nodes::stop_all();
@@ -12794,29 +12954,21 @@ fn restart_live_feeds(
         }
         health.cluster_last.store(0, SeqCst);
         health.pskr_last_event.store(0, SeqCst);
-        health.cluster_connected.store(false, SeqCst);
         health.pskr_connected.store(false, SeqCst);
         health.phone_cluster_last.store(0, SeqCst);
         health.phone_spots_seen.store(0, SeqCst);
-        // Re-arm: clear stops + release the once-latches, then start fresh threads
+        // Re-arm the remaining one-shot feeds, then start fresh threads
         // from the LATEST persisted settings (NOT spawn-time captures — a second
         // save during the drain must win). An emptied/invalid callsign simply
         // no-ops inside start_* (is_real_call gate) → feeds stay down, correctly.
-        CLUSTER_STOP.store(false, SeqCst);
         PSKR_STOP.store(false, SeqCst);
-        // ALL cluster latches must re-arm — CLUSTER_STOP halts the RBN threads too, so
-        // leaving their latches set would strand RBN (CW/digital) down after a rename.
-        RBN_CW_STARTED.store(false, SeqCst);
-        RBN_DIGITAL_STARTED.store(false, SeqCst);
         PSKR_STARTED.store(false, SeqCst);
         PSKR_REGION_STARTED.store(false, SeqCst);
-        let (cluster_active, node_config, cluster_ssid, mycall, mygrid, opening_regional) = {
+        let (rbn_active, node_config, cluster_ssid, mycall, mygrid, opening_regional) = {
             let eng = engine_lock(&engine);
             let st = eng.settings();
             (
-                // `cluster_active` folds in Unassisted mode: a re-arm during an
-                // unassisted entry must not bring the cluster back up.
-                st.cluster_active(),
+                st.rbn_active(),
                 cluster_nodes::NodeConfig::of(st),
                 st.cluster_ssid.clone(),
                 st.mycall.clone(),
@@ -12825,9 +12977,15 @@ fn restart_live_feeds(
             )
         };
         cluster_nodes::set_config(node_config);
-        if cluster_active {
-            start_cluster_feeds(&spots, &mycall, &cluster_ssid, &health, true);
-        }
+        sync_rbn_feeds(
+            &spots,
+            &mycall,
+            &cluster_ssid,
+            &health,
+            rbn_active,
+            true,
+        );
+        start_cluster_feeds(&spots, &health, true);
         start_pskr_feed(&live_paths, &mycall, &health);
         start_wspr_feed(&live_paths, &mycall);
         if opening_regional {
@@ -27408,8 +27566,7 @@ pub fn run() {
     // below (best-effort — a failed UDP bind falls back to native).
     let persisted_source = settings.source;
     // Cluster/RBN feed config (captured before `settings` moves into the engine).
-    // `cluster_active()` folds in Unassisted mode, so an unassisted entry connects nothing.
-    let cluster_active = settings.cluster_active();
+    let rbn_active = settings.rbn_active();
     // Mirror the persisted flag to the atomic the feed callbacks read BEFORE any feed can be
     // spawned, so the "atomic always agrees with settings" invariant holds from the earliest
     // possible moment rather than depending on startup ordering.
@@ -27417,6 +27574,7 @@ pub fn run() {
         settings.unassisted_mode,
         std::sync::atomic::Ordering::Relaxed,
     );
+    RBN_ENABLED.store(settings.rbn_enabled, std::sync::atomic::Ordering::Relaxed);
     let node_config = cluster_nodes::NodeConfig::of(&settings);
     let cluster_ssid = settings.cluster_ssid.clone();
     let cluster_call = settings.mycall.clone();
@@ -27494,9 +27652,15 @@ pub fn run() {
     ))));
     let health: SharedHealth = Arc::new(FeedHealthState::default());
     cluster_nodes::set_config(node_config);
-    if cluster_active {
-        start_cluster_feeds(&spots, &cluster_call, &cluster_ssid, &health, false);
-    }
+    sync_rbn_feeds(
+        &spots,
+        &cluster_call,
+        &cluster_ssid,
+        &health,
+        rbn_active,
+        false,
+    );
+    start_cluster_feeds(&spots, &health, false);
     start_pskr_feed(&live_paths, &cluster_call, &health);
     start_wspr_feed(&live_paths, &cluster_call);
     // The APRS-IS feed is independent of the APRS RF decoder's arm state by design, so it comes
@@ -30462,6 +30626,72 @@ fn winlink_disconnect() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use crate::remote_service::stored_log_tests::StoredLog;
+
+    #[test]
+    fn rbn_transitions_are_nonblocking_serial_and_latest_generation_wins() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        let gate = std::sync::Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+        let mut feeds = super::RbnFeeds::new();
+        feeds.set_test_hosts(&[super::RBN_CW_HOST, super::RBN_DIGITAL_HOST]);
+        for feed in &mut feeds.0 {
+            let stop = feed.stop.clone();
+            let gate = gate.clone();
+            feed.thread = Some(std::thread::spawn(move || {
+                while !stop.load(SeqCst) {
+                    std::thread::yield_now();
+                }
+                let (lock, ready) = &*gate;
+                let mut released = lock.lock().unwrap();
+                while !*released {
+                    released = ready.wait(released).unwrap();
+                }
+            }));
+        }
+        let old = feeds.take_stopping();
+        let first_finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let second_finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+        let generation = super::RBN_TRANSITION_GENERATION.fetch_add(1, SeqCst) + 1;
+        let first_flag = first_finished.clone();
+        let before = std::time::Instant::now();
+        let first = super::spawn_rbn_transition(old, generation, move || {
+            first_flag.store(true, SeqCst)
+        });
+        assert!(before.elapsed() < std::time::Duration::from_millis(100));
+
+        let generation = super::RBN_TRANSITION_GENERATION.fetch_add(1, SeqCst) + 1;
+        let second_flag = second_finished.clone();
+        let second = super::spawn_rbn_transition(Vec::new(), generation, move || {
+            second_flag.store(true, SeqCst)
+        });
+        assert!(!first_finished.load(SeqCst));
+        assert!(!second_finished.load(SeqCst));
+
+        let (lock, ready) = &*gate;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert!(!first_finished.load(SeqCst), "stale generation restarted feeds");
+        assert!(second_finished.load(SeqCst), "latest generation never started");
+    }
+
+    #[test]
+    fn rbn_health_is_any_live_socket_not_last_socket_to_write() {
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let mut feeds = super::RbnFeeds::new();
+        feeds.set_test_hosts(&[super::RBN_CW_HOST, super::RBN_DIGITAL_HOST]);
+        assert!(!feeds.any_connected(), "both down");
+        feeds.0[0].connected.store(true, Relaxed);
+        assert!(feeds.any_connected(), "CW up while digital is down");
+        feeds.0[0].connected.store(false, Relaxed);
+        feeds.0[1].connected.store(true, Relaxed);
+        assert!(feeds.any_connected(), "digital up while CW is down");
+        feeds.0[1].connected.store(false, Relaxed);
+        assert!(!feeds.any_connected(), "both down again");
+    }
 
     /// The settings backup's stated contract is that it CARRIES NO SECRETS, and
     /// `BACKUP_REDACTED_FIELDS` can only name credentials this build knows about. With
@@ -35805,10 +36035,11 @@ mod tests {
     }
 
     /// The source list exactly as `Settings::assistance_sources` produces it.
-    fn posture(ai: bool, cluster: bool, pskr: bool) -> Vec<AssistanceSourceState> {
+    fn posture(ai: bool, cluster: bool, rbn: bool, pskr: bool) -> Vec<AssistanceSourceState> {
         [
             ("AI CW decoder", ai),
-            ("DX cluster / RBN", cluster),
+            ("DX cluster", cluster),
+            ("RBN", rbn),
             ("PSK Reporter needs", pskr),
         ]
         .into_iter()
@@ -35824,8 +36055,8 @@ mod tests {
     /// identical rows between the operator and the two rows that matter.
     #[test]
     fn the_assistance_journal_records_changes_not_every_save() {
-        let assisted = posture(true, true, true);
-        let silent = posture(false, false, false);
+        let assisted = posture(true, true, true, true);
+        let silent = posture(false, false, false, false);
 
         // First row always writes — an empty record has nothing to compare against.
         assert!(assistance_posture_changed(&[], false, &assisted));
@@ -35846,7 +36077,7 @@ mod tests {
         assert!(assistance_posture_changed(
             &log,
             false,
-            &posture(false, true, true)
+            &posture(false, true, true, true)
         ));
     }
 
