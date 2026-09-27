@@ -261,6 +261,7 @@ spot goes to and which one an APRS tune goes to.
 | **ClubLog / eQSL / HRDLog** | Real-time push (official installers bundle the ClubLog API key; source builds supply their own free key) and InBox confirmation import |
 | **DX cluster / RBN** | Telnet feed with locality-gated VHF admission |
 | **PSK Reporter** | MQTT firehose in for propagation; standard UDP spot uploads out (you appear on the map) |
+| **DX Chaser** | MSHV Auto DX Chaser behavior built into Nexus: locally verified S&P target ranking, rarity and need scoring, band intelligence, slot selection and optional keychain-backed SMS. It reuses the Nexus logbook, decodes, spots and guarded radio control |
 | **CHIRP** | Full CSV round-trip, so channels flow Nexus ⇄ CHIRP ⇄ roughly 1,000 radio models |
 
 Credentials for every service live **only in the OS keychain**, never in config files, never in

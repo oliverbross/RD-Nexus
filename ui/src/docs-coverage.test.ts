@@ -50,6 +50,7 @@ const CHAPTER_ALIASES: Record<string, string> = {
   settings: 'settings-reference',
   // The product name includes spaces while section ids are camel-cased.
   neuralDx: 'neural-dx',
+  dxChaser: 'dx-chaser',
   // The remaining four are plain naming: the nav id is short, the chapter is spelled out.
   needed: 'needed-dx',
   dxped: 'dxpeditions',

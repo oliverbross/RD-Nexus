@@ -104,6 +104,7 @@ import { PskCockpit } from './components/PskCockpit'
 import { Js8Cockpit } from './components/Js8Cockpit'
 import { SstvView } from './components/SstvView'
 import { AprsCockpit } from './components/AprsCockpit'
+import { DxChaserView } from './components/DxChaserView'
 import { PotaSotaView, type OtaSpotClickArg } from './components/PotaSotaView'
 import { StatsView } from './components/StatsView'
 import { DxpeditionsView } from './components/DxpeditionsView'
@@ -2989,6 +2990,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
           onNavigate={setView}
         />
       )
+      break
+    case 'dxChaser':
+      workspace = <DxChaserView />
       break
     case 'awards':
       // Awards + Journey combined: one section, tabbed (Journey + Official Awards).

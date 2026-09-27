@@ -7578,6 +7578,69 @@ impl Engine {
         self.work_spot_split(mode, freq_mhz, band, split_up_khz);
     }
 
+    /// Atomically move an already-armed DX Chaser to an FT8/FT4 candidate and return the
+    /// replacement TX-halt generation its supervisor must bind to.
+    ///
+    /// This is deliberately not a more permissive [`Self::work_spot_tiered`]. The caller must
+    /// present the generation captured when the operator armed Chaser and the universal
+    /// Enable-TX latch must still be up. A Stop TX followed by a manual re-arm therefore cannot
+    /// revive an old automation decision: the values may look armed again, but the generation
+    /// is stale and this method changes nothing.
+    ///
+    /// Once admitted, the old context is retired with the complete [`Self::halt_tx`] kill before
+    /// any tier or dial mutation. That cuts an in-flight over and clears every queued emission;
+    /// the ordinary spot path then retains decoder reset, dial memory, radio routing and mode
+    /// policy. The operator's existing latch is restored only inside this already-authorized,
+    /// mutex-held transaction, without resetting the unattended-TX watchdog clock. The returned
+    /// generation includes the halt, QSY and restore, and is the only generation on which a
+    /// later DX Chaser call may rely.
+    pub fn dx_chaser_qsy_while_armed(
+        &mut self,
+        armed_generation: u64,
+        tier: Tier,
+        freq_mhz: f64,
+        band: &str,
+    ) -> Result<u64, String> {
+        if self.tx_gate_gen != armed_generation {
+            return Err("DX Chaser arm is stale — Stop TX or station context changed".into());
+        }
+        if !self.tx_enabled {
+            return Err("Enable TX is off — arm transmit before DX Chaser can QSY".into());
+        }
+        if !matches!(tier, Tier::Ft8 | Tier::Ft4) {
+            return Err("DX Chaser QSY supports FT8 and FT4 only".into());
+        }
+        if !freq_mhz.is_finite() || freq_mhz <= 0.0 || band.trim().is_empty() {
+            return Err("DX Chaser QSY requires a valid amateur-band frequency".into());
+        }
+        // Validate the structured identity before retiring a live context. The later call and
+        // key boundary still repeat all ordinary identity, licence, watchdog and waveform gates.
+        self.structured_tx_ready(true)?;
+
+        let watchdog_start = self.tx_watchdog_start;
+        let quiet = self.quiet_tx_log;
+        self.quiet_tx_log = true;
+        self.halt_tx();
+        self.work_spot_tiered(Some(tier), "digital", freq_mhz, band, None);
+        self.set_tx_enabled(true);
+        self.tx_watchdog_start = watchdog_start;
+        self.quiet_tx_log = quiet;
+
+        if !self.tx_enabled {
+            return Err("DX Chaser QSY could not preserve Enable TX on the selected mode".into());
+        }
+        tempo_core::applog::info(
+            "tx",
+            &format!(
+                "DX Chaser QSY to {band} {:.6} MHz {}: arm rebound to generation {}",
+                freq_mhz,
+                tier.label(),
+                self.tx_gate_gen
+            ),
+        );
+        Ok(self.tx_gate_gen)
+    }
+
     /// Record the callsign of the just-worked spot, right after [`work_spot_split`] (same lock).
     /// This is the cross-window prefill hint: a click in a pop-out band map can't touch the main
     /// window's log directly, so the call rides the snapshot and the main window prefills from it.
@@ -12387,6 +12450,61 @@ Pick the one you operate from on the Contesting tab in Settings.",
         Ok(())
     }
 
+    /// Start an automated S&P exchange without granting transmit authority.
+    ///
+    /// Unlike an operator double-click, an automation must never raise the universal
+    /// Enable-TX latch. DX Chaser calls this entry point only after a local decode has
+    /// selected a target. The ordinary call machinery still applies identity, mode,
+    /// parity, watchdog, privilege and waveform gates; this additional guard ensures
+    /// the operator explicitly armed transmit first.
+    pub fn call_station_while_armed_ctx(
+        &mut self,
+        dxcall: &str,
+        dxgrid: Option<&str>,
+        reply_msg: Option<&str>,
+        reply_snr: Option<i32>,
+        dx_freq: Option<f32>,
+    ) -> Result<(), String> {
+        if !self.tx_enabled() {
+            return Err("Enable TX is off — arm transmit before DX Chaser can call".into());
+        }
+        self.call_station_ctx(dxcall, dxgrid, reply_msg, reply_snr, dx_freq)
+    }
+
+    /// Atomically commit DX Chaser's selected TX offset before making the exchange eligible
+    /// for an immediate over. The caller must present the TX-halt generation to which the
+    /// operator's DX Chaser arm was bound. The generation check, offset commit and ordinary
+    /// call gates all run in this one mutable Engine transaction, so a Stop TX followed by a
+    /// later manual re-arm cannot revive a decision made under the retired arm. A refusal
+    /// happens before any dial, queue or sequencer mutation and never grants authority.
+    pub fn dx_chaser_call_while_armed_ctx(
+        &mut self,
+        armed_generation: u64,
+        dxcall: &str,
+        dxgrid: Option<&str>,
+        reply_msg: Option<&str>,
+        reply_snr: Option<i32>,
+        dx_freq: Option<f32>,
+        tx_offset_hz: f32,
+    ) -> Result<(), String> {
+        if self.tx_gate_gen != armed_generation {
+            return Err("DX Chaser arm is stale — Stop TX or station context changed".into());
+        }
+        if !self.tx_enabled() {
+            return Err("Enable TX is off — arm transmit before DX Chaser can call".into());
+        }
+        self.structured_tx_ready(true)?;
+        let previous = self.tx_offset_hz();
+        self.set_tx_offset(tx_offset_hz);
+        if let Err(error) =
+            self.call_station_while_armed_ctx(dxcall, dxgrid, reply_msg, reply_snr, dx_freq)
+        {
+            self.set_tx_offset(previous);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Drop everything answer-context derives from: the decode history (message
     /// match + report SNR) and the parity slot. Called on band QSY / tier switch,
     /// where stale rows would answer a station that isn't in this activity.
@@ -13742,6 +13860,13 @@ Pick the one you operate from on the Contesting tab in Settings.",
     /// Whether normal slot TX is currently enabled.
     pub fn tx_enabled(&self) -> bool {
         self.tx_enabled
+    }
+
+    /// Monotonic generation advanced by every full TX halt. Automation arms bind to this
+    /// generation so a global Stop TX remains sticky even if Enable TX is raised again before
+    /// the automation supervisor's next poll.
+    pub fn tx_halt_generation(&self) -> u64 {
+        self.tx_gate_gen
     }
 
     /// Take + reset the one-shot slot-TX abort (Stop TX / halt / a watchdog trip / a
@@ -23306,6 +23431,20 @@ contact yourself."
         self.station.last_worked_unix(call)
     }
 
+    /// All-time and per-band DXCC need facts for DX Chaser spot intelligence.
+    /// These facts can trigger a QSY for local verification, never a call.
+    pub fn dx_chaser_need(&self, call: &str, band: &str) -> (bool, bool) {
+        let Some(resolve) = &self.station.dxcc_resolve else {
+            return (false, false);
+        };
+        let Some(entity) = resolve(call) else {
+            return (false, false);
+        };
+        let hot = self.station.hot();
+        let ever = hot.entity_worked_ever(&entity);
+        (!ever, ever && !hot.entity_worked_on(&entity, band))
+    }
+
     /// See [`StationCore::set_hunted_parks_import`].
     pub fn set_hunted_parks_import(&mut self, refs: impl IntoIterator<Item = String>) {
         self.station.set_hunted_parks_import(refs)
@@ -30599,6 +30738,210 @@ mod tests {
         let snap = e.snapshot();
         assert!(!snap.radio.tx_enabled);
         assert!(!snap.radio.transmitting);
+    }
+
+    #[test]
+    fn dx_chaser_call_never_raises_the_tx_latch() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        assert!(!e.tx_enabled());
+        let refused = e.call_station_while_armed_ctx("F4ABC", Some("JN18"), None, None, None);
+        assert!(refused.is_err());
+        assert!(!e.tx_enabled(), "automation must not arm Enable TX");
+
+        e.set_tx_enabled(true);
+        e.call_station_while_armed_ctx("F4ABC", Some("JN18"), None, None, None)
+            .expect("an already-armed operator-authorized call may start");
+        assert!(
+            e.tx_enabled(),
+            "the guarded call leaves the operator's latch armed"
+        );
+    }
+
+    #[test]
+    fn dx_chaser_commits_offset_before_immediate_exchange() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        e.set_tx_enabled(true);
+        e.set_tx_offset(700.0);
+        let armed_generation = e.tx_halt_generation();
+        e.dx_chaser_call_while_armed_ctx(
+            armed_generation,
+            "F4ABC",
+            Some("JN18"),
+            None,
+            None,
+            None,
+            2200.0,
+        )
+        .expect("armed DX Chaser transaction");
+        assert_eq!(e.tx_offset_hz(), 2200.0);
+        assert!(
+            e.immediate_tx,
+            "exchange is now eligible for its first over"
+        );
+    }
+
+    #[test]
+    fn dx_chaser_call_rejects_a_retired_arm_after_stop_and_reenable_without_mutation() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        e.set_tx_enabled(true);
+        let stale_generation = e.tx_halt_generation();
+
+        // Model a decision already returned to the supervisor under generation N. Stop TX
+        // retires that authority, and a later operator re-enable must not revive the decision.
+        e.halt_tx();
+        e.set_tx_enabled(true);
+        let current_generation = e.tx_halt_generation();
+        assert_ne!(current_generation, stale_generation);
+
+        e.set_tx_offset(700.0);
+        e.tx_queue.push_back("sentinel directed over".into());
+        e.broadcast_queue.push_back("sentinel broadcast".into());
+        e.immediate_tx = false;
+        let dial_before = e.settings().dial_mhz;
+        let band_before = e.settings().band.clone();
+        let stale = e.dx_chaser_call_while_armed_ctx(
+            stale_generation,
+            "F4ABC",
+            Some("JN18"),
+            None,
+            None,
+            None,
+            2200.0,
+        );
+
+        assert!(stale.is_err(), "the retired decision must be rejected");
+        assert_eq!(e.tx_offset_hz(), 700.0, "TX offset was mutated");
+        assert_eq!(e.settings().dial_mhz, dial_before, "dial was mutated");
+        assert_eq!(e.settings().band, band_before, "band was mutated");
+        assert_eq!(
+            e.tx_queue.front().map(String::as_str),
+            Some("sentinel directed over"),
+            "directed queue was mutated"
+        );
+        assert_eq!(
+            e.broadcast_queue.front().map(String::as_str),
+            Some("sentinel broadcast"),
+            "broadcast queue was mutated"
+        );
+        assert!(
+            !e.immediate_tx,
+            "the sequencer was made immediately eligible"
+        );
+        assert!(
+            e.tx_enabled(),
+            "a refusal must not rewrite the operator latch"
+        );
+
+        e.dx_chaser_call_while_armed_ctx(
+            current_generation,
+            "F4ABC",
+            Some("JN18"),
+            None,
+            None,
+            None,
+            2200.0,
+        )
+        .expect("a decision bound to the current generation may proceed");
+        assert_eq!(e.tx_offset_hz(), 2200.0);
+        assert!(e.tx_queue.is_empty() && e.broadcast_queue.is_empty());
+        assert!(
+            e.immediate_tx,
+            "the current-generation call starts normally"
+        );
+    }
+
+    #[test]
+    fn dx_chaser_qsy_refuses_an_unarmed_or_stale_generation_without_mutation() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        let initial_dial = e.settings().dial_mhz;
+        let initial_band = e.settings().band.clone();
+        let unarmed_generation = e.tx_halt_generation();
+        assert!(e
+            .dx_chaser_qsy_while_armed(unarmed_generation, Tier::Ft8, 14.078, "20m")
+            .is_err());
+        assert_eq!(e.settings().dial_mhz, initial_dial);
+        assert_eq!(e.settings().band, initial_band);
+        assert!(!e.tx_enabled());
+
+        e.set_tx_enabled(true);
+        let stale_generation = e.tx_halt_generation();
+        e.halt_tx(); // operator Stop races the supervisor's saved arm
+        e.set_tx_enabled(true); // even a later manual re-arm cannot revive it
+        let current_generation = e.tx_halt_generation();
+        let dial_before_stale_request = e.settings().dial_mhz;
+        assert!(e
+            .dx_chaser_qsy_while_armed(stale_generation, Tier::Ft8, 14.078, "20m")
+            .is_err());
+        assert_eq!(e.settings().dial_mhz, dial_before_stale_request);
+        assert_eq!(e.tx_halt_generation(), current_generation);
+        assert!(
+            e.tx_enabled(),
+            "a refusal must not rewrite the operator latch"
+        );
+    }
+
+    #[test]
+    fn dx_chaser_same_band_qsy_flushes_emissions_and_rebinds_the_arm() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        e.set_tx_enabled(true);
+        e.tx_queue.push_back("W9XYZ F4ABC -10".into());
+        e.broadcast_queue.push_back("CQ W9XYZ EN37".into());
+        e.tx_watchdog_start = Some(1234);
+        let armed_generation = e.tx_halt_generation();
+
+        let rebound = e
+            .dx_chaser_qsy_while_armed(armed_generation, Tier::Ft8, 14.078, "20m")
+            .expect("same-band nonstandard DX Chaser frequency");
+
+        assert_eq!(rebound, e.tx_halt_generation());
+        assert_ne!(rebound, armed_generation);
+        assert!(
+            e.tx_enabled(),
+            "the pre-existing operator latch is preserved"
+        );
+        assert_eq!(e.tx_watchdog_start, Some(1234));
+        assert!(e.tx_queue.is_empty() && e.broadcast_queue.is_empty());
+        assert!((e.settings().dial_mhz - 14.078).abs() < 1e-9);
+        assert_eq!(e.settings().band, "20m");
+        assert_eq!(e.app.tier(), Tier::Ft8);
+    }
+
+    #[test]
+    fn dx_chaser_cross_band_qsy_keeps_routing_and_returns_the_new_generation() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        e.set_tx_enabled(true);
+        let armed_generation = e.tx_halt_generation();
+
+        let rebound = e
+            .dx_chaser_qsy_while_armed(armed_generation, Tier::Ft4, 7.0475, "40m")
+            .expect("cross-band FT4 DX Chaser QSY");
+
+        assert_eq!(rebound, e.tx_halt_generation());
+        assert_ne!(rebound, armed_generation);
+        assert!(e.tx_enabled());
+        assert_eq!(e.app.tier(), Tier::Ft4);
+        assert!((e.settings().dial_mhz - 7.0475).abs() < 1e-9);
+        assert_eq!(e.settings().band, "40m");
+        assert!(
+            e.immediate_retune,
+            "the ordinary routing path requests CAT apply"
+        );
+    }
+
+    #[test]
+    fn global_halt_generation_stays_changed_after_tx_is_reenabled() {
+        let mut e = Engine::new("W9XYZ", "EN37", 0);
+        e.set_tx_enabled(true);
+        let armed_generation = e.tx_halt_generation();
+        e.halt_tx();
+        assert!(!e.tx_enabled());
+        assert_ne!(e.tx_halt_generation(), armed_generation);
+        e.set_tx_enabled(true);
+        assert_ne!(
+            e.tx_halt_generation(),
+            armed_generation,
+            "re-enabling global TX cannot make an old automation arm valid again"
+        );
     }
 
     #[test]

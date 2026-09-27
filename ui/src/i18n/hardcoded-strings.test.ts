@@ -373,6 +373,7 @@ const MIGRATED = [
   // Neural DX (2026-09-27) — born migrated. Its tabs and native bridge cards use typed key
   // tables so the complete surface stays catalogued while the original Watcher runs locally.
   'components/NeuralDxView.tsx',
+  'components/DxChaserView.tsx',
   'components/NowBar.tsx',
   'components/TempoHeader.tsx',
   'components/PanelsMenu.tsx',

@@ -37,6 +37,7 @@ mod cluster_nodes;
 /// Is the data folder somewhere a DATABASE must not live — a network share, or a folder some
 /// consumer sync client is also writing to? The log is the one thing here that cannot be rebuilt.
 mod data_folder_location;
+mod dx_chaser;
 /// Groups.io memberships, offline messages and explicit foreground posting. Credentials stay in
 /// the platform vault; the profile store contains no secret.
 mod groups_io;
@@ -88,6 +89,10 @@ use tempo_app::settings::{Settings, VoiceMessage};
 
 /// The engine, shared between UI commands and the radio loop.
 type SharedEngine = Arc<Mutex<Engine>>;
+
+/// MSHV-compatible DX Chaser decisions. It never owns a transmitter, spot feed or logbook;
+/// commands feed it snapshots of those existing Nexus authorities.
+type SharedDxChaser = Arc<Mutex<dx_chaser::ChaserState>>;
 
 /// The spectator scoreboard's bound state — written by its manager thread,
 /// read by `fd_scoreboard_status` for the Settings row. Distinct payload
@@ -29269,6 +29274,25 @@ fn finish_launch(handle: tauri::AppHandle, d: BuildDeps, rest: LaunchRest) {
         handle.state::<remote_monitor::Publisher>().inner().clone(),
         handle.state::<LogTallies>().needs.clone(),
     ));
+    // DX Chaser supervisor. The pure engine evaluates once per radio slot and is inert while
+    // disabled; this thread owns no transport and can only act through the existing Engine.
+    {
+        let engine = handle.state::<SharedEngine>().inner().clone();
+        let spots = handle.state::<SharedSpots>().inner().clone();
+        let live_paths = handle.state::<SharedLivePaths>().inner().clone();
+        let region_paths = handle.state::<SharedRegionPaths>().inner().clone();
+        let chaser = handle.state::<SharedDxChaser>().inner().clone();
+        let _ = std::thread::Builder::new()
+            .name("nexus-dx-chaser".into())
+            .spawn(move || loop {
+                if let Err(error) =
+                    dx_chaser::background_tick(&engine, &spots, &live_paths, &region_paths, &chaser)
+                {
+                    tempo_core::applog::warn("dx-chaser", &error);
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            });
+    }
     // Pounce detector. Emits `pounce` to every window when a rare one appears — the
     // app's ONLY push; everything else polls. `emit` (not `emit_to`) so the pop-out
     // panel windows get it too without tracking listener lifetimes.
@@ -29537,6 +29561,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         .plugin(tauri_plugin_dialog::init())
         .manage(neural_dx::NeuralDxState::default())
         .manage(d.engine)
+        .manage(SharedDxChaser::default())
         .manage(remote_publisher)
         .manage(d.spectrum_feed)
         .manage(d.meter_feed)
@@ -29585,6 +29610,16 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             ui_state_load,
             ui_state_save,
             get_snapshot,
+            dx_chaser::dx_chaser_get,
+            dx_chaser::dx_chaser_get_dxcc_matrix,
+            dx_chaser::dx_chaser_configure,
+            dx_chaser::dx_chaser_cycle,
+            dx_chaser::dx_chaser_stop,
+            dx_chaser::dx_chaser_set_armed,
+            dx_chaser::dx_chaser_reset_statistics,
+            dx_chaser::dx_chaser_set_twilio_credentials,
+            dx_chaser::dx_chaser_clear_twilio_credentials,
+            dx_chaser::dx_chaser_test_twilio,
             remote_monitor::get_remote_monitor_frame,
             remote_service::get_remote_station_status,
             remote_service::publish_remote_memory_bank,

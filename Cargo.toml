@@ -20,6 +20,7 @@ members = [
     "crates/tempo-net",
     "crates/tempo-sstv",
     "crates/deepcw",
+    "crates/dx-chaser",
 ]
 
 [workspace.package]

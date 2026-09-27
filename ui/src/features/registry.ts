@@ -33,6 +33,7 @@ export type View =
   | 'sstv'
   | 'aprs'
   | 'js8'
+  | 'dxChaser'
   | 'connect'
   | 'dxped'
   | 'sats'
@@ -168,6 +169,18 @@ export const FEATURES: FeatureDef[] = [
     view: 'operate',
     workspace: 'dx',
     oneLineKey: 'features.operate.oneLine',
+  }),
+  feature({
+    id: 'dxChaser',
+    labelKey: 'features.dxChaser.label',
+    kind: 'section',
+    category: 'DX & Awards',
+    core: true,
+    dependsOn: [],
+    intents: ['dx'],
+    view: 'dxChaser',
+    workspace: 'dx',
+    oneLineKey: 'features.dxChaser.oneLine',
   }),
   {
     id: 'cw',

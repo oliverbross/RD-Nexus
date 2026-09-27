@@ -20,6 +20,10 @@
       "label": "Operate"
     },
     {
+      "id": "dxChaser",
+      "label": "DX Chaser"
+    },
+    {
       "id": "cw",
       "label": "CW"
     },

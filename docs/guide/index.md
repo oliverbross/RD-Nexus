@@ -141,6 +141,9 @@ Thirteen panels tear off into their own OS window — see
   original weak-signal chat tiers, covered at the end of the Operate guide.
 
 ### DX & awards
+- **[DX Chaser](dx-chaser.md)** — ranks locally decoded FT8/FT4 targets,
+  correlates shared spot evidence, and automates a guarded chase without ever
+  granting itself transmit authority.
 - **[Needed — DX that's on the air now](needed-dx.md)** — every station on the
   air ranked by what it's worth to *your* log, each row carrying the evidence.
 - **[Spots](spots.md)** — the same cluster and RBN traffic raw: the last twenty

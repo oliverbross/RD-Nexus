@@ -203,6 +203,80 @@ export async function getSnapshot(): Promise<AppSnapshot> {
   return invoke<AppSnapshot>('get_snapshot')
 }
 
+export interface DxChaserSettings {
+  enabled: boolean
+  enabledBands: string[]
+  useRbn: boolean
+  usePskReporter: boolean
+  useDxCluster: boolean
+  usSpottersOnly: boolean
+  scarceMode: boolean
+  ownCountryFilter: boolean
+  usGridOnly: boolean
+  missedCycles: number
+  scarceMissedCycles: number
+  atnoHardMaxCycles: number
+  scarceThreshold: number
+  cooldownSecs: number
+  atnoCooldownSecs: number
+  decodeTtlSecs: number
+  spotTtlSecs: number
+  crossBandAlertCooldownSecs: number
+  localVerificationSecs: number
+  nonstandardQsyCooldownSecs: number
+  nonstandardThresholdHz: number
+  minExternalSpotters: number
+  slotMinHz: number
+  slotMaxHz: number
+  slotWidthHz: number
+  txOffsetDeltaHz: number
+  scoreNewDxcc: number
+  scoreNewBand: number
+  scoreNewGrid: number
+  scoreCq: number
+  scoreSnrPerDb: number
+  scoreRepeat: number
+  scoreSpotter: number
+  scoreCallingMe: number
+  minSnr: number
+  atnoChasePolicy: 'disabled' | 'allTime' | 'bandSlot' | 'both'
+  autoBand: boolean
+  hunterMode: boolean
+  minDwellSecs: number
+  hysteresis: number
+  quietSpotThreshold: number
+  pounceCooldownSecs: number
+  deferredPounceExpireSecs: number
+  maxDeferredPounces: number
+  timeBasedExclusions: boolean
+  utcOffsetHours: number
+  decodeHistoryRetentionCycles: number
+  autoQsyNonstandard: boolean
+  smsMode: 'disabled' | 'everyTx' | 'qsoCompleteOnly'
+  smsMinIntervalSecs: number
+  quietHoursStart: number | null
+  quietHoursEnd: number | null
+}
+export interface DxChaserCandidate { call:string; band:string; dialMhz:number; audioHz:number; score:number; rarityMultiplier:number; decodeCount:number; spotterCount:number; locallyDecoded:boolean; newDxcc:boolean; newBand:boolean; newGrid:boolean; isCq:boolean; directedToMe:boolean; snr:number; country:string; grid:string|null; message:string }
+export interface DxChaserBand { band:string; decodes:number; uniqueCalls:number; spots:number; score:number }
+export interface DxChaserLog { at:number; kind:string; call:string|null; detail:string }
+export interface DxChaserDecodeHistory { call:string;grid:string|null;snr:number;audioHz:number;lastHeardAt:number;timesHeard:number;isCq:boolean;newDxcc:boolean;newGrid:boolean;periodsSinceLastHeard:number;wasWorked:boolean }
+export interface DxChaserBandHistory { band:string;startedAt:number;endedAt:number;decodeCount:number;uniqueCalls:number;newDxccCount:number;newGridCount:number;averageSnr:number }
+export interface DxChaserStatistics { startedAt:number|null;evaluated:number;selected:number;completed:number;abandoned:number;bandChanges:number;nonstandardQsys:number;smsQueued:number;newDxccWorked:number;newBandSlots:number;newGrids:number }
+export interface DxChaserSnapshot { upstreamRevision:string; state:'idle'|'listening'|'waitingForQso'; automationArmed:boolean;lastError:string|null; settings:DxChaserSettings; target:{candidate:DxChaserCandidate;selectedAt:number;lastSeenAt:number;missedCycles:number;addressedMe:boolean}|null; candidates:DxChaserCandidate[]; bands:DxChaserBand[]; bandHistory:DxChaserBandHistory[];decodeHistory:DxChaserDecodeHistory[];deferredPounces:number;targetCyclesRemaining:number|null;localVerificationRemainingSecs:number|null;sources:Array<{source:string;items:number;lastSeenAt:number;healthy:boolean}>; activeSpotPairs:number; sessionStatistics:DxChaserStatistics; allTimeStatistics:DxChaserStatistics; log:DxChaserLog[]; txGuard:string }
+export interface DxChaserDxccSpot { call:string; band:string; freqMhz:number; source:string; spotter:string; mode:string|null; receivedUnix:number; ageSeconds:number }
+export interface DxChaserDxccEntity { name:string; prefix:string; rank:number|null; worked:boolean[]; activeSpots:DxChaserDxccSpot[]; workedAny:boolean; workedAll:boolean; hasActiveSpot:boolean; searchText:string }
+export interface DxChaserDxccMatrix { bands:string[]; entities:DxChaserDxccEntity[]; filters:{totalEntities:number;workedEntities:number;unworkedEntities:number;spottedUnworkedEntities:number}; generatedAt:number }
+export function getDxChaser():Promise<DxChaserSnapshot>{return invoke('dx_chaser_get')}
+export function getDxChaserDxccMatrix():Promise<DxChaserDxccMatrix>{return invoke('dx_chaser_get_dxcc_matrix')}
+export function configureDxChaser(settings:DxChaserSettings):Promise<DxChaserSnapshot>{return invoke('dx_chaser_configure',{settings})}
+export function stopDxChaser():Promise<DxChaserSnapshot>{return invoke('dx_chaser_stop')}
+export function setDxChaserArmed(armed:boolean):Promise<DxChaserSnapshot>{return invoke('dx_chaser_set_armed',{armed})}
+export function resetDxChaserStatistics():Promise<DxChaserSnapshot>{return invoke('dx_chaser_reset_statistics')}
+export function setDxChaserTwilio(credentials:{accountSid:string;authToken:string;fromNumber:string;toNumber:string}):Promise<void>{return invoke('dx_chaser_set_twilio_credentials',{credentials})}
+export function clearDxChaserTwilio():Promise<void>{return invoke('dx_chaser_clear_twilio_credentials')}
+export function testDxChaserTwilio():Promise<void>{return invoke('dx_chaser_test_twilio')}
+
 /** The propagation & opening-intelligence nowcast (adaptive bands, openings,
  *  DXpedition cards, space weather). */
 export async function getPropagation(): Promise<PropagationSnapshot> {

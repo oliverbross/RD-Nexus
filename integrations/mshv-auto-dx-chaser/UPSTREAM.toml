@@ -1,0 +1,12 @@
+name = "mshv-auto-dx-chaser"
+repository = "https://github.com/kd9taw/mshv-auto-dx-chaser.git"
+branch = "master"
+revision = "d960ae22de78940c6be9d95bd4817d233d02ee39"
+license = "GPL-3.0"
+reviewed = "2026-09-27"
+
+[integration]
+engine = "crates/dx-chaser"
+desktop_adapter = "src-tauri/src/dx_chaser.rs"
+screen = "ui/src/components/DxChaserView.tsx"
+strategy = "behavioral port using Nexus decode, spot, logbook, radio, keychain and packaging authorities"

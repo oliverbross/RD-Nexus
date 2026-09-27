@@ -23,6 +23,7 @@ const EXPECTED_SECTIONS: FeatureId[] = [
   'sstv',
   'aprs',
   'js8',
+  'dxChaser',
   'connect',
   'needed',
   'spots',
@@ -51,6 +52,7 @@ describe('feature registry', () => {
     expect(core).toEqual([
       'chat',
       'connect',
+      'dxChaser',
       'groupsio',
       'logbook',
       'needed',
