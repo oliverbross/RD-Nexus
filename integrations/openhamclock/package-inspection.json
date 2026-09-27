@@ -1,51 +1,51 @@
 {
-  "generatedAt": "2026-09-27T14:58:04.817Z",
+  "generatedAt": "2026-09-27T17:16:59.545Z",
   "targets": [
     {
       "target": "win-x64",
       "format": "PE32+ executable (console) x86-64, for MS Windows",
       "size": 160274447,
-      "sha256": "4b39d154fbca38fa912fb0742480f110be7a83bf13720970a5f20dc24b14bfa3",
+      "sha256": "9dc6b4b4c3bf78c4789ab0c12fe1039a038db5e0fda903b1d1497c7cd2b46759",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
-      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
-      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+      "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
+      "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
     },
     {
       "target": "linux-x64",
       "format": "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=ca84d2a66235a3419ee31ec0465cfeb582064b1a, for GNU/Linux 3.2.0, stripped",
       "size": 177001131,
-      "sha256": "a353d440b43e724cfc051b9f1938923bd35c9a3886f1a177bd4f31ee129d9ff0",
+      "sha256": "0c97c8e5cfaf107bab81d48298b9d4538771b2041556b6565da0f8f38d226975",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
-      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
-      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+      "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
+      "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
     },
     {
       "target": "linux-arm64",
       "format": "ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=33d9f7d4a0e9d1f4534dd79728f4a647079672b2, for GNU/Linux 3.7.0, stripped",
       "size": 171680099,
-      "sha256": "5177dbbc09518300c4e43ae29d5350cd2ff70f4785f240c7bb7be00a1ca8a712",
+      "sha256": "a2b98d620e2d06c1ea553074aca20ace454ab0d2fc70da9a0feca2e78d6b805e",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
-      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
-      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+      "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
+      "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
     },
     {
       "target": "macos-x64",
       "format": "Mach-O 64-bit executable x86_64",
       "size": 166630576,
-      "sha256": "1371d6d4c612a017264d39df3452a2888a6e8e004bb4c69f49be55c220bc78ec",
+      "sha256": "c126d26ac13aa9734d7f24c9a54dd3235e75c8b5904fd9cf93fe46af635b2a57",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
-      "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
-      "runtimeReason": "Native runtime execution requires the target operating system/architecture"
+      "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
+      "runtimeReason": "A separate SHA-bound smoke and browser receipt is required on the target operating system/architecture"
     },
     {
       "target": "macos-arm64",
       "format": "Mach-O 64-bit executable arm64",
       "size": 163262416,
-      "sha256": "7adb09be2f572ce2d210e52018937a80fe2d2a00605943fab154262f254cbc6e",
+      "sha256": "9757f793f0fc8ce73a4e32f4de9d1362eabf019d7db2a2957b10759b87c02caf",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "Package format and resource closure inspected; runtime is not inferred from the target string",
