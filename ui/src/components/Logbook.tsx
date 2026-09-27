@@ -35,6 +35,7 @@ import {
   logOperators,
   logActivations,
   importAdif,
+  getWavelogV2Status,
   logQso,
   markLotwUploaded,
   markQslSentById,
@@ -51,6 +52,7 @@ import { pushToast, withErrorToast } from '../toast'
 import { qrzPushQso, clublogPushQso, hrdlogPushQso, wrlPushQso, openQrzPage, syncQrz, downloadLotwReport, importPotaLog } from '../api'
 import { qrzCorrectPreview, qrzCorrectApply, qrzCorrectUndoMiss } from '../api'
 import type { QrzCorrectResult, QsoEdit, RowAnswer, RowRef } from '../api'
+import type { WavelogV2SyncStatus } from '../api'
 
 interface Props {
   /** Default band / freq / mode for new manual entries (from the radio). */
@@ -400,6 +402,22 @@ export function Logbook({
   const [needsConfirmOnly, setNeedsConfirmOnly] = useState(false)
   // #239: the wide table, off unless this viewer turned it on.
   const [moreColumns, setMoreColumns] = useState(loadMoreColumns)
+  const [wavelogStatus, setWavelogStatus] = useState<WavelogV2SyncStatus | null>(null)
+  useEffect(() => {
+    // Remote browsers and the component test harness have no Tauri IPC surface. Keeping this
+    // local-only status call behind that capability also avoids presenting station-wide counts
+    // to an observing browser that may hold only a paged window of the log.
+    if (!control || import.meta.env.MODE === 'test') return
+    let alive = true
+    const load = () => {
+      void getWavelogV2Status()
+        .then((status) => { if (alive) setWavelogStatus(status) })
+        .catch(() => { if (alive) setWavelogStatus(null) })
+    }
+    load()
+    const timer = window.setInterval(load, 60_000)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [control, logTick])
   const remoteLog = useRemoteLog(deferredSearch, needsConfirmOnly)
   // Remote: one activation's ADIF, built at the station by the same export, when the station offers it.
   const remoteActivations = useRemoteActivations(remoteLog ? operations : null, remoteLog?.total ?? 0)
@@ -2365,6 +2383,20 @@ export function Logbook({
           {/* Search + column headers BELOW the globe (operator 2026-07-21) — sticky, so
               once the globe scrolls away they pin to the top and the table reads normally. */}
           <div className="log-sticky">
+      {wavelogStatus && (
+        <div className="wavelog-sync-strip" role="status">
+          <span className="wavelog-sync-name">{t('logbook.sync.name')}</span>
+          <span><strong>{wavelogStatus.localTotal.toLocaleString()}</strong> {t('logbook.sync.local')}</span>
+          <span><strong>{wavelogStatus.remoteTotal.toLocaleString()}</strong> {t('logbook.sync.remote')}</span>
+          <span><strong>{wavelogStatus.syncedLocal.toLocaleString()}</strong> {t('logbook.sync.linked')}</span>
+          <span className={wavelogStatus.localOnly + wavelogStatus.remoteOnly === 0 ? 'ok' : 'pending'}>
+            {wavelogStatus.localOnly + wavelogStatus.remoteOnly === 0
+              ? t('logbook.sync.current')
+              : t('logbook.sync.pending', { count: wavelogStatus.localOnly + wavelogStatus.remoteOnly })}
+          </span>
+          <span className="wavelog-sync-cadence">{t('logbook.sync.cadence', { minutes: Math.round(wavelogStatus.intervalSeconds / 60) })}</span>
+        </div>
+      )}
       <div className="log-searchbar">
         {remoteLog && <>
           <span role="status">{remoteLog.phase === 'loading' ? t('remote.collectionLoading') : remoteLog.phase === 'unavailable' ? t('remote.collectionUnavailable') : t('remote.logPage', { start: remoteLog.total ? remoteLog.offset + 1 : 0, end: remoteLog.offset + observedLog.length, total: remoteLog.total })}</span>
@@ -2701,7 +2733,17 @@ export function Logbook({
                     <span className="log-note-private">{(q.notes ?? '').trim()}</span>
                   )}
                 </span>
-                <span className="log-cell log-rowactions">{control && <>
+                <span className="log-cell log-rowactions">
+                  {(control || canQsl || canEdit) && (
+                  <details className="log-actions-menu">
+                    <summary title={t('logbook.row.actions.title', { call: q.call })} aria-label={t('logbook.row.actions.title', { call: q.call })}>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M9.7 2.8h4.6l.6 2.1c.5.2 1 .5 1.5.8l2.1-.6 2.3 4-1.6 1.5v1.8l1.6 1.5-2.3 4-2.1-.6c-.5.3-1 .6-1.5.8l-.6 2.1H9.7l-.6-2.1c-.5-.2-1-.5-1.5-.8l-2.1.6-2.3-4 1.6-1.5v-1.8L3.2 9.1l2.3-4 2.1.6c.5-.3 1-.6 1.5-.8l.6-2.1Z" />
+                        <circle cx="12" cy="11.5" r="3" />
+                      </svg>
+                    </summary>
+                    <div className="log-actions-popover">
+                  {control && <>
                   <button
                     type="button"
                     className="log-rowbtn"
@@ -2881,7 +2923,11 @@ export function Logbook({
                   >
                     ✕
                   </button>
-                </>} </span>
+                </>}
+                    </div>
+                  </details>
+                  )}
+                </span>
               </div>
                 )
               })}

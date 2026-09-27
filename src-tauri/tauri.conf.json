@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Nexus",
-  "mainBinaryName": "Nexus",
+  "productName": "RD-Nexus",
+  "mainBinaryName": "RD-Nexus",
   "version": "1.15.0",
   "identifier": "com.kd9taw.tempo",
   "build": {
@@ -14,7 +14,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Nexus",
+        "title": "RD-Nexus",
         "label": "main",
         "url": "blank.html",
         "width": 1200,
@@ -55,8 +55,8 @@
     "category": "Utility",
     "publisher": "KD9TAW",
     "copyright": "Copyright (C) 2026 KD9TAW. GPL-3.0-only.",
-    "shortDescription": "Unified ham digital-ops nerve center (FT8/FT4 + Tempo)",
-    "longDescription": "Nexus is a unified, native ham digital-operations nerve center — FT8/FT4 decode, waterfall, spots, map, propagation, logbook, and awards in one app, plus Tempo two-way free-text calling. It keeps the technical data a ham operator expects — SNR, audio offset, dT, dial freq/band/sideband, mode/tier, T/R + slot timing — as first-class information, and makes station setup and propagation intelligence automatic.",
+    "shortDescription": "RD-Nexus unified ham digital-ops center",
+    "longDescription": "RD-Nexus builds on Nexus as a unified, native ham digital-operations center with two-way Wavelog synchronisation and an operator-focused workflow.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -65,7 +65,9 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/hamlib/*": "resources/hamlib/",
+      "resources/hamlib/*.txt": "resources/hamlib/",
+      "resources/hamlib/rig*": "resources/hamlib/",
+      "resources/hamlib/rot*": "resources/hamlib/",
       "resources/deepcw/*": "resources/deepcw/",
       "resources/tles/*": "resources/tles/",
       "../licenses/remote/*": "resources/remote/",
@@ -105,7 +107,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUxMDdDMUU4NzZFNzVDQkIKUldTN1hPZDI2TUVIVVpDZDRVb0QxS1ZLWE0zUndyMmNCZFZNM1ptT3M0dnAraXJzSGtiamNqTlMK",
-      "endpoints": ["https://github.com/kd9taw/Nexus/releases/latest/download/latest.json"],
+      "endpoints": ["https://github.com/oliverbross/RD-Nexus/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
   }

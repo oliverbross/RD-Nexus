@@ -371,6 +371,12 @@ the full design.
 
 ## Building from source
 
+For day-to-day macOS development, use `./scripts/dev-macos.sh`. It keeps Vite running for
+instant React/CSS hot reload and reuses Cargo's incremental cache when Rust changes. A packaged
+application is only needed at a release checkpoint; build that with `./scripts/build-macos.sh`.
+For a quickly installable test bundle, use `./scripts/build-macos.sh --debug`; reserve the fully
+optimised build for the final production checkpoint.
+
 ```bash
 git clone https://github.com/kd9taw/Nexus.git nexus
 cd nexus

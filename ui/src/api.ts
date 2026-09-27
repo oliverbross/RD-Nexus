@@ -2030,6 +2030,44 @@ export async function getCloudlogStations(): Promise<CloudlogStation[]> {
   return invoke<CloudlogStation[]>('cloudlog_station_info')
 }
 
+export interface WavelogV2SyncReport {
+  downloaded: number
+  uploaded: number
+  localUpdates: number
+  remoteUpdates: number
+  localDeletes: number
+  remoteDeletes: number
+  matched: number
+  conflictsResolvedFromWavelog: number
+  syncedLocal: number
+  syncedRemote: number
+  localOnly: number
+  remoteOnly: number
+  remoteTotal: number
+  localTotal: number
+}
+
+export interface WavelogV2SyncStatus {
+  localTotal: number
+  remoteTotal: number
+  syncedLocal: number
+  syncedRemote: number
+  localOnly: number
+  remoteOnly: number
+  lastSyncUnix: number
+  intervalSeconds: number
+}
+
+/** Reconcile additions, edits and binding-safe deletions in both directions through API v2. */
+export async function syncWavelogV2(): Promise<WavelogV2SyncReport> {
+  return invoke<WavelogV2SyncReport>('wavelog_v2_sync')
+}
+
+/** Last durable reconciliation totals; this is local-only and performs no network request. */
+export async function getWavelogV2Status(): Promise<WavelogV2SyncStatus> {
+  return invoke<WavelogV2SyncStatus>('wavelog_v2_status')
+}
+
 /** Every entity's cty.dat representative location as `[name, lat, lon]` — the azimuth
  *  fallback for a station that never sent a grid. Keyed by the same `country`/`entity`
  *  string a decode/spot row carries. WAE/CQ-only entities are included: `resolve()`

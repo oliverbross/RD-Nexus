@@ -60,6 +60,7 @@ mod self_spot;
 /// two files, and when they drifted every gallery preview silently went blank.
 #[cfg(test)]
 mod sstv_scope_test;
+mod wavelog_v2;
 mod window_state;
 
 use chains::{panel_key, panel_label, Instance};
@@ -17153,19 +17154,19 @@ async fn open_panel_window(
     }
     // Friendly window title so multi-monitor users can tell torn-off windows apart.
     let title = match slug.as_str() {
-        "connect" => "Nexus — Connect".to_string(),
-        "dxped" => "Nexus — DXpeditions".to_string(),
-        "needed" => "Nexus — Needed".to_string(),
-        "operate" => "Nexus — Operate".to_string(),
-        "fieldday" => "Nexus — Field Day".to_string(),
-        "fdclub" => "Nexus — Club band board".to_string(),
-        "pota" => "Nexus — POTA / SOTA".to_string(),
-        "operatemap" => "Nexus — Map".to_string(),
-        "waterfall" => "Nexus — Waterfall".to_string(),
-        "sstvviewer" => "Nexus — SSTV picture".to_string(),
-        "bandmapPhone" => "Nexus — Band map (Phone)".to_string(),
-        "bandmapCw" => "Nexus — Band map (CW)".to_string(),
-        other => format!("Nexus — {other}"),
+        "connect" => "RD-Nexus — Connect".to_string(),
+        "dxped" => "RD-Nexus — DXpeditions".to_string(),
+        "needed" => "RD-Nexus — Needed".to_string(),
+        "operate" => "RD-Nexus — Operate".to_string(),
+        "fieldday" => "RD-Nexus — Field Day".to_string(),
+        "fdclub" => "RD-Nexus — Club band board".to_string(),
+        "pota" => "RD-Nexus — POTA / SOTA".to_string(),
+        "operatemap" => "RD-Nexus — Map".to_string(),
+        "waterfall" => "RD-Nexus — Waterfall".to_string(),
+        "sstvviewer" => "RD-Nexus — SSTV picture".to_string(),
+        "bandmapPhone" => "RD-Nexus — Band map (Phone)".to_string(),
+        "bandmapCw" => "RD-Nexus — Band map (CW)".to_string(),
+        other => format!("RD-Nexus — {other}"),
     };
     let is_bandmap = slug == "bandmapPhone" || slug == "bandmapCw";
     // The band map reopens where the operator left it (size + position), so a Windows-snapped
@@ -23585,7 +23586,33 @@ async fn cloudlog_station_info(
     // Blocking HTTP off the async executor (the push impls' rule). The key moves in and dies
     // with the closure.
     let found = tauri::async_runtime::spawn_blocking(move || {
-        propagation::live::cloudlog::fetch_station_info(&url, &key)
+        if key.trim().starts_with("wl2_") {
+            wavelog_v2::stations(&url, &key).map(|list| {
+                list.into_iter()
+                    .map(|s| CloudlogStationDto {
+                        station_id: s.station_id,
+                        profile_name: s.profile_name,
+                        callsign: s.callsign,
+                        gridsquare: s.gridsquare,
+                        active: s.active,
+                    })
+                    .collect::<Vec<_>>()
+            })
+        } else {
+            propagation::live::cloudlog::fetch_station_info(&url, &key)
+                .map(|list| {
+                    list.into_iter()
+                        .map(|s| CloudlogStationDto {
+                            station_id: s.station_id,
+                            profile_name: s.profile_name,
+                            callsign: s.callsign,
+                            gridsquare: s.gridsquare,
+                            active: s.active,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .map_err(|e| e.message)
+        }
     })
     .await
     .map_err(|e| format!("station lookup task failed: {e}"))?;
@@ -23596,20 +23623,11 @@ async fn cloudlog_station_info(
                 "ok",
                 format!("station locations offered: {}", list.len()),
             );
-            Ok(list
-                .into_iter()
-                .map(|s| CloudlogStationDto {
-                    station_id: s.station_id,
-                    profile_name: s.profile_name,
-                    callsign: s.callsign,
-                    gridsquare: s.gridsquare,
-                    active: s.active,
-                })
-                .collect())
+            Ok(list)
         }
         Err(e) => {
-            conn_log("Cloudlog", "error", e.message.clone());
-            Err(e.message)
+            conn_log("Cloudlog", "error", e.clone());
+            Err(e)
         }
     }
 }
@@ -23649,8 +23667,82 @@ fn cloudlog_push_qso_impl(
         });
     }
     let rec: tempo_core::logbook::QsoRecord = dto.clone().into();
+    if key.starts_with("wl2_") {
+        return wavelog_v2::upload_one(
+            &url,
+            &key,
+            &station_id,
+            &rec,
+            &shared_data_dir().join("wavelog-v2-sync.json"),
+        )
+        .map_err(|message| CloudlogError {
+            class: if message.contains("token") || message.contains("access") {
+                CloudlogFailure::Credentials
+            } else if message.contains("requires") || message.contains("must be") {
+                CloudlogFailure::NotConfigured
+            } else {
+                CloudlogFailure::Unreachable
+            },
+            message,
+        });
+    }
     let adif = tempo_core::logbook::adif_record(&rec);
     propagation::live::cloudlog::upload(&url, &key, &station_id, &adif)
+}
+
+/// Reconcile the whole local logbook with Wavelog API v2. Legacy v1 keys remain upload-only.
+#[tauri::command(async)]
+async fn wavelog_v2_sync(state: State<'_, SharedEngine>) -> Result<wavelog_v2::SyncReport, String> {
+    let engine = state.inner().clone();
+    let (url, station_id) = {
+        let eng = engine_lock(&engine);
+        (
+            eng.settings().cloudlog_url.trim().to_string(),
+            eng.settings().cloudlog_station_id.trim().to_string(),
+        )
+    };
+    let token = cloudlog_keychain()?
+        .get_password()
+        .map_err(|_| "No Wavelog API v2 token stored — set it in Settings.".to_string())?;
+    let sync_state = shared_data_dir().join("wavelog-v2-sync.json");
+    let report = tauri::async_runtime::spawn_blocking(move || {
+        wavelog_v2::sync(&engine, &url, &token, &station_id, &sync_state)
+    })
+    .await
+    .map_err(|e| format!("Wavelog sync task failed: {e}"))??;
+    conn_log(
+        "Wavelog v2",
+        "ok",
+        format!(
+            "two-way sync: {} downloaded, {} uploaded, {} local edit(s), {} remote edit(s), {} local delete(s), {} remote delete(s)",
+            report.downloaded, report.uploaded, report.local_updates, report.remote_updates,
+            report.local_deletes, report.remote_deletes
+        ),
+    );
+    Ok(report)
+}
+
+#[tauri::command]
+async fn wavelog_v2_status(
+    state: State<'_, SharedEngine>,
+) -> Result<wavelog_v2::SyncStatus, String> {
+    let engine = state.inner().clone();
+    let (url, station_id) = {
+        let eng = engine_lock(&engine);
+        (
+            eng.settings().cloudlog_url.trim().to_string(),
+            eng.settings().cloudlog_station_id.trim().to_string(),
+        )
+    };
+    let sync_state = shared_data_dir().join("wavelog-v2-sync.json");
+    // The binding ledger is deliberately complete so deletes remain safe, and a large station can
+    // make it tens of megabytes. Parse it away from Tauri's command dispatcher so opening the
+    // Logbook never stalls while the status strip reads the last durable totals.
+    tauri::async_runtime::spawn_blocking(move || {
+        wavelog_v2::status(&engine, &url, &station_id, &sync_state)
+    })
+    .await
+    .map_err(|e| format!("Wavelog status task failed: {e}"))?
 }
 
 /// #226: the connection-log line for a Cloudlog/Wavelog failure that retrying cannot fix, or
@@ -27970,6 +28062,61 @@ fn start_on_the_logbook(
         });
     }
 
+    // Wavelog API v2 whole-log reconciliation. Immediate per-QSO forwarding above keeps new
+    // contacts prompt; this slower pass is what discovers remote additions and edits, and what
+    // catches local edits made after a contact was first uploaded. It is v2-only: a legacy
+    // Cloudlog/Wavelog key retains the upload-only behaviour it has always had.
+    {
+        let sync_engine = engine.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(300));
+            let (enabled, url, station_id) = {
+                let eng = engine_lock_result(&sync_engine).unwrap_or_else(|e| e.into_inner());
+                let s = eng.settings();
+                (
+                    s.cloudlog_upload && !s.cloudlog_url.trim().is_empty(),
+                    s.cloudlog_url.trim().to_string(),
+                    s.cloudlog_station_id.trim().to_string(),
+                )
+            };
+            if !enabled {
+                continue;
+            }
+            let token = match cloudlog_keychain().and_then(|entry| {
+                entry
+                    .get_password()
+                    .map_err(|_| "Wavelog API token is unavailable".to_string())
+            }) {
+                Ok(token) if token.trim().starts_with("wl2_") => token,
+                _ => continue,
+            };
+            let sync_state = shared_data_dir().join("wavelog-v2-sync.json");
+            match wavelog_v2::sync(&sync_engine, &url, &token, &station_id, &sync_state) {
+                Ok(r)
+                    if r.downloaded
+                        + r.uploaded
+                        + r.local_updates
+                        + r.remote_updates
+                        + r.local_deletes
+                        + r.remote_deletes
+                        > 0 =>
+                {
+                    conn_log(
+                        "Wavelog v2",
+                        "ok",
+                        format!(
+                            "automatic two-way sync: {} down, {} up, {} local edit(s), {} remote edit(s), {} local delete(s), {} remote delete(s)",
+                            r.downloaded, r.uploaded, r.local_updates, r.remote_updates,
+                            r.local_deletes, r.remote_deletes
+                        ),
+                    );
+                }
+                Ok(_) => {}
+                Err(e) => conn_log("Wavelog v2", "error", format!("automatic sync — {e}")),
+            }
+        });
+    }
+
     // Connector auto-upload worker — THE single funnel for QRZ / ClubLog / eQSL
     // pushes. Every `Engine::log_qso` path queues its record (the engine
     // auto-log included — the path that used to silently skip every connector);
@@ -29326,6 +29473,8 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             dxcc_entity_names,
             dxcc_entity_continents,
             cloudlog_station_info,
+            wavelog_v2_sync,
+            wavelog_v2_status,
             dxcc_entity_locations,
             set_frequency,
             sstv_tune,

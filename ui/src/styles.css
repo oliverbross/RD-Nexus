@@ -13821,6 +13821,8 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: inline-flex;
   gap: var(--space-1);
   justify-content: flex-end;
+  overflow: visible;
+  position: relative;
 }
 .log-rowbtn {
   cursor: pointer;
@@ -13862,6 +13864,90 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .log-rowbtn.danger:hover {
   color: var(--state-weak);
   border-color: var(--state-weak);
+}
+.log-actions-menu {
+  position: relative;
+  z-index: 2;
+}
+.log-actions-menu[open] {
+  z-index: 40;
+}
+.log-actions-menu > summary {
+  width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  list-style: none;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.log-actions-menu > summary::-webkit-details-marker { display: none; }
+.log-actions-menu > summary svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.log-actions-menu > summary:hover,
+.log-actions-menu > summary:focus-visible,
+.log-actions-menu[open] > summary {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--bg-elev);
+}
+.log-actions-popover {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  min-width: 172px;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+.log-actions-popover .log-rowbtn {
+  width: 100%;
+  min-height: 30px;
+  height: auto;
+  justify-self: stretch;
+  opacity: 1;
+  text-align: left;
+  padding: 6px 9px;
+}
+.log-actions-popover select.log-rowbtn { appearance: auto; }
+
+.wavelog-sync-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px 14px;
+  min-height: 34px;
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-elev) 76%, var(--bg));
+  color: var(--text-dim);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+}
+.wavelog-sync-strip strong { color: var(--text); }
+.wavelog-sync-name { color: var(--text); font-weight: 750; }
+.wavelog-sync-strip .ok { color: var(--state-good); }
+.wavelog-sync-strip .pending { color: var(--state-warn); }
+.wavelog-sync-cadence { margin-left: auto; color: var(--text-faint); }
+
+/* One menu button replaces the old 300+ px action strip, giving the actual QSO fields room. */
+.logbook-row {
+  grid-template-columns: 1fr 1.35fr .62fr .92fr .68fr .55fr .55fr 1fr .62fr .8fr .68fr 1.35fr 42px;
 }
 .log-searchbar {
   display: flex;

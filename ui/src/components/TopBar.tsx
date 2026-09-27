@@ -25,7 +25,7 @@ import { T } from '../i18n/T'
 /** The bar's own plates: the product name, the two directions of the TX/RX indicator, the
  *  operator prefix, the recording badge and the UTC label. Tokens, named so the catalog guard
  *  reads them as the deliberate constants they are. */
-const NEXUS = 'Nexus'
+const NEXUS = 'RD-Nexus'
 const TX = 'TX'
 const RX = 'RX'
 const OP = 'OP'

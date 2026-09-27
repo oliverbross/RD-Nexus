@@ -161,7 +161,7 @@ import { elementBandParts } from '../features/elementBands'
 import { discoverFlex } from '../api'
 import { civDiagnosticLog, civDiagnosticStatus } from '../api'
 import { allTxtLocation, diagLogLocation, recordingsLocation, revealAllTxt, revealDiagLog, revealRecordings } from '../api'
-import { getCloudlogStations, type CloudlogStation } from '../api'
+import { getCloudlogStations, syncWavelogV2, type CloudlogStation } from '../api'
 import { findDaxDevices, isDaxPaired } from '../features/dax'
 import { sayExportLacks } from '../features/exportLacks'
 import type { AssistanceEvent, ConnEvent, CredStatus, FieldDayStatus } from '../types'
@@ -1449,6 +1449,8 @@ export function SettingsPanel({
   const [cloudlogStations, setCloudlogStations] = useState<CloudlogStation[] | null>(null)
   const [cloudlogStationsBusy, setCloudlogStationsBusy] = useState(false)
   const [cloudlogStationsError, setCloudlogStationsError] = useState<string | null>(null)
+  const [wavelogSyncing, setWavelogSyncing] = useState(false)
+  const [wavelogSyncSummary, setWavelogSyncSummary] = useState<string | null>(null)
   const findCloudlogStations = async () => {
     setCloudlogStationsBusy(true)
     setCloudlogStationsError(null)
@@ -3009,6 +3011,28 @@ export function SettingsPanel({
       setCloudlogKeyField('')
       pushToast(t('settings.connections.cloudlog.key.cleared'), 'success')
     }
+  }
+
+  const onSyncWavelogV2 = async () => {
+    setWavelogSyncing(true)
+    setWavelogSyncSummary(null)
+    const result = await withErrorToast(
+      () => syncWavelogV2(),
+      t('settings.connections.cloudlog.sync.failed'),
+    )
+    if (result) {
+      const summary = t('settings.confirmations.cloudlog.sync.summary', {
+        downloaded: result.downloaded,
+        uploaded: result.uploaded,
+        localUpdates: result.localUpdates,
+        remoteUpdates: result.remoteUpdates,
+        localDeletes: result.localDeletes,
+        remoteDeletes: result.remoteDeletes,
+      })
+      setWavelogSyncSummary(summary)
+      pushToast(summary, 'success')
+    }
+    setWavelogSyncing(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -11113,6 +11137,24 @@ export function SettingsPanel({
                   <span className="settings-hint">
                     {t('settings.confirmations.cloudlog.upload.hint')}
                   </span>
+                  <div className="settings-input-row">
+                    <button
+                      disabled={remote || wavelogSyncing}
+                      type="button"
+                      className="settings-refresh"
+                      onClick={() => void onSyncWavelogV2()}
+                    >
+                      {wavelogSyncing
+                        ? t('settings.confirmations.cloudlog.sync.busy')
+                        : t('settings.confirmations.cloudlog.sync.action')}
+                    </button>
+                  </div>
+                  <span className="settings-hint">
+                    {t('settings.confirmations.cloudlog.sync.hint')}
+                  </span>
+                  {wavelogSyncSummary && (
+                    <span className="settings-note" role="status">{wavelogSyncSummary}</span>
+                  )}
                 </div>
               </div>
             </div>

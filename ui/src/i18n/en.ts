@@ -1198,6 +1198,13 @@ export const EN = {
   'logbook.globe.loading': 'Loading globe…',
   'logbook.search.placeholder': 'Search call / grid / band / mode / date…',
   'logbook.search.clear': 'Clear',
+  'logbook.sync.name': 'Wavelog sync',
+  'logbook.sync.local': 'local',
+  'logbook.sync.remote': 'remote',
+  'logbook.sync.linked': 'linked',
+  'logbook.sync.current': 'in sync',
+  'logbook.sync.pending': '{{count}} pending',
+  'logbook.sync.cadence': 'automatic every {{minutes}} min',
   'logbook.filter.needsConfirmation.label': 'needs confirmation',
   'logbook.filter.needsConfirmation.title':
     "Show only contacts without an award-eligible (LoTW/paper) confirmation. Rows you've already sent a QSL request for stay here — a request is not a confirmation.",
@@ -1211,7 +1218,7 @@ export const EN = {
   'logbook.column.date': 'Date (UTC)',
   'logbook.column.time': 'Time (UTC)',
   'logbook.column.park': 'Park',
-  'logbook.column.actions': 'Edit / delete',
+  'logbook.column.actions': 'Actions',
   // #239 More columns + the edit form's own-side and QSL fields. `(W)` is the unit symbol and
   // MY_GRIDSQUARE / MY_RIG are ADIF field names — tokens inside the sentence.
   'logbook.columns.more.label': 'More columns',
@@ -1303,6 +1310,7 @@ export const EN = {
   'logbook.row.qslSent.electronic': 'Electronic',
   'logbook.row.edit': 'Edit {{call}}',
   'logbook.row.delete': 'Delete {{call}}',
+  'logbook.row.actions.title': 'Actions for {{call}}',
 
   // The satellite tag. The <select>'s VALUES are LoTW's own satellite names and stay in the
   // code — only these labels are prose. "Clear" is a separate entry and not a blank box on
@@ -6885,7 +6893,7 @@ export const EN = {
     "Optional. Without a token the <b>Program</b> section uses the open hearham.com directory. Add a personal token (from your RepeaterBook account's <b>API Apps</b> page) to pull from RepeaterBook.com under your own account instead. Stored in the OS keychain. Shared RepeaterBook access for every Nexus user is pending RepeaterBook's approval; if RepeaterBook is unreachable, Program falls back to hearham.com.",
 
   'settings.confirmations.cloudlog.note':
-    'Auto-forward each logged QSO to your self-hosted <b>Cloudlog</b> or <b>Wavelog</b> logbook (HTTP). The API key is a per-instance token for your own server — enter it, your station-profile id, and turn on the toggle.',
+    'Use a <b>Wavelog API v2</b> token for automatic two-way logbook sync. Legacy Cloudlog/Wavelog keys remain supported for upload-only forwarding.',
   'settings.confirmations.cloudlog.url.label': 'Base URL',
   'settings.confirmations.cloudlog.url.hint':
     'Your Cloudlog/Wavelog site root. Leave blank to disable.',
@@ -6908,10 +6916,17 @@ export const EN = {
   'settings.confirmations.cloudlog.apiKey.forget.title':
     'Remove the stored Cloudlog key from the system keychain',
   'settings.confirmations.cloudlog.apiKey.hint':
-    'Cloudlog ▸ Account ▸ API Keys — a key with read/write. Stored in the OS keychain, never on disk.',
-  'settings.confirmations.cloudlog.upload.label': 'Auto-forward QSOs',
+    'Wavelog ▸ Account ▸ API Keys — use a v2 read/write token beginning wl2_. Stored in the OS keychain, never on disk.',
+  'settings.confirmations.cloudlog.upload.label': 'Automatic Wavelog sync',
   'settings.confirmations.cloudlog.upload.hint':
-    "Push every logged QSO to the instance above as it's logged.",
+    'API v2 keeps both logbooks aligned every five minutes and forwards new QSOs immediately. Bound deletions are mirrored in either direction.',
+  'settings.confirmations.cloudlog.sync.action': 'Sync both logbooks now',
+  'settings.confirmations.cloudlog.sync.busy': 'Synchronising…',
+  'settings.confirmations.cloudlog.sync.hint':
+    'Reconciles additions, edits and binding-safe deletions in both directions. A bulk-deletion guard stops an implausible disappearance before either log changes.',
+  'settings.confirmations.cloudlog.sync.summary':
+    'Wavelog sync complete: {{downloaded}} down, {{uploaded}} up, {{localUpdates}} local edits, {{remoteUpdates}} remote edits, {{localDeletes}} local deletes, {{remoteDeletes}} remote deletes.',
+  'settings.connections.cloudlog.sync.failed': 'Wavelog API v2 sync failed',
 
   // ── Settings ▸ Appearance ▸ Workspace ───────────────────────────────────────────────
   // ⚠️ Every scale here is a PERCENT of a technical quantity, so it is interpolated as an
@@ -9182,7 +9197,7 @@ export const EN = {
   // ── The shell: loading, window title, the rails, the crash escape ───────────────────
   'shell.loading': 'Connecting to Nexus…',
   // `Nexus` is the program's name — the same word in every language.
-  'shell.windowTitle': '{{section}} — Nexus',
+  'shell.windowTitle': '{{section}} — RD-Nexus',
   // Screen-reader announcement of the radio's transmit state. Not a control: the TX controls
   // themselves live in the cockpits and move with them.
   'shell.tx.announce.on': 'Transmitting',

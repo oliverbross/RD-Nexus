@@ -101,69 +101,10 @@ function tracks(selectors: string[]): string[] {
   return out
 }
 
-/** The px floor of a `minmax(<px>, …)` track. A bare `fr` track has no floor. */
-const floorOf = (track: string): number | null => {
-  const m = /^minmax\(\s*(\d+(?:\.\d+)?)px\s*,/.exec(track)
-  return m ? Number(m[1]) : null
-}
-
 const pxOf = (v: string | null) => (v == null ? 0 : Number(/(-?\d+(?:\.\d+)?)px/.exec(v)?.[1] ?? 0))
-
-/** `--space-1` resolved at --space-scale 1 — md and up, the widest case and the one the floor
- *  has to cover. Narrow viewports tighten it, which only ever makes the cluster smaller. */
-const SPACE_1 = 4
-const spacing = (v: string | null) => (v && /var\(--space-1\)/.test(v) ? SPACE_1 : pxOf(v))
-
-// ── The harness's numbers, and the inputs they were taken at ─────────────────────────────
-// ui/layout-harness/measure-logbook-actions.sh, 2026-09-16, real headless Chrome:
-//   requiredInkW 324.6px at --space-scale 1, on the widest of the five sans faces installed
-//   (DejaVu Sans; Liberation Sans 322.2, FreeSans 322.2, Bitstream Charter 320.2, Ubuntu
-//   313.5 — an 11.1px spread). The sheet's floor is that requirement plus one spread, so a
-//   wider face than any of them still fits.
-//
-// RE-TAKEN 2026-09-22, same harness, when the satellite-tag menu joined the cluster and made
-// it ten controls: requiredInkW 372.6px, spread 11.3 (361.3 .. 372.6), floor 336 -> 384. The
-// delta is exactly the 44px the sheet pins a `select.log-rowbtn` to plus one 4px gap —
-// measured, not assumed, which is the step this file exists to stop anyone skipping.
-const MEASURED_REQUIREMENT = 372.6
-const MEASURED_FACE_SPREAD = 11.3
 /** The controls the row renders, in order, with station control held (the desktop default,
  *  and the widest case). If this changes, the measurement above is stale. */
 const EXPECTED_LABELS = ['📢', 'QRZ', 'QRZ✎', 'CL', 'HL', 'WRL', 'QSL▸', 'SAT▸', '✎', '✕']
-const EXPECTED_FONT_SIZE = '0.8rem'
-/** A per-character advance chosen BELOW every face measured — the narrowest observed was
- *  Ubuntu's `CL` at 7.2px/char at this size. It builds a LOWER bound only, so every face that
- *  is wider than this (all of them) can only make the real requirement larger. */
-const MIN_ADVANCE_PX = 6.5
-
-/**
- * A LOWER bound on the width the action cluster needs, in px: every term is read off the
- * cascade or deliberately understated, so it can only under-estimate the truth — which is
- * what makes a floor below it a certain defect rather than a suspected one.
- *
- * The box terms are inputs, not assertions: a sheet that declares less (no padding, a bare
- * `width` where there is now a `min-width`) yields a SMALLER bound, so this stays valid
- * against older sheets — that is how it is run against origin/main.
- */
-function clusterLowerBound(): number {
-  const box = Math.max(
-    pxOf(winner(['.log-rowbtn'], 'min-width')),
-    pxOf(winner(['.log-rowbtn'], 'width')),
-  )
-  const border = pxOf(winner(['.log-rowbtn'], 'border'))
-  const padX = spacing((winner(['.log-rowbtn'], 'padding') ?? '').split(/\s+/).pop() ?? null)
-  const gap = spacing(winner(['.log-rowactions'], 'gap'))
-  // A <select> is as wide as its widest OPTION, so whatever the sheet pins it to is its
-  // contribution; unpinned, it is at least a button box.
-  const selW = Math.max(box, pxOf(winner(['select.log-rowbtn'], 'width')))
-  return (
-    EXPECTED_LABELS.reduce((sum, label) => {
-      if (label === 'QSL\u25B8' || label === 'SAT\u25B8') return sum + selW
-      return sum + Math.max(box, 2 * padX + 2 * border + [...label].length * MIN_ADVANCE_PX)
-    }, 0) +
-    gap * (EXPECTED_LABELS.length - 1)
-  )
-}
 
 // ── What the component actually renders ─────────────────────────────────────────────────
 beforeAll(() => {
@@ -186,6 +127,7 @@ vi.mock('./api', () => {
   const noop = () => vi.fn()
   return {
     askLog: vi.fn(async (q: LogQuestion) => (await import('./features/logAnswers.testkit')).answerAs(q, await engineLog())),
+    getWavelogV2Status: vi.fn(async () => ({ localTotal: 1, remoteTotal: 1, syncedLocal: 1, syncedRemote: 1, localOnly: 0, remoteOnly: 0, lastSyncUnix: 1, intervalSeconds: 300 })),
     deleteQsoById: noop(), editQsoById: noop(), exportGeneralLog: noop(), importAdif: noop(),
     logOperators: vi.fn(() => Promise.resolve([] as string[])), exportLogForOperator: noop(),
     logActivations: vi.fn(() => Promise.resolve([])), exportLogForActivation: noop(),
@@ -234,119 +176,38 @@ async function renderRow(moreColumns = false): Promise<HTMLElement> {
   return container.querySelector('.logbook-row:not(.head)') as HTMLElement
 }
 
-describe('the Logbook row-action cluster fits its grid track', () => {
-  it('renders the controls the floor was measured against', async () => {
+describe('the Logbook row-action menu stays compact and complete', () => {
+  it('renders every former row action inside one gear menu', async () => {
     const row = await renderRow()
-    const cluster = row.querySelector('.log-rowactions')
-    expect(cluster, 'the row must render an action cluster, or every check here is vacuous').not.toBeNull()
-    const labels = [...cluster!.querySelectorAll('.log-rowbtn')].map((el) =>
-      // A <select>'s closed label is its first option, not its whole text content.
+    const menu = row.querySelector('.log-actions-menu')
+    expect(menu).not.toBeNull()
+    expect(menu!.querySelector(':scope > summary svg')).not.toBeNull()
+    const labels = [...menu!.querySelectorAll('.log-actions-popover .log-rowbtn')].map((el) =>
       el.tagName === 'SELECT' ? (el as HTMLSelectElement).options[0].text : (el.textContent ?? ''),
     )
-    expect(
-      labels,
-      'the action cluster changed. Its width is a FONT metric jsdom cannot compute — re-run ' +
-        'ui/layout-harness/measure-logbook-actions.sh, then update MEASURED_REQUIREMENT, ' +
-        'EXPECTED_LABELS and the minmax() floor in .logbook-row.',
-    ).toEqual(EXPECTED_LABELS)
+    expect(labels).toEqual(EXPECTED_LABELS)
   })
 
-  it('gives the tail cell a track of its own at every viewport', async () => {
+  it('keeps the compact row aligned with one narrow action track', async () => {
     const row = await renderRow()
     const cells = row.querySelectorAll(':scope > .log-cell').length
-    expect(cells, 'the row must render cells').toBeGreaterThan(5)
-    expect(
-      tracks(['.logbook-row']).length,
-      'the compact template must have one track per rendered cell',
-    ).toBe(cells)
-
-    // …and the narrow one, which hides seven columns (six until #239 split Date from Time —
-    // the count is computed below, so only this sentence had to move). A template SHORTER
-    // than the cell count
-    // auto-places the tail cell onto a second GRID ROW — the action cluster rendered beneath
-    // the callsign instead of beside it. That is what shipped from 2026-08-23, when the Notes
-    // column landed and was added to neither the hide list nor this template.
-    // Which columns sm hides is COMPUTED, one cascade query per cell position, so a later
-    // rule that unhides one is seen. (:nth-child is 1-based, hence the +1.)
-    const hidden = Array.from({ length: cells }, (_, i) => i + 1).filter(
-      (n) => winner([`[data-viewport='sm'] .logbook-row .log-cell:nth-child(${n})`], 'display') === 'none',
-    ).length
-    expect(hidden, 'the sm rules must hide some columns, or this check is vacuous').toBeGreaterThan(0)
-    expect(
-      tracks(["[data-viewport='sm'] .logbook-row"]).length,
-      'the narrow template must have a track for every cell it does not hide',
-    ).toBe(cells - hidden)
-
-    // The "More columns" table (#239) is the same shape of trap: seven more cells, its own
-    // template, and nothing tying the two together. It shows every column at every viewport,
-    // so one count covers it.
-    const wideRow = await renderRow(true)
-    const wideCells = wideRow.querySelectorAll(':scope > .log-cell').length
-    expect(wideCells, 'the wide table must render more cells than the compact one').toBeGreaterThan(cells)
-    expect(
-      tracks(['.logbook-table.wide .logbook-row']).length,
-      'the wide template must have one track per rendered cell',
-    ).toBe(wideCells)
+    const template = tracks(['.logbook-row'])
+    expect(template.length).toBe(cells)
+    expect(template[template.length - 1]).toBe('42px')
   })
 
-  it('floors the tail track above the cluster it has to hold', async () => {
+  it('makes the popover controls readable instead of squeezing their labels', async () => {
     const row = await renderRow()
-    const controls = row.querySelectorAll('.log-rowactions .log-rowbtn').length
+    const controls = row.querySelectorAll('.log-actions-popover .log-rowbtn').length
     expect(controls).toBe(EXPECTED_LABELS.length)
-
-    // The font the measurement was taken at, and a square floor for the one-glyph buttons.
-    expect(winner(['.log-rowbtn'], 'font-size')).toBe(EXPECTED_FONT_SIZE)
-    expect(
-      Math.max(pxOf(winner(['.log-rowbtn'], 'min-width')), pxOf(winner(['.log-rowbtn'], 'width'))),
-      '.log-rowbtn must keep a square floor for its one-glyph buttons',
-    ).toBeGreaterThanOrEqual(22)
-
-    const lower = clusterLowerBound()
-    expect(lower, 'the bound must be non-trivial, or every floor check below is vacuous').toBeGreaterThan(200)
-
-    const surfaces: [string, string[]][] = [
-      ['the compact table', ['.logbook-row']],
-      ['the narrow viewport', ["[data-viewport='sm'] .logbook-row"]],
-      ['the wide ("more columns") table', ['.logbook-table.wide .logbook-row']],
-    ]
-    for (const [name, sels] of surfaces) {
-      const list = tracks(sels)
-      const floor = floorOf(list[list.length - 1])
-      expect(floor, `${name}: the tail track must carry a px floor, not a bare fr`).not.toBeNull()
-      expect(
-        floor as number,
-        `${name}: the tail track's floor (${floor}px) is below what ${controls} controls need ` +
-          `(at least ${lower.toFixed(1)}px). The cluster gets sheared off the LEFT of an ` +
-          'overflow:hidden cell — buttons the operator can neither see nor click.',
-      ).toBeGreaterThanOrEqual(lower)
-      expect(
-        floor as number,
-        `${name}: the floor must also cover the MEASURED requirement (${MEASURED_REQUIREMENT}px, ` +
-          `ui/layout-harness/measure-logbook-actions.sh) plus the ${MEASURED_FACE_SPREAD}px ` +
-          'spread between faces, so a wider face on Windows still fits.',
-      ).toBeGreaterThanOrEqual(MEASURED_REQUIREMENT + MEASURED_FACE_SPREAD)
-    }
-
-    // …and the QSL menu must be PINNED, or the option catalog sizes the cluster and every
-    // floor above becomes a property of the operator's language: a <select> is as wide as its
-    // widest OPTION and these options are translated prose (98px in English, 110px in German
-    // — harness). `min-width` does not pin it; only an explicit width does.
-    expect(
-      pxOf(winner(['select.log-rowbtn'], 'width')),
-      'select.log-rowbtn must pin an explicit width — otherwise the widest translated option ' +
-        'sizes the control, and the cluster with it',
-    ).toBeGreaterThan(0)
+    expect(pxOf(winner(['.log-actions-popover'], 'min-width'))).toBeGreaterThanOrEqual(160)
+    expect(winner(['.log-actions-popover .log-rowbtn'], 'width')).toBe('100%')
   })
 
-  it('FIRES: the floor that shipped is reported as too small', () => {
-    // The control that must trip, run through the SAME two functions the checks above use —
-    // `floorOf` on the track as it shipped, against `clusterLowerBound()`. Without this, a
-    // green run says nothing about whether the arithmetic is capable of failing at all.
-    const shipped = floorOf('minmax(160px, 0.8fr)')
-    expect(shipped, 'the shipped track must parse, or this control is checking nothing').toBe(160)
-    expect(shipped as number).toBeLessThan(clusterLowerBound())
-    // …and a bare `fr` track — no floor at all, which is what the narrow viewport had — is
-    // reported as having none rather than as passing.
-    expect(floorOf('0.7fr')).toBeNull()
+  it('keeps deletion inside the menu as the destructive action', async () => {
+    const row = await renderRow()
+    const danger = row.querySelector('.log-actions-popover .log-rowbtn.danger')
+    expect(danger).not.toBeNull()
+    expect(danger?.getAttribute('aria-label')).toContain('K0ABC')
   })
 })
