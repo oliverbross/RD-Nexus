@@ -36,12 +36,15 @@
   --space-7: calc(32px * var(--space-scale));
   --space-8: calc(40px * var(--space-scale));
   --space-9: calc(48px * var(--space-scale));
-  /* Type scale — sans for prose; mono reserved for callsign/freq/grid/Z-time/SNR */
-  --fs-display: clamp(22px, calc(0.024 * var(--vw-eff, 100vw)), 30px);
-  --fs-title: 18px;
-  --fs-body: 14px;
-  --fs-label: 12px;
-  --fs-micro: 11px;
+  /* Type scale — sans for prose; mono reserved for callsign/freq/grid/Z-time/SNR.
+     Every size rides --text-scale (Settings ▸ Workspace ▸ Text size, #215 — see the
+     [data-text-size] blocks below). */
+  --text-scale: 1;
+  --fs-display: calc(clamp(22px, calc(0.024 * var(--vw-eff, 100vw)), 30px) * var(--text-scale));
+  --fs-title: calc(18px * var(--text-scale));
+  --fs-body: calc(14px * var(--text-scale));
+  --fs-label: calc(12px * var(--text-scale));
+  --fs-micro: calc(11px * var(--text-scale));
   --lh-tight: 1.2;
   --lh-normal: 1.45;
   /* Elevation (--elev-2 inherits the per-theme --shadow) */
@@ -69,6 +72,48 @@
 }
 [data-density='dense'] {
   --density-scale: 0.82;
+}
+
+/* TOUCH — Settings ▸ Workspace ▸ Density ▸ Touch: Comfortable (useDensity also sets
+   data-density='guided') plus targets sized for a finger. An explicit attribute, never
+   `@media (pointer: coarse)` — a touchscreen laptop driven by a mouse reports `fine`, and the
+   responsive vocabulary forbids reaching for the device. The controls already floored at
+   --touch grow to 48px; the chip buttons the app renders (19–26px at Standard, measured in
+   a real browser) get a 36px floor and roomier padding. `:root` lifts these to (0,3,0) so
+   they outrank every chip's own padding at any source position. */
+[data-touch] {
+  --touch: 48px;
+}
+:root[data-touch] .theme-chip,
+:root[data-touch] .od-chip,
+:root[data-touch] .log-filter-chip,
+:root[data-touch] .filter-chip,
+:root[data-touch] .nb-chip,
+:root[data-touch] .cockpit-depth-chip,
+/* Classic's Stations panel compacts its filter chips at (0,4,0); Touch outranks that too. */
+:root[data-touch] .cockpit-lower.classic .cockpit-roster .filter-chip {
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+}
+/* A decode list squeezed by those taller chips keeps two rows to tap, not .od-scroll's one. */
+:root[data-touch] .od-scroll {
+  min-height: 3em;
+}
+
+/* TEXT SIZE (#215) — Settings ▸ Workspace ▸ Text size: Normal / Large / Larger,
+   +0 / +12 / +25 % (operator, 2026-09-26), on ALL text, the decode and log lists included —
+   separate from UI scale, which magnifies everything. Every font size in this sheet is a
+   --fs-* token, `calc(<n>px * var(--text-scale))`, a `rem` (the root below follows the pick)
+   or relative to a parent that is; styles-text-size.test.ts evaluates every one of them at
+   each pick and names any that stays put. At Normal each is exactly the size it was. */
+[data-text-size='large'] {
+  --text-scale: 1.12;
+}
+[data-text-size='larger'] {
+  --text-scale: 1.25;
+}
+html {
+  font-size: calc(100% * var(--text-scale));
 }
 
 /* --- Motion: follow the OS reduced-motion pref; allow a manual force-reduce
@@ -150,7 +195,7 @@
   color: var(--text-dim);
 }
 .state-block .sb-glyph {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   line-height: 1;
 }
 .state-block.is-error .sb-glyph {
@@ -278,7 +323,7 @@
   border: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   line-height: 1;
   padding: 0 var(--space-1);
 }
@@ -510,7 +555,7 @@ button.nb-chip:hover {
 .nb-src {
   font-weight: 800;
   letter-spacing: 0.06em;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   padding: 1px 6px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
@@ -528,7 +573,7 @@ button.nb-chip:hover {
 /* Connector-liveness pills (cluster/RBN + PSK Reporter) — slightly more compact
    than the verdict chips; they're infrastructure status, not the headline. */
 .nb-chip.nb-feed {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   padding: 1px 7px;
 }
 
@@ -865,7 +910,7 @@ button.nb-chip:hover {
   padding: 0 var(--space-1);
   background: none;
   border: none;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   line-height: 1;
   color: var(--text-faint);
   cursor: pointer;
@@ -1116,7 +1161,7 @@ button.nb-chip:hover {
   margin: 0 0 var(--space-1);
 }
 .sat-fav-toggle {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   padding: 1px var(--space-2);
   border: 1px solid var(--border-soft);
@@ -1330,7 +1375,7 @@ button.nb-chip:hover {
 .heatmap-tick {
   text-align: left;
   color: var(--text-faint);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   height: 12px;
 }
 .heatmap-tick.major {
@@ -1347,7 +1392,7 @@ button.nb-chip:hover {
 /* Modelled circuit reliability (% of day usable), under the band label. */
 .heatmap-rel {
   font-weight: 400;
-  font-size: 8px;
+  font-size: calc(8px * var(--text-scale));
   color: var(--text-faint);
 }
 .heatmap-cell {
@@ -1365,7 +1410,7 @@ button.nb-chip:hover {
   gap: var(--space-2);
   margin-top: var(--space-1);
   color: var(--text-faint);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
 }
 .heatmap-scale {
   flex: 1;
@@ -2070,7 +2115,7 @@ body.resizing-row {
 .settings-test-btn {
   margin-left: auto;
   padding: 2px var(--space-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   background: var(--bg-elev);
@@ -2079,7 +2124,7 @@ body.resizing-row {
 }
 .settings-test-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .settings-test-btn:disabled { opacity: 0.6; cursor: default; }
-.conn-test-result { margin: 6px 0 0; font-size: 12.5px; }
+.conn-test-result { margin: 6px 0 0; font-size: calc(12.5px * var(--text-scale)); }
 .conn-test-result.ok { color: var(--state-good, #4caf50); }
 .conn-test-result.fail { color: var(--state-weak, #e57373); }
 
@@ -3043,7 +3088,7 @@ body.resizing-row {
   font-weight: 600;
 }
 .bc-state {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   border-radius: 4px;
   padding: 1px 6px;
@@ -3120,7 +3165,7 @@ body.resizing-row {
   color: var(--text);
 }
 .map-path-toggle button {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   padding: 1px 6px;
 }
 .map-legend {
@@ -3142,7 +3187,7 @@ body.resizing-row {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   color: var(--text-faint);
 }
 .snr-key {
@@ -3174,7 +3219,7 @@ body.resizing-row {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   color: var(--text-faint);
 }
 .muf-legend-title {
@@ -3249,7 +3294,7 @@ body.resizing-row {
 .flare-preview {
   margin: 2px 0 var(--space-1);
   padding: 1px var(--space-2);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -3271,7 +3316,7 @@ body.resizing-row {
   border-left: 3px solid #ff8c3a;
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text);
   pointer-events: none;
 }
@@ -3321,7 +3366,7 @@ body.resizing-row {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--space-2) var(--space-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   pointer-events: none;
 }
@@ -3387,19 +3432,19 @@ body.resizing-row {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   color: var(--text-dim);
 }
 .log-export-date {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   padding: 0 var(--space-2);
   width: 9em;
 }
 /* The per-activation picker sits in the same row. Wider than a date because each option carries
    callsign · park · date · count, but capped so it can never push its Export button off the row. */
 .log-export-activation {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   padding: 0 var(--space-2);
   max-width: 22em;
 }
@@ -3415,9 +3460,13 @@ body.resizing-row {
   flex-wrap: wrap;
 }
 
-/* ---- DARK (shack) — default ---- */
+/* ---- DARK (shack) — default ----
+   `.well` is a SELECTOR of this palette, not a copy of it: a display well (see DISPLAY WELLS,
+   below the contrast blocks) is this theme wherever it sits, so a retuned dark ink retunes every
+   well with it. */
 :root,
-[data-theme='dark'] {
+[data-theme='dark'],
+.well {
   --bg: #0b0f17;
   --bg-elev: #131925;
   --bg-elev-2: #1a2231;
@@ -3620,7 +3669,8 @@ body.resizing-row {
   --border: #7d8899;
   --border-soft: #a8b3c2;
 }
-[data-theme='dark'][data-contrast='high'] {
+[data-theme='dark'][data-contrast='high'],
+[data-contrast='high'] .well {
   --text: #ffffff;
   --text-dim: #e8eef6;
   --text-faint: #dae2ec;
@@ -3630,6 +3680,393 @@ body.resizing-row {
   --bg-elev-2: #161d27;
   --border: #5a6980;
   --border-soft: #3a475c;
+}
+
+/* ---- NIGHT: a darker, warmer screen after dark (data-night='1') -----------------------------
+   Operator picks, 2026-09-26: "Dim + warm, TX red", "Dim the light theme", "Settings + Auto by
+   sun", "At dusk, sun 6° down". Settings ▸ Appearance ▸ Workspace ▸ Night (useNight.ts): Off, On,
+   or Auto from civil dusk to civil dawn at the station's grid square.
+
+   WHAT MOVES: the neutral surfaces and inks go darker and warmer, the accent family and the
+   frequency readout dim and keep their hue, and the display wells dim with the room. WHAT NEVER
+   MOVES: the TX red and the ON AIR fill and ink, and every alert, SNR, status, band and need
+   colour. No rule here may declare one, and styles-night-contrast.test.ts fails if one resolves
+   differently at night. (The ON AIR rim is the theme's full-strength ink by its own definition,
+   so it follows --text; the unconfirmed-dial ink is --text-dim, likewise.) No `filter:
+   brightness()` on .app: it would dim TX with everything else, and it costs frames on a Pi.
+
+   BOTH THEMES, because Night dims whichever one is on. The dark theme dims a long way: its
+   brightest ink keeps about 55% of its light. The LIGHT theme is held up by its own locked inks,
+   which were tuned for a near-white panel: --need-confirm #64748b reads 4.61:1 there and
+   --status-new-band #bb8805 3.07:1, so the panel can give up only ~2.5% of its light before a
+   Needed or status colour falls under its floor. The page is held up the same way: the Needed
+   board letters its mode cells in the page colour on a --need-mode fill (the sheet's cut-out
+   idiom, `color: var(--bg)`), which reads 4.74:1 by day, so the page can give up only ~5% before
+   those letters fall under 4.5:1 (high contrast's page is at that floor already). Light + Night
+   therefore warms the panels and the page (less blue light), dims them as far as those floors
+   allow, darkens the accent and dims every display well; the dark theme is the one for real
+   dark adaptation.
+
+   TWO-ATTRIBUTE SELECTORS, (0,2,0) like the contrast block, so they outrank the (0,1,0) theme
+   palettes wherever they sit. AFTER the contrast block, so at equal specificity Night takes the
+   tokens both declare, and the (0,3,0) night + high blocks put high contrast's strength back in
+   warm inks: at night, High contrast holds every ink at 7:1 (WCAG AAA; no sun, so the daylight
+   glare model does not apply). BEFORE the colour roles, so a preset's day block beats this
+   default accent and readout, and each preset's own (0,3,0) night block sits beside its day
+   ones (features/paletteRoles.ts, the `night` column).
+
+   WELLS DIM TOO, for dark adaptation: a well is where the eye rests (the VFO digits, the
+   meters), and a full-brightness well in a dimmed room would be the brightest thing left on the
+   screen. A well DECLARES the dark palette on itself (DISPLAY WELLS), so each dark block here
+   also names `[data-night='1'] .well`: at night a well is the dark + Night palette in either
+   theme, its signal colours still the dark theme's. Its own ground, ink and grid dim below.
+
+   Plain hexes, never color-mix(): the map, the waterfall's scale and the mini spectrum read these
+   tokens as strings and hand them to a canvas. */
+[data-theme='dark'][data-night='1'],
+[data-night='1'] .well {
+  --bg: #090604;
+  --panel: #0f0b08;
+  --bg-elev: #110d0a;
+  --bg-elev-2: #191410;
+  --border: #302822;
+  --border-soft: #201b16;
+  --text: #bfb4a5;
+  --text-dim: #9d9284;
+  --text-faint: #8a8073;
+  --accent: #42a7c7;
+  --accent-ink: #001620;
+  --focus-ring: #42a7c7;
+  --bubble-mine: #124658;
+  --bubble-mine-text: #bdc9ce;
+  --bubble-theirs: #191410;
+  --bubble-theirs-text: #bfb4a5;
+  --readout: #42a7c7;
+}
+[data-theme='light'][data-night='1'] {
+  --bg: #eae4da;
+  --panel: #fcf9f1;
+  --bg-elev: #fcf9f1;
+  --bg-elev-2: #f8f4ed;
+  --border: #c5bcb0;
+  --border-soft: #d6cec3;
+  --text: #26211a;
+  --text-dim: #554f48;
+  --text-faint: #5f5851;
+  --accent: #006fae;
+  --accent-ink: #ffffff;
+  --focus-ring: #006fae;
+  --bubble-mine: #006fae;
+  --bubble-mine-text: #ffffff;
+  --bubble-theirs: #efe9df;
+  --bubble-theirs-text: #26211a;
+  --readout: #006fae;
+}
+[data-theme='dark'][data-contrast='high'][data-night='1'],
+[data-contrast='high'][data-night='1'] .well {
+  --text: #ddd3c5;
+  --text-dim: #c6bcaf;
+  --text-faint: #baafa2;
+  --bg: #000000;
+  --panel: #0c0806;
+  --bg-elev: #0c0806;
+  --bg-elev-2: #16120e;
+  --border: #6c6158;
+  --border-soft: #49413a;
+}
+[data-theme='light'][data-contrast='high'][data-night='1'] {
+  --text: #080503;
+  --text-dim: #272019;
+  --text-faint: #312a23;
+  --bg: #eae3db;
+  --panel: #fcf9f1;
+  --bg-elev: #fcf9f1;
+  --bg-elev-2: #f8f4ed;
+  --border: #8e8479;
+  --border-soft: #b2a99f;
+}
+/* The wells' own ground, ink and grid at night: one value in both themes, as by day. */
+[data-theme='dark'][data-night='1'] {
+  --well-bg: #090604;
+  --well-ink: #bfb4a5;
+  --well-grid: #372f28;
+}
+[data-theme='light'][data-night='1'] {
+  --well-bg: #090604;
+  --well-ink: #bfb4a5;
+  --well-grid: #372f28;
+}
+
+/* ---- ON AIR: the sign that says the transmitter is keyed -----------------------------------
+   Operator pick, 2026-09-26: "Solid red, white text" — a steady, studio-style sign, the loudest
+   thing on the screen in every theme, with no motion. The FORM carries it (a filled pill with a
+   rim), so the state never rests on hue alone: the amber theme once showed a weak hue losing it.
+
+   The fill is the TX red taken 10% toward black. White on `--tx` itself measures 4.0:1 in the
+   dark theme (#e64343), under the 4.5:1 an ink needs; the deeper fill clears it (4.8:1) and still
+   stands 3.7:1 off the dark panel. It is DERIVED from `--tx`, so the sign can never drift from the
+   TX colour, and `--tx` stays locked. The rim is the theme's full-strength ink, so the pill's
+   edge holds against whatever it sits on — including Operate's strip, which washes itself red.
+   One declaration serves both themes: every term is resolved on <html>, against whichever
+   palette is live there. styles-on-air.test.ts measures all three signs in all four modes. */
+:root {
+  --on-air-bg: color-mix(in srgb, var(--tx) 90%, #000000);
+  --on-air-ink: #ffffff;
+  --on-air-rim: var(--text);
+}
+
+/* ---- DISPLAY WELLS: dark displays in both themes -------------------------------------------
+   Operator pick, 2026-09-26: "Light frame, dark displays" — Zeus's "day shack", a light chassis
+   with dark display wells. The instruments stay dark in the light theme, so a signal reads the
+   same wherever the operator is: the S-meters, the transmit meters, the audio level meter, CW's
+   zero-beat bar, the VFO readout, the waterfall's stage (its axis strip, markers and legend),
+   the Fast Graph and the mini spectrum. The waterfall's and the Phone scope's floors were dark
+   already (the palette LUT); the well is what gives whatever is drawn ON them the right inks.
+
+   A WELL IS THE DARK THEME, NOT A DARK BACKGROUND. The light theme's inks are tuned for white
+   (light `--snr-weak` is #a20003) and vanish on a near-black face, so `.well` joins the dark
+   palette block above as a selector — and, under high contrast, the dark-high block — and every
+   token inside one resolves to the dark theme's value at the mode's own contrast. In the dark
+   theme that changes nothing but the face.
+   ⚠️ FOR ANY NEW ROOT-LEVEL AXIS: a well DECLARES the dark palette on itself, so a retune that
+   arrives by inheritance from <html> (a night block, a colour-role preset) does not reach
+   inside one. Such an axis must say what it does in a well, as the contrast block does with
+   `[data-contrast='high'] .well`.
+
+   The three tokens have one value in both themes, declared in both per the layout contract.
+   Canvas painters read them off their own element (`getComputedStyle(el).getPropertyValue`, the
+   MiniSpectrum pattern). styles-wells.test.ts is the spec: --well-ink ≥ 7:1 on --well-bg, every
+   status ink ≥ 3:1 on every instrument's face, and a well IS the dark palette in all four
+   modes. */
+:root,
+[data-theme='dark'] {
+  --well-bg: #0b0f17;
+  --well-ink: #e7edf6;
+  --well-grid: #334155;
+}
+[data-theme='light'] {
+  --well-bg: #0b0f17;
+  --well-ink: #e7edf6;
+  --well-grid: #334155;
+}
+.well {
+  background-color: var(--well-bg);
+  color: var(--well-ink);
+}
+
+/* ---- COLOUR ROLES: the operator's picks (Settings ▸ Appearance ▸ Colours) ------------------
+   Operator picks, 2026-09-26: "Presets first, hex later" and "Agent picks, you review". Five
+   roles, each a named job a colour does, with a few pre-checked presets:
+     Accent  — --accent, --accent-ink, --focus-ring, --bubble-mine, --bubble-mine-text
+     Readout — --readout: the frequency digits (they were painted in the accent until now)
+     OK      — --snr-strong, --rx, --band-open (and --state-good through its alias)
+     Amber   — --alert-warning, --snr-marginal, --band-marginal (and --state-ok)
+     Cyan    — --alert-info
+   The TX red, the critical orange and the need set are LOCKED: no block here may declare them
+   (features/paletteRoles.ts, LOCKED_TOKENS).
+
+   ONE ATTRIBUTE PER ROLE on <html>, ABSENT AT THE DEFAULT. The default preset is today's values
+   — the theme blocks above, untouched — so an operator who never opens Colours sees nothing
+   move. A preset is two-attribute selectors, (0,2,0) like the contrast block, so it outranks the
+   (0,1,0) palettes whatever the source order; it declares none of the tokens the contrast block
+   does, so the two compose.
+
+   EVERY DARK BLOCK ALSO NAMES `[data-<role>='…'] .well`: a display well declares the dark
+   palette on itself (DISPLAY WELLS), so a preset that only arrived by inheritance from <html>
+   would stop at the well's edge. The dark value is what a well paints in either theme.
+
+   The values are features/paletteRoles.ts's; styles-palette-roles.test.ts resolves this cascade
+   for every role × preset × mode, at <html> and inside a well, and fails on any token that
+   paints something else, reads below its contrast floor, or comes within ΔE 0.15 of the TX red
+   or the critical orange. A new look block that retunes one of these tokens must say how it
+   composes with a preset: at equal specificity the later block wins. Night does it so: its
+   default accent and readout sit in NIGHT, before these blocks, so a preset's day block beats
+   them, and each Accent and Readout preset carries its own (0,3,0) night block below its day
+   ones. The OK, Amber and Cyan roles are signal colours, and Night leaves them alone. */
+:root,
+[data-theme='dark'],
+.well {
+  --readout: #4cc9f0;
+}
+[data-theme='light'] {
+  --readout: #0d8ecf;
+}
+
+/* Accent */
+[data-theme='dark'][data-accent='blue'],
+[data-accent='blue'] .well {
+  --accent: #6fa4fc;
+  --accent-ink: #0d1e3b;
+  --focus-ring: #6fa4fc;
+  --bubble-mine: #345284;
+  --bubble-mine-text: #eef4fe;
+}
+[data-theme='light'][data-accent='blue'] {
+  --accent: #255ebc;
+  --accent-ink: #ffffff;
+  --focus-ring: #255ebc;
+  --bubble-mine: #255ebc;
+  --bubble-mine-text: #ffffff;
+}
+[data-theme='dark'][data-accent='violet'],
+[data-accent='violet'] .well {
+  --accent: #ac8ff8;
+  --accent-ink: #221838;
+  --focus-ring: #ac8ff8;
+  --bubble-mine: #56477f;
+  --bubble-mine-text: #f4f2fd;
+}
+[data-theme='light'][data-accent='violet'] {
+  --accent: #6e44bc;
+  --accent-ink: #ffffff;
+  --focus-ring: #6e44bc;
+  --bubble-mine: #6e44bc;
+  --bubble-mine-text: #ffffff;
+}
+/* …and at night (NIGHT): each preset dimmer, its hue kept. (0,3,0), so it beats both the
+   preset's day block above and the default night accent. */
+[data-theme='dark'][data-night='1'][data-accent='blue'],
+[data-night='1'][data-accent='blue'] .well {
+  --accent: #5a86ce;
+  --accent-ink: #04122e;
+  --focus-ring: #5a86ce;
+  --bubble-mine: #243d65;
+  --bubble-mine-text: #c0c6d0;
+}
+[data-theme='light'][data-night='1'][data-accent='blue'] {
+  --accent: #0e49a5;
+  --accent-ink: #ffffff;
+  --focus-ring: #0e49a5;
+  --bubble-mine: #0e49a5;
+  --bubble-mine-text: #ffffff;
+}
+[data-theme='dark'][data-night='1'][data-accent='violet'],
+[data-night='1'][data-accent='violet'] .well {
+  --accent: #8c75ca;
+  --accent-ink: #170c2b;
+  --focus-ring: #8c75ca;
+  --bubble-mine: #403461;
+  --bubble-mine-text: #c6c4cf;
+}
+[data-theme='light'][data-night='1'][data-accent='violet'] {
+  --accent: #5b2da5;
+  --accent-ink: #ffffff;
+  --focus-ring: #5b2da5;
+  --bubble-mine: #5b2da5;
+  --bubble-mine-text: #ffffff;
+}
+
+/* Readout */
+[data-theme='dark'][data-readout='amber'],
+[data-readout='amber'] .well {
+  --readout: #fdbe45;
+}
+[data-theme='light'][data-readout='amber'] {
+  --readout: #936823;
+}
+[data-theme='dark'][data-readout='green'],
+[data-readout='green'] .well {
+  --readout: #70ec90;
+}
+[data-theme='light'][data-readout='green'] {
+  --readout: #11813c;
+}
+[data-theme='dark'][data-readout='violet'],
+[data-readout='violet'] .well {
+  --readout: #bf9bfc;
+}
+[data-theme='light'][data-readout='violet'] {
+  --readout: #6e44bc;
+}
+/* …and at night (NIGHT), dimmer in the dark theme and in every well. Amber loses less than the
+   others: dimmed as far, it would come within ΔE 0.15 of the critical orange. In the light theme
+   the digits are dark ink on a light panel, so darkening them dims nothing; amber and green keep
+   their day ink there, because darker they fall within a colour-blind eye's reach of the TX red
+   (ΔE < 0.06 to a deutan). */
+[data-theme='dark'][data-night='1'][data-readout='amber'],
+[data-night='1'][data-readout='amber'] .well {
+  --readout: #d9ad48;
+}
+[data-theme='light'][data-night='1'][data-readout='amber'] {
+  --readout: #936823;
+}
+[data-theme='dark'][data-night='1'][data-readout='green'],
+[data-night='1'][data-readout='green'] .well {
+  --readout: #62c77b;
+}
+[data-theme='light'][data-night='1'][data-readout='green'] {
+  --readout: #11813c;
+}
+[data-theme='dark'][data-night='1'][data-readout='violet'],
+[data-night='1'][data-readout='violet'] .well {
+  --readout: #9e80d0;
+}
+[data-theme='light'][data-night='1'][data-readout='violet'] {
+  --readout: #5e31a8;
+}
+
+/* OK / green */
+[data-theme='dark'][data-ok='teal'],
+[data-ok='teal'] .well {
+  --snr-strong: #49d9b9;
+  --rx: #49d9b9;
+  --band-open: #49d9b9;
+}
+[data-theme='light'][data-ok='teal'] {
+  --snr-strong: #007e68;
+  --rx: #007e68;
+  --band-open: #007e68;
+}
+[data-theme='dark'][data-ok='mint'],
+[data-ok='mint'] .well {
+  --snr-strong: #84eeb3;
+  --rx: #84eeb3;
+  --band-open: #84eeb3;
+}
+[data-theme='light'][data-ok='mint'] {
+  --snr-strong: #0d8557;
+  --rx: #0d8557;
+  --band-open: #0d8557;
+}
+
+/* Amber */
+[data-theme='dark'][data-amber='gold'],
+[data-amber='gold'] .well {
+  --alert-warning: #f0cf4c;
+  --snr-marginal: #f0cf4c;
+  --band-marginal: #f0cf4c;
+}
+[data-theme='light'][data-amber='gold'] {
+  --alert-warning: #977500;
+  --snr-marginal: #977500;
+  --band-marginal: #977500;
+}
+[data-theme='dark'][data-amber='yellow'],
+[data-amber='yellow'] .well {
+  --alert-warning: #f2e252;
+  --snr-marginal: #f2e252;
+  --band-marginal: #f2e252;
+}
+[data-theme='light'][data-amber='yellow'] {
+  --alert-warning: #8c7900;
+  --snr-marginal: #8c7900;
+  --band-marginal: #8c7900;
+}
+
+/* Cyan */
+[data-theme='dark'][data-cyan='cyan'],
+[data-cyan='cyan'] .well {
+  --alert-info: #50d9ef;
+}
+[data-theme='light'][data-cyan='cyan'] {
+  --alert-info: #10798c;
+}
+[data-theme='dark'][data-cyan='blue'],
+[data-cyan='blue'] .well {
+  --alert-info: #7daafd;
+}
+[data-theme='light'][data-cyan='blue'] {
+  --alert-info: #305eb7;
 }
 
 /* ---- LIGHT-MODE INK OVERRIDES ------------------------------------------
@@ -3750,7 +4187,7 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
 }
 
 button {
@@ -3781,7 +4218,7 @@ textarea::placeholder {
 
 h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -3857,7 +4294,7 @@ h2 {
 }
 .view-crash-title {
   margin: 0;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
   font-weight: 700;
   color: var(--state-weak);
 }
@@ -3880,7 +4317,7 @@ h2 {
   border: 1px solid var(--state-weak);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -4163,7 +4600,7 @@ body.resizing {
 }
 
 .count-badge {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: var(--bg-elev-2);
@@ -4174,7 +4611,7 @@ body.resizing {
 .empty {
   color: var(--text-faint);
   padding: var(--space-4);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .mono {
@@ -4240,7 +4677,7 @@ body.resizing {
 }
 .mode-nav-group-label {
   text-align: center;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -4298,7 +4735,7 @@ body.resizing {
   gap: var(--space-1);
   margin-top: var(--space-1);
   padding: var(--space-1);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   background: none;
   border: none;
@@ -4308,11 +4745,11 @@ body.resizing {
   color: var(--text);
 }
 .mode-glyph {
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
   line-height: 1;
 }
 .mode-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -4321,7 +4758,7 @@ body.resizing {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--text-faint);
@@ -4368,12 +4805,12 @@ body.resizing {
 }
 .brand .logo {
   font-weight: 800;
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
   letter-spacing: -0.01em;
   color: var(--accent);
 }
 .brand .app-version {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   color: var(--text-dim);
   letter-spacing: 0.02em;
@@ -4385,11 +4822,11 @@ body.resizing {
   flex-direction: column;
   line-height: 1.05;
   font-weight: 700;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .mygrid {
   font-weight: 500;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 
@@ -4449,11 +4886,11 @@ body.resizing {
 }
 .radio-pill-name {
   font-weight: 700;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .radio-pill-band {
   font-weight: 500;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -4473,7 +4910,7 @@ body.resizing {
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   padding: 5px var(--space-2);
   border-radius: 999px;
@@ -4604,7 +5041,7 @@ select optgroup {
 }
 .freq-channel {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   color: var(--text);
   background: transparent;
@@ -4627,7 +5064,7 @@ select optgroup {
 .freq-manual {
   width: 92px;
   font-family: var(--font-mono);
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--text);
@@ -4650,7 +5087,7 @@ select optgroup {
 }
 .freq-unit {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .freq-band-tag {
@@ -4658,7 +5095,7 @@ select optgroup {
   align-items: center;
 }
 .band-chip {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: var(--bg);
@@ -4685,7 +5122,7 @@ select optgroup {
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   padding: 5px 10px;
   border-radius: 999px;
@@ -4710,7 +5147,7 @@ select optgroup {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 600;
   padding: 0 var(--space-3);
   min-height: var(--touch);
@@ -4724,7 +5161,7 @@ select optgroup {
   min-height: var(--touch);
   text-align: left;
   padding: 0 var(--space-3);
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
 }
 .freq-control.full .freq-manual-row {
   align-items: center;
@@ -4732,7 +5169,7 @@ select optgroup {
 .freq-control.full .freq-mode-btn {
   min-height: 36px;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .readout {
@@ -4750,10 +5187,11 @@ select optgroup {
   outline-offset: 2px;
 }
 .readout-val {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.01em;
-  color: var(--accent);
+  /* The Readout colour role (COLOUR ROLES); its default is the accent this used to be. */
+  color: var(--readout);
   font-variant-numeric: tabular-nums;
 }
 .readout.hero .readout-val {
@@ -4761,7 +5199,7 @@ select optgroup {
   line-height: var(--lh-tight);
 }
 .readout.compact .readout-val {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
 }
 .readout.blocked .readout-val {
   color: var(--tx);
@@ -4799,7 +5237,7 @@ select optgroup {
    jitter comes back. Background, radius, box-shadow and cursor are paint-only; the advance width
    of every glyph is untouched, so splitting the number into spans costs zero layout.
    The tint is mixed from `currentColor`, NOT from a colour of its own, so it follows the ink —
-   accent normally, and `--tx` red when `.readout.blocked` says the dial is off the band plan.
+   `--readout` normally, and `--tx` red when `.readout.blocked` says the dial is off the band plan.
    That red is the operator's band-edge cue; a `color` here would override it in both
    directions. `ns-resize` is the same "scroll here to tune" idiom as .tuning-readout-wheel. */
 .readout-digit {
@@ -4821,14 +5259,14 @@ select optgroup {
   background: none;
 }
 .readout-unit {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .readout-input {
   font-family: var(--font-mono);
   font-size: var(--fs-display);
   font-weight: 700;
-  color: var(--accent);
+  color: var(--readout);
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -4836,11 +5274,11 @@ select optgroup {
   padding: 0 var(--space-1);
 }
 .readout.compact .readout-input {
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
 }
 
 .pill {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   padding: 3px 9px;
   border-radius: 999px;
@@ -4857,7 +5295,7 @@ select optgroup {
 }
 .txrx-indicator {
   font-weight: 800;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   letter-spacing: 0.06em;
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-sm);
@@ -4869,11 +5307,11 @@ select optgroup {
   background: color-mix(in srgb, var(--rx) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--rx) 35%, transparent);
 }
+/* The ON AIR sign (see `--on-air-*`): steady, never pulsing — the operator's pick. */
 .txrx-indicator.tx {
-  color: #fff;
-  background: var(--tx);
-  border: 1px solid var(--tx);
-  animation: pulse 0.9s ease-in-out infinite;
+  color: var(--on-air-ink);
+  background: var(--on-air-bg);
+  border: 1px solid var(--on-air-rim);
 }
 @keyframes pulse {
   50% {
@@ -4931,14 +5369,14 @@ select optgroup {
   gap: 6px;
 }
 .rx-level-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   color: var(--text-faint);
 }
 /* Global QSO-recording badge — visible from any view while recording; click to stop. */
 .topbar-rec {
   padding: 2px 9px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   border: 1px solid var(--tx);
@@ -4965,7 +5403,7 @@ select optgroup {
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   padding: 6px var(--space-3);
   border-radius: 999px;
@@ -5002,7 +5440,7 @@ select optgroup {
 .watchdog-chip {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--state-weak);
   background: color-mix(in srgb, var(--state-weak) 14%, transparent);
@@ -5014,7 +5452,7 @@ select optgroup {
 /* ---- DT (decode time) readout ---- */
 .dt-readout {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
 }
@@ -5027,10 +5465,10 @@ select optgroup {
 }
 .slot-count {
   font-weight: 700;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .slot-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-family: var(--font-sans);
 }
@@ -5039,7 +5477,7 @@ select optgroup {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
 }
 .timesync .dot {
@@ -5088,7 +5526,7 @@ select optgroup {
   background: transparent;
   color: var(--text-dim);
   font-weight: 700;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   /* Tightened with .theme-chip (operator, 2026-08-09) — was 7px space-3 / 36px. */
   padding: 5px 10px;
   border-radius: 999px;
@@ -5096,7 +5534,7 @@ select optgroup {
   transition: var(--transition);
 }
 .tier-btn small {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   opacity: 0.7;
   font-weight: 600;
 }
@@ -5134,7 +5572,7 @@ select optgroup {
      see it — dim 11px text in a far corner is camouflage, not de-emphasis). */
   color: var(--text);
   font-weight: 600;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   /* Tightened (operator, 2026-08-09: "buttons could be smaller on their outlines and
      spacing in general") — was 6px 10px / 32px. Still a comfortable mouse target. */
   padding: var(--space-1) var(--space-2);
@@ -5152,6 +5590,49 @@ select optgroup {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Settings ▸ Appearance ▸ Colours: a role's name with its Reset beside it, so the preset chips
+   below always get the whole width (a Reset after four chips wrapped on its own at 1920). */
+.palette-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.palette-reset {
+  font-size: calc(11px * var(--text-scale));
+  font-weight: 600;
+  min-height: 26px;
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.palette-reset:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+/* Greyed at the default: there is nothing to go back to. */
+.palette-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* A preset's colour, as the theme in use paints it: SettingsColours hands the chip both values
+   (--swatch-dark, --swatch-light) and the theme picks one, so the chip needs no theme of its own.
+   The ring is the chip's own ink, so the dot stays outlined on a filled (active) chip too. */
+.palette-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: var(--space-1);
+  border-radius: 50%;
+  vertical-align: -1px;
+  background: var(--swatch-dark);
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 45%, transparent);
+}
+[data-theme='light'] .palette-swatch {
+  background: var(--swatch-light);
+}
 
 /* ===========================================================================
    Station list (left)
@@ -5167,7 +5648,7 @@ select optgroup {
   border: 1px solid var(--border-soft);
   background: var(--bg-elev-2);
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   padding: 6px 10px;
   border-radius: 999px;
@@ -5191,6 +5672,9 @@ select optgroup {
 }
 .station-filter-tabs {
   display: flex;
+  /* Wraps for the reason `.od-filters` does: as a nowrap group the tabs are one atom, and the
+     last one ("Needed") was cut by the Stations panel's clip at the 1024×768 floor. */
+  flex-wrap: wrap;
   gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
@@ -5208,7 +5692,7 @@ select optgroup {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   /* 26px right, not 24: it clears the ✕ AND stays off the --space-* ladder, which is
      what the spacing-token guard is checking for. The shipped .np-search input does the
      same thing for the same reason. */
@@ -5228,7 +5712,7 @@ select optgroup {
   border: none;
   background: transparent;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   cursor: pointer;
   padding: 0 2px;
 }
@@ -5316,7 +5800,7 @@ select optgroup {
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
   color: var(--accent);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.02em;
   padding: 0 10px;
@@ -5335,7 +5819,7 @@ select optgroup {
 
 /* worked-before badge */
 .b4-chip {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -5358,7 +5842,7 @@ select optgroup {
    the need palette: rarity is a property of the grid, not of your log. */
 .rarity-gem {
   margin-left: var(--space-1);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   letter-spacing: 0.08em;
   vertical-align: middle;
 }
@@ -5385,7 +5869,7 @@ select optgroup {
   margin-left: var(--space-1);
   padding: 2px var(--space-2);
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -5469,7 +5953,7 @@ select optgroup {
   --need-ink: #ffffff;
 }
 .need-chip {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   border-radius: 999px;
@@ -5519,7 +6003,7 @@ select optgroup {
 /* IR-HARQ rescue badge: a decode recovered by joint-combining retransmissions. */
 .harq-chip {
   margin-left: 6px;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--accent, #2dd4bf);
@@ -5667,7 +6151,7 @@ select optgroup {
 }
 .station-call {
   font-weight: 700;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   /* A call wider than the whole column (a long special-event call on a narrow rail) breaks
      onto a second line rather than running under the badge. */
   overflow-wrap: anywhere;
@@ -5676,7 +6160,7 @@ select optgroup {
   /* A block, so the ellipsis below applies: on the inline <span> it was dead, and the country
      · grid · distance line ran under the SNR badge and both buttons (240px at the floor). */
   display: block;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -5690,7 +6174,7 @@ select optgroup {
 .unread-badge {
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   min-width: 18px;
   height: 18px;
@@ -5703,7 +6187,7 @@ select optgroup {
 
 .snr-badge {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
@@ -5733,14 +6217,14 @@ select optgroup {
   gap: 10px;
 }
 .conv-peer {
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 800;
   text-transform: none;
   letter-spacing: 0;
   color: var(--text);
 }
 .conv-sub {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 
@@ -5755,7 +6239,7 @@ select optgroup {
 .empty-conv-inner h2 {
   color: var(--text-dim);
   text-transform: none;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   margin-bottom: var(--space-1);
 }
 /* Call CQ launchpad (empty conversation) — start a QSO without picking a peer. */
@@ -5857,7 +6341,7 @@ select optgroup {
 }
 
 .bubble-from {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--accent);
 }
@@ -5865,7 +6349,7 @@ select optgroup {
   color: inherit;
 }
 .bubble-text {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   line-height: 1.35;
   word-wrap: break-word;
   white-space: pre-wrap;
@@ -5878,13 +6362,13 @@ select optgroup {
 }
 .bubble-tech {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   opacity: 0.7;
 }
 /* An inbound message that never fully arrived. Warn-coloured so it reads as "this is not the
    whole message" at a glance, without shouting like an error — nothing went wrong on this end. */
 .bubble-incomplete {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   color: var(--alert-warning);
   white-space: nowrap;
@@ -5895,7 +6379,7 @@ select optgroup {
 }
 
 .delivery {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   opacity: 0.85;
   letter-spacing: -1px;
 }
@@ -5957,7 +6441,7 @@ select optgroup {
   background: var(--bg-elev);
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .heartbeat-btn.on {
   border-color: var(--state-good);
@@ -5971,7 +6455,7 @@ select optgroup {
   background: transparent;
   color: var(--text-faint);
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   white-space: nowrap;
 }
 .heartbeat-chip.on {
@@ -5992,7 +6476,7 @@ select optgroup {
   padding: var(--space-2) var(--space-3);
 }
 .typing-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   font-style: italic;
 }
@@ -6045,7 +6529,7 @@ select optgroup {
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   padding: 6px var(--space-3);
   border-radius: 999px;
@@ -6066,7 +6550,7 @@ select optgroup {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   padding: 0 14px;
   min-height: var(--touch);
   outline: none;
@@ -6085,7 +6569,7 @@ select optgroup {
   border: none;
   border-radius: var(--radius-sm);
   font-weight: 700;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   padding: 0 var(--space-5);
   min-height: var(--touch);
   transition: var(--transition);
@@ -6129,12 +6613,12 @@ select optgroup {
 }
 .logconfirm-head h2 {
   margin: 0;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
   font-weight: 800;
 }
 .logconfirm-sub {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-faint);
 }
 /* "N more contacts are waiting behind this one" — the queue the popup holds back (operator
@@ -6142,7 +6626,7 @@ select optgroup {
    operator commits to this contact, and is absent entirely when nothing is queued. */
 .logconfirm-waiting {
   margin: calc(-1 * var(--space-2)) 0 var(--space-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 /* "N contacts were logged without your confirmation" — the queue's cap logging the oldest
@@ -6151,7 +6635,7 @@ select optgroup {
    exists in both themes. */
 .logconfirm-autologged {
   margin: calc(-1 * var(--space-1)) 0 var(--space-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   color: var(--state-weak);
 }
@@ -6166,7 +6650,7 @@ select optgroup {
   gap: var(--space-1);
 }
 .logconfirm-grid label span {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -6178,7 +6662,7 @@ select optgroup {
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
 }
 .logconfirm-grid input:focus {
   outline: none;
@@ -6195,7 +6679,7 @@ select optgroup {
   padding: 9px var(--space-5);
   border-radius: var(--radius-sm);
   font-weight: 800;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   transition: var(--transition);
 }
 .logconfirm-discard {
@@ -6240,7 +6724,7 @@ select optgroup {
 }
 .purge-warn {
   margin: 0 0 var(--space-4);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.55;
   color: var(--text-dim);
 }
@@ -6253,7 +6737,7 @@ select optgroup {
   gap: 6px;
 }
 .purge-field > span {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 .purge-field > span strong {
@@ -6447,13 +6931,13 @@ select optgroup {
   flex: none;
 }
 .jy-level-num {
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
   font-weight: 800;
   line-height: 1;
   color: var(--text);
 }
 .jy-level-cap {
-  font-size: 7px;
+  font-size: calc(7px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-dim);
@@ -6496,7 +6980,7 @@ select optgroup {
   flex: 0 1 280px;
 }
 .jy-next-cap {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--accent);
@@ -6561,7 +7045,7 @@ select optgroup {
   transform: translateY(-1px);
 }
 .jy-first-mark {
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
   color: var(--text-faint);
   flex: none;
 }
@@ -6640,7 +7124,7 @@ select optgroup {
   margin-top: 10px;
 }
 .jy-tier-pill {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.03em;
   padding: 2px var(--space-2);
@@ -6785,14 +7269,14 @@ select optgroup {
   border: 1px solid var(--border);
 }
 .jy-best-k {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
   font-weight: 700;
 }
 .jy-best-v {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   font-weight: 800;
   font-family: var(--font-mono);
 }
@@ -7128,14 +7612,14 @@ input.cw-pitch::-webkit-inner-spin-button {
   gap: var(--space-2);
 }
 .cw-decode-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-faint);
 }
 .cw-decode-clear {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   padding: 1px 6px;
   color: var(--text-dim);
   background: transparent;
@@ -7152,7 +7636,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   letter-spacing: 0.06em;
   color: var(--text-faint);
 }
@@ -7171,7 +7655,7 @@ input.cw-pitch::-webkit-inner-spin-button {
    grid cell is the sizing authority now.) */
 .cw-decode-text {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   line-height: 1.5;
   color: var(--text);
   white-space: pre-wrap;
@@ -7186,7 +7670,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   font-style: italic;
 }
 .cw-decode-wpm {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
@@ -7212,7 +7696,7 @@ input.cw-pitch::-webkit-inner-spin-button {
 .cw-keyer-warn {
   margin-bottom: var(--space-2);
   padding: var(--space-1) var(--space-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--state-weak);
   background: color-mix(in srgb, var(--state-weak) 12%, transparent);
   border: 1px solid var(--state-weak);
@@ -7249,7 +7733,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   gap: 2px;
 }
 .cw-copilot-mode button {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   padding: 1px var(--space-2);
   color: var(--text-dim);
   background: transparent;
@@ -7274,12 +7758,12 @@ input.cw-pitch::-webkit-inner-spin-button {
   color: var(--text);
 }
 .cw-copilot-prompt {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--accent, #4ea1ff);
 }
 .cw-copilot-preview {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
@@ -7290,7 +7774,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   gap: 6px;
 }
 .cw-copilot-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-faint);
@@ -7301,7 +7785,7 @@ input.cw-pitch::-webkit-inner-spin-button {
 }
 .cw-chip {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   padding: 2px var(--space-2);
   color: var(--text);
   background: var(--bg-elev-2);
@@ -7349,7 +7833,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
 }
 .cw-macro-key {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 700;
   color: var(--text-faint);
 }
@@ -7454,7 +7938,7 @@ input.cw-pitch::-webkit-inner-spin-button {
 .tuning-clar button {
   min-width: 20px;
   padding: 3px 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: var(--bg-elev-2, var(--bg-elev));
@@ -7487,13 +7971,13 @@ input.cw-pitch::-webkit-inner-spin-button {
 .tuning-clar-val {
   min-width: 34px;
   text-align: center;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text);
 }
 .tuning-nudge {
   min-width: 26px;
   padding: 3px 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   background: var(--bg-elev-2, var(--bg-elev));
   border: 1px solid var(--border-soft);
@@ -7511,7 +7995,7 @@ input.cw-pitch::-webkit-inner-spin-button {
 .tuning-readout {
   min-width: 92px;
   text-align: center;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
   font-weight: 700;
   color: var(--text);
   letter-spacing: 0.01em;
@@ -7531,7 +8015,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   margin-bottom: var(--space-2);
   padding: 2px 9px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: color-mix(in srgb, var(--text) 6%, transparent);
@@ -7639,7 +8123,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   border-radius: var(--radius-sm);
   text-align: left;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .le-park-suggest button:hover {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -7688,7 +8172,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   border-radius: var(--radius-sm);
   text-align: left;
   cursor: pointer;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .le-fd-suggest button:hover {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -7713,7 +8197,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   margin-bottom: var(--space-2);
   padding: 3px 9px;
   border-radius: var(--radius-sm);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   background: color-mix(in srgb, var(--rx) 8%, transparent);
   border: 1px solid var(--border-soft);
 }
@@ -7734,7 +8218,7 @@ input.cw-pitch::-webkit-inner-spin-button {
 }
 .le-park-detail-src {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-faint);
@@ -7776,7 +8260,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   cursor: text;
 }
 .le-rst-cap {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -7892,7 +8376,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   color: var(--text);
 }
 .le-override-caret {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
 }
 .le-override-sub {
@@ -7967,7 +8451,7 @@ input.cw-pitch::-webkit-inner-spin-button {
   justify-content: center;
   font-family: var(--font-mono);
   font-weight: 800;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
@@ -8001,7 +8485,7 @@ button.recall-avatar {
   display: block;
   text-align: center;
   padding: 1px 0 2px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1;
   font-weight: 700;
   color: var(--accent);
@@ -8296,7 +8780,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .phone-cockpit .ph-ptt {
   min-height: 40px;
   padding: 0 var(--space-4);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 /* (`.phone-cockpit .ph-ptt-hint` lived here. Its own comment said "the hint is for the first
    few sessions; it does not need a line of its own forever" — and the 2026-08-04 density pass
@@ -8327,7 +8811,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-mode-btn {
   padding: 3px var(--space-2);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   border: 0;
@@ -8353,7 +8837,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: var(--space-1);
 }
 .ph-filter-lbl {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.03em;
   color: var(--text-dim);
@@ -8375,7 +8859,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .ph-filter-val {
   min-width: 2.6em;
   text-align: center;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text);
 }
 .ph-mode-mismatch,
@@ -8432,7 +8916,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .ph-split-amt {
   min-width: 3em;
   text-align: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 .ph-split.on .ph-split-amt {
@@ -8478,7 +8962,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   flex-wrap: wrap;
 }
 .ph-dsp-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -8486,7 +8970,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-dsp-btn {
   padding: 3px var(--space-3);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -8503,7 +8987,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-color: var(--accent);
 }
 .ph-nocat {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   color: var(--state-weak, #e0a030);
   white-space: nowrap;
@@ -8514,7 +8998,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    — nothing in the app clamps or restores the level. `--alert-warning` is defined in both
    themes (see the palette blocks). Nowrap because it sits inside a slider's flex row. */
 .ph-lvl-warn {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   padding: 0 var(--space-1);
@@ -8541,7 +9025,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    band-colored (the color + border come from an inline style keyed on the band). */
 .band-picker-trigger {
   padding: 5px 10px;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.02em;
   font-family: var(--font-mono);
@@ -8645,7 +9129,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .tx-lock {
   padding: 2px var(--space-2);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.03em;
   color: var(--bg);
@@ -8710,7 +9194,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--text);
 }
 .ph-rec-dot {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   line-height: 1;
   color: var(--tx);
 }
@@ -8732,7 +9216,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   color: var(--text-faint);
 }
@@ -8786,7 +9270,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: 1px var(--space-2);
   line-height: 1.4;
   cursor: pointer;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .ph-scope-btn:hover {
   color: var(--text);
@@ -8804,7 +9288,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   z-index: 2;
   padding: 1px var(--space-2);
   border-radius: 999px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text);
@@ -8819,7 +9303,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: 1px 6px;
   border-radius: 999px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -8829,7 +9313,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-scope-smeter-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   color: var(--text-dim);
 }
@@ -8840,7 +9324,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   font-variant-numeric: tabular-nums;
   /* The live S reading is the operator's key glance value — ~3× the "S" label so it
      reads at a distance (Phone + CW share this scope). */
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale));
   line-height: 1;
 }
 .ph-scope-smeter-track {
@@ -8910,7 +9394,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-dsplev-lbl {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   color: var(--text-dim);
 }
@@ -8957,7 +9441,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .ph-chain-banner {
   flex: 0 0 100%;
   margin: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--alert-warning);
 }
 /* THE COLLAPSE — "Not on this radio: Contour · SHIFT · MON". One line at the pane's foot
@@ -8967,7 +9451,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .ph-chain-absent {
   flex: 0 0 100%;
   margin: 0;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-dim);
 }
 /* THE SUB RECEIVER STRIP (dual-receiver radios) — a second `.ph-chain` below Main's, in the
@@ -8997,7 +9481,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    aria-hidden in the markup and the WORD carries the meaning, so nothing here is colour-only
    and a monochrome display loses nothing. */
 .ph-unavail {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 0 var(--space-1);
@@ -9018,7 +9502,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-rigscope-lbl {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   color: var(--text-dim);
   text-transform: uppercase;
@@ -9051,7 +9535,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-txmeter-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   color: var(--text-dim);
   min-width: 2.8em;
@@ -9089,7 +9573,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: 3px;
 }
 .ph-txmeters.pinned .ph-txmeter-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   min-width: 2.4em;
 }
 .ph-txmeters.pinned .ph-txmeter-value {
@@ -9113,7 +9597,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   opacity: 0.55;
 }
 .ph-txmeters-hint {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-dim);
   padding: 1px var(--space-1);
 }
@@ -9141,7 +9625,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ph-txc-lbl {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--text-dim);
@@ -9217,7 +9701,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   position: absolute;
   transform: translateX(-50%);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   line-height: 11px;
@@ -9271,7 +9755,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    the operator reads at a glance and the mark is what they check when it matters. Never
    colour alone — the word carries it (see TruthMark), so these three differ in text first. */
 .ph-truth {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-dim);
@@ -9304,7 +9788,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   min-height: 48px;
   padding: 0 var(--space-6);
   border-radius: var(--radius);
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--accent-ink);
@@ -9358,7 +9842,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--text-dim);
 }
 .ph-fd-give-exch {
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
 }
@@ -9423,7 +9907,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .vk-stop {
   padding: 3px 10px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -9476,21 +9960,21 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .vk-fkey {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   color: var(--accent);
   min-width: 22px;
 }
 .vk-label {
   flex: 1;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
   /* Same fix as `.cw-macro-label`: pin the theme color so the label doesn't inherit
      the <button>'s UA `ButtonText` and vanish dark-on-dark. */
   color: var(--text);
 }
 .vk-state {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 .vk-slot.rec .vk-state {
@@ -9504,7 +9988,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .vk-tool {
   padding: 2px var(--space-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--panel);
@@ -9559,7 +10043,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .fd-class {
   font-family: var(--font-mono);
   font-weight: 800;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   color: var(--accent);
 }
 .fd-section {
@@ -9578,7 +10062,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: transparent;
   color: var(--text-dim);
   font-weight: 700;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   padding: 7px var(--space-4);
   border-radius: 999px;
   min-height: 36px;
@@ -9683,7 +10167,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-score-val {
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale));
   font-weight: 800;
   line-height: 1;
   color: var(--text);
@@ -9692,14 +10176,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--accent);
 }
 .fd-score-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-faint);
 }
 .fd-state-chip {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: var(--bg-elev-2);
@@ -9727,7 +10211,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: var(--bg-elev);
 }
 .fd-log-head .fd-col {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-faint);
@@ -9741,7 +10225,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-log-row {
   border-bottom: 1px solid var(--border-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .fd-log-row:nth-child(odd) {
   background: color-mix(in srgb, var(--bg-elev) 50%, transparent);
@@ -9755,7 +10239,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-col.time {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 /* new-section multiplier accent */
@@ -9766,7 +10250,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .fd-mult-tag {
   margin-left: 6px;
   font-family: var(--font-sans);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -9799,12 +10283,12 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-event-name {
   font-weight: 800;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--accent);
   white-space: nowrap;
 }
 .fd-event-subtitle {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   min-width: 0;
   overflow: hidden;
@@ -9814,7 +10298,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 /* Which rules data is scoring (rules year + generated date) — quiet, end of the banner. */
 .fd-event-rules {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -9829,7 +10313,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   padding: 2px var(--space-2);
   border-radius: var(--radius-sm);
@@ -9850,7 +10334,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: var(--radius-sm);
 }
 .fd-score-math-line {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -9859,7 +10343,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-score-total {
   color: var(--accent) !important;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
 }
 
 /* Per-mode chips in scoreboard */
@@ -9871,7 +10355,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-mode-chip {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -9899,7 +10383,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: inline-block;
   min-width: 2.6em;
   text-align: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 /* Bonuses collapsible */
@@ -9916,7 +10400,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
   color: var(--text);
   text-align: left;
@@ -9926,13 +10410,13 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: var(--bg-elev);
 }
 .fd-bonuses-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 400;
   color: var(--text-dim);
   flex: 1;
 }
 .fd-bonuses-chevron {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
 }
 /* Collapsed-header echoes of the two scoring inputs: the power multiplier's current
@@ -9940,13 +10424,13 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    readouts — the controls are inside. */
 .fd-scoring-power-chip {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--accent);
   white-space: nowrap;
 }
 .fd-bonuses-planned-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 400;
   color: var(--text-faint);
   white-space: nowrap;
@@ -9969,7 +10453,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: var(--bg-elev);
 }
 .fd-power-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   color: var(--text);
 }
@@ -9983,7 +10467,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-family: var(--font-mono);
   cursor: pointer;
   transition: var(--transition);
@@ -10007,7 +10491,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .fd-power-hint {
   flex: 1 1 200px;
   min-width: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 /* THE CHASE. Earned is the real number and is the only one wearing the accent; planned is
@@ -10035,12 +10519,12 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-chase-val {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
 }
 .fd-chase-note {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
 }
 .fd-bonuses-list {
@@ -10075,7 +10559,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: 7px var(--space-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--text-dim);
   transition: var(--transition);
 }
@@ -10099,7 +10583,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   cursor: pointer;
   transition: var(--transition);
 }
@@ -10124,7 +10608,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .fd-bonus-pts {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
   white-space: nowrap;
 }
@@ -10144,7 +10628,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   /* Mode chip column */
 }
 .fd-wfd-hint {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 400;
   color: var(--text-faint);
 }
@@ -10162,7 +10646,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .le-fd-chip {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -10173,7 +10657,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .le-fd-mode {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: var(--bg-elev-2);
@@ -10182,7 +10666,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: 2px var(--space-2);
 }
 .le-fd-hint {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 /* Enlarged FD exchange form (Call / Class / Section) — big, readable, captioned
@@ -10218,7 +10702,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .le-fd-input {
   width: 100%;
   min-height: 58px;
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -10315,14 +10799,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: 10px;
 }
 .log-sub {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .export-btn {
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   padding: 0 var(--space-4);
   min-height: var(--touch);
@@ -10345,7 +10829,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   justify-content: flex-end;
 }
 .log-export-error {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   color: var(--state-weak);
   max-width: 360px;
@@ -10364,14 +10848,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: calc(10px * var(--density-scale)) var(--space-4);
   align-items: center;
   border-bottom: 1px solid var(--border-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .log-row.head {
   flex: 0 0 auto;
   background: var(--bg-elev);
 }
 .log-row.head .log-cell {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-faint);
@@ -10490,6 +10974,16 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--accent);
   text-decoration: underline;
 }
+/* In a Logbook cell the call ellipsizes inside its own button: the cell's text-overflow cannot
+   reach into a button (an atomic inline box), so a call wider than its column was cut mid-glyph
+   instead — at Normal for long calls, and for ordinary six-character calls at larger text (#215).
+   Scoped to the log cell: in a decode line an overflow box would move the call's baseline. */
+.log-cell > .qrz-link-call {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
 .log-globe-loading {
   display: grid;
   place-items: center;
@@ -10515,13 +11009,13 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    Settings panel
    =========================================================================== */
 .settings-sub {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 /* Build stamp (commit + build time) — confirm a fresh install actually took. */
 .settings-build {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-family: var(--font-mono);
 }
@@ -10545,7 +11039,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   /* the header must not push the build stamp off a 1024-wide window; --vw-eff, not raw
      vw, because raw viewport units are zoom-blind inside .app */
   max-width: calc(var(--vw-eff) * 0.3);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   padding: 3px var(--space-2) 3px 22px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -10592,20 +11086,20 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: var(--bg-elev-2);
 }
 .settings-search-hit-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .settings-search-hit-why {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-dim);
 }
 .settings-search-empty {
   padding: 6px var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
 }
 .settings-update-btn {
   margin-left: var(--space-2);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   padding: 3px var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -10643,7 +11137,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   cursor: pointer;
   transition: var(--transition);
@@ -10677,7 +11171,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   min-width: 0;
 }
 .settings-section legend {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -10816,7 +11310,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .settings-featgroup-title {
   display: block;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -10847,7 +11341,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   color: var(--accent);
   font-family: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   text-align: left;
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition);
@@ -10862,7 +11356,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .settings-group-toggle::after {
   content: 'show';
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: none;
@@ -10893,7 +11387,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: 6px;
 }
 .settings-label {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -10904,7 +11398,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   padding: 0 var(--space-3);
   min-height: var(--touch);
   outline: none;
@@ -10918,7 +11412,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-color: var(--state-weak);
 }
 .settings-hint {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 /* Per-mode RF-power ceilings (Settings ▸ Rig) — three compact percent inputs in a row. */
@@ -10952,7 +11446,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: var(--space-2);
 }
 .watchlist-hint {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .watchlist-hint code {
@@ -10977,7 +11471,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .watchlist-kind {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   padding: 1px 5px;
   border-radius: 999px;
@@ -10993,10 +11487,10 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .watchlist-value {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .watchlist-flag {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -11005,7 +11499,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .watchlist-remove {
   margin-left: auto;
   color: var(--state-weak);
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   line-height: 1;
   padding: 0 var(--space-1);
 }
@@ -11028,7 +11522,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
   white-space: nowrap;
 }
@@ -11138,7 +11632,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   padding: 0 14px;
   min-height: var(--touch);
@@ -11166,7 +11660,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.5;
   color: var(--text-dim);
 }
@@ -11201,7 +11695,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .radio-active-badge {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -11212,7 +11706,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .radio-card-meta {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -11229,7 +11723,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   padding: 3px var(--space-2);
   border-radius: var(--radius-sm);
@@ -11268,7 +11762,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: var(--space-2);
 }
 .routing-rule-n {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
@@ -11304,7 +11798,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .settings-note {
   grid-column: 1 / -1;
   margin: var(--space-3) 0 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.5;
   color: var(--text-faint);
 }
@@ -11326,7 +11820,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: 10px;
   padding: 5px var(--space-3);
   align-items: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   border-bottom: 1px solid var(--border-soft);
 }
 .freq-row:last-child {
@@ -11336,7 +11830,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: var(--bg-elev);
 }
 .freq-row.head .freq-cell {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-faint);
@@ -11356,7 +11850,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   font-weight: 700;
 }
 .freq-override-tag {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -11379,7 +11873,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .freq-dup-tag {
   grid-column: 1 / -1;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   color: var(--state-weak);
 }
@@ -11405,7 +11899,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: color-mix(in srgb, var(--accent) 16%, var(--bg-elev));
   color: var(--text);
   font-weight: 700;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   transition: var(--transition);
 }
 .settings-testcat:hover:not(:disabled) {
@@ -11415,7 +11909,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   opacity: 0.6;
 }
 .cat-result {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 600;
   line-height: 1.4;
 }
@@ -11486,7 +11980,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    badge instead of a switch — no fake control next to the real settings. */
 .feature-always-on {
   flex: 0 0 auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -11507,7 +12001,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .settings-error {
   color: var(--state-weak);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
 }
 /* A pre-save check that did NOT block the save. Distinct from .settings-error in colour, because
@@ -11515,12 +12009,12 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    knowing" — and both can be on screen at once. */
 .settings-warn {
   color: var(--alert-warning);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
 }
 .settings-ok {
   color: var(--state-good);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
 }
 .settings-save {
@@ -11529,7 +12023,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: none;
   border-radius: var(--radius-sm);
   font-weight: 700;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   padding: 0 var(--space-6);
   min-height: var(--touch);
   transition: var(--transition);
@@ -11569,14 +12063,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   white-space: nowrap;
 }
 .wf-hint {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-weight: 500;
 }
 /* Waterfall palette picker — pushed to the right edge of the header (WSJT-X-style). */
 .wf-palette {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   padding: 1px var(--space-1);
   background: transparent;
   color: var(--text-dim);
@@ -11613,7 +12107,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -11626,7 +12120,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--text-faint);
 }
 .ph-scope-head-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -11652,7 +12146,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
      labels and too tight between a live reading and the next control group. */
   margin-right: var(--space-2);
   white-space: nowrap;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-faint);
@@ -11766,14 +12260,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    the rule on a per-COMPONENT check left that heading unstyled at every size; the class-level
    check is BandMap.title.test.tsx. The live spot count below is a different thing and stays. */
 .bandstrip-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 .bandstrip-count {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .bandstrip-track {
@@ -11794,7 +12288,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   justify-content: center;
   color: var(--text-faint);
   font-style: italic;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .bandstrip-shade {
   position: absolute;
@@ -11854,7 +12348,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: var(--radius-sm);
   background: var(--text);
   color: var(--bg);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   white-space: nowrap;
   z-index: 4;
   pointer-events: none;
@@ -11892,14 +12386,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: flex;
   justify-content: space-between;
   margin-top: 3px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
 }
 
 /* "Pop out band map" button in the strip header — opens the vertical map in its own window. */
 .bandstrip-popout {
   margin-left: 6px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   padding: 2px 9px;
   border: 1px solid var(--border-soft);
@@ -11915,7 +12409,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 /* "Legend" toggle — first right-aligned control, so it + the pop-out group at the right. */
 .bandstrip-legend-toggle {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   padding: 2px 9px;
   border: 1px solid var(--border-soft);
@@ -11938,7 +12432,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   width: 12px;
   height: 12px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   line-height: 1;
   color: var(--need-ink);
@@ -11975,7 +12469,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--bg-elev) 60%, transparent);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-dim);
 }
 .spot-legend-item {
@@ -12082,14 +12576,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .sstv-datamode-hint {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .rig-share-fault {
   flex: 1 1 auto;
   min-width: 0;
   align-self: center;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.45;
   color: var(--state-weak);
 }
@@ -12110,7 +12604,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   margin-left: 6px;
 }
 .bandmap-dock-btn {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1;
   padding: 2px 6px;
   border: 1px solid var(--border-soft);
@@ -12138,7 +12632,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   width: 46px;
   transform: translateY(-50%);
   text-align: right;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
 }
 .bandmap-shade {
@@ -12180,7 +12674,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   z-index: 4;
 }
 .bandmap-call {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text);
   white-space: nowrap;
 }
@@ -12202,7 +12696,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   position: absolute;
   right: 3px;
   top: -13px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   color: var(--state-good);
 }
@@ -12220,7 +12714,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   justify-content: center;
   color: var(--text-faint);
   font-style: italic;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 /* Logbook statistics dashboard — CSS-bar breakdowns + an hour histogram (no chart lib). */
@@ -12250,7 +12744,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   line-height: 1.1;
 }
 .stats-lbl {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-dim);
@@ -12305,7 +12799,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .stats-bar-count {
   text-align: right;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .stats-hours {
   display: flex;
@@ -12328,7 +12822,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-radius: 2px 2px 0 0;
 }
 .stats-hour-lbl {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   color: var(--text-faint);
   margin-top: 2px;
 }
@@ -12338,7 +12832,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .stats-hour-note {
   margin: var(--space-2) 0 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 /* Secondary count (distinct entities) trailing the QSO count on a continent bar. */
@@ -12349,7 +12843,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 /* Small honesty caption under a geo card (e.g. QSOs that couldn't be placed). */
 .stats-cap {
   margin-top: var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 /* Gain/Zero contrast knobs next to the palette (double-click to recenter = auto). */
@@ -12357,7 +12851,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-weight: 600;
 }
@@ -12445,13 +12939,13 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid color-mix(in srgb, var(--border-soft) 70%, transparent);
 }
 .wf-legend-tick {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   line-height: 1;
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
 }
 .wf-legend-cap {
-  font-size: 8px;
+  font-size: calc(8px * var(--text-scale));
   line-height: 1;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -12474,7 +12968,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   padding: var(--space-2) 14px;
   border-radius: 999px;
   font-weight: 700;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   border: 1px solid transparent;
 }
 .link-pill .link-dot {
@@ -12519,7 +13013,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: 1px;
 }
 .telemetry-grid dt {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -12527,7 +13021,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .telemetry-grid dd {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
 }
 
@@ -12727,10 +13221,10 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .utc-time {
   font-weight: 700;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .utc-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-family: var(--font-sans);
   letter-spacing: 0.06em;
@@ -12752,18 +13246,18 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
      a hair of padding — NOT a tall block. Vertical padding rides --density-scale (Settings ▸
      Workspace ▸ Density): tight at ×1, tighter at 'dense', a touch roomier at 'guided'. */
   padding: calc(1px * var(--density-scale)) var(--space-3);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   line-height: 1.15;
   border-left: 3px solid transparent;
 }
 .decode-utc {
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .decode-dt {
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .decode-dt.ok {
   color: var(--text-faint);
@@ -12884,13 +13378,13 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   vertical-align: middle;
 }
 .decode-need-more {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   color: var(--text-faint);
 }
 .decode-snr {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   text-align: right;
 }
@@ -12902,7 +13396,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    signal. Uniform in single-mode operation; essential once the accumulated
    history spans a mode switch or (later) a mixed companion/UDP stream. */
 .decode-tier {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   text-align: center;
@@ -12918,7 +13412,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .decode-tier.dx1 { --tc: var(--band-marginal); }
 .decode-freq {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
   text-align: right;
 }
@@ -12953,7 +13447,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   filter: grayscale(0.8);
 }
 .decode-tag {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.05em;
   border-radius: 999px;
@@ -12989,7 +13483,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .decode-country {
   margin-left: auto;
   padding-left: var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   color: var(--accent);
   font-family: var(--font-sans, inherit);
@@ -13007,7 +13501,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .decode-az {
   flex: none;
   padding-left: var(--space-1);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
@@ -13018,7 +13512,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
   color: var(--accent);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   padding: var(--space-1) 9px;
   border-radius: var(--radius-sm);
@@ -13036,7 +13530,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   flex: 0 0 auto;
   border: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.03em;
   padding: 1px 6px;
@@ -13080,7 +13574,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--accent);
 }
 .radio-picker-head h1 {
-  font-size: 22px;
+  font-size: calc(22px * var(--text-scale));
   margin: 0;
 }
 .radio-picker-sub {
@@ -13099,7 +13593,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: none;
   border: none;
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   text-decoration: underline;
   cursor: pointer;
 }
@@ -13111,7 +13605,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   align-items: center;
   justify-content: space-between;
   padding: 18px var(--space-5);
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
   font-weight: 700;
   background: var(--bg-elev-2);
   color: var(--text);
@@ -13129,7 +13623,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   cursor: not-allowed;
 }
 .radio-picker-tag {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   color: var(--text-dim);
   text-transform: uppercase;
@@ -13144,7 +13638,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .decode-marker {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   opacity: 0.45;
   letter-spacing: 0.04em;
@@ -13212,7 +13706,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   line-height: 1.4;
 }
 .logbook-field > span {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -13512,7 +14006,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 .onboarding-icon {
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   line-height: 1;
 }
 .onboarding-text {
@@ -13521,7 +14015,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: none;
   background: transparent;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
   padding: var(--space-2) 0;
   min-height: 36px;
@@ -13534,7 +14028,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
   line-height: 1;
   width: 32px;
   height: 32px;
@@ -13557,12 +14051,12 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-bottom: 1px solid color-mix(in srgb, var(--state-good) 40%, var(--border));
 }
 .reveal-icon {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1;
 }
 .reveal-text {
   flex: 1;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--text);
 }
 .reveal-sub {
@@ -13573,7 +14067,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid color-mix(in srgb, var(--state-good) 55%, var(--border));
   background: color-mix(in srgb, var(--state-good) 18%, transparent);
   color: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   padding: 5px var(--space-3);
   border-radius: var(--radius-sm);
@@ -13586,7 +14080,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   padding: 5px var(--space-2);
   border-radius: var(--radius-sm);
@@ -13600,13 +14094,13 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
    The overlay/panel chrome comes from the Radix Dialog (.ui-dialog); these style
    the wizard's inner content. */
 .wizard-title {
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
   font-weight: 800;
   margin: 0 0 var(--space-1);
   color: var(--text);
 }
 .wizard-sub {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--text-dim);
   margin: 0 0 18px;
 }
@@ -13636,18 +14130,18 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: color-mix(in srgb, var(--accent) 10%, var(--bg));
 }
 .wizard-goal-label {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 700;
   color: var(--text);
 }
 .wizard-goal-blurb {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   line-height: 1.4;
 }
 .wizard-modes-title {
   margin: var(--space-1) 0 10px;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 800;
 }
 .wizard-modes {
@@ -13680,12 +14174,12 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   cursor: default;
 }
 .wizard-mode-label {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
   color: var(--text);
 }
 .wizard-mode-blurb {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
 }
 .wizard-actions {
@@ -13704,7 +14198,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   padding: var(--space-2) 14px;
   border-radius: var(--radius-sm);
@@ -13718,7 +14212,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: none;
   background: transparent;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   padding: var(--space-2) 6px;
 }
 .wizard-skip:hover {
@@ -13729,7 +14223,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border: 1px solid var(--accent);
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 700;
   padding: 9px 18px;
   border-radius: var(--radius-sm);
@@ -13777,7 +14271,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .band-from {
   font-family: var(--font-mono);
   font-weight: 700;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--accent);
   white-space: nowrap;
 }
@@ -13785,14 +14279,14 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--text);
 }
 .band-text {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.35;
   word-wrap: break-word;
   min-width: 0;
 }
 .band-tech {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   white-space: nowrap;
 }
@@ -13803,11 +14297,11 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
 }
 .band-broadcast-pill {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   color: var(--state-ok);
@@ -13839,7 +14333,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   gap: var(--space-1);
   flex: none;
   padding: 0 var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   white-space: nowrap;
@@ -13847,7 +14341,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   font-variant-numeric: tabular-nums;
 }
 .char-meter .cm-unit {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -13866,7 +14360,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--state-weak);
 }
 .char-meter .cm-full {
-  font-size: 8.5px;
+  font-size: calc(8.5px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -13898,7 +14392,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: color-mix(in srgb, var(--state-weak) 10%, var(--bg-elev-2));
   border-radius: var(--radius);
   padding: var(--space-3) 14px;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   line-height: 1.5;
   color: var(--text);
 }
@@ -13917,10 +14411,10 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .roam-row-title {
   font-weight: 700;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .roam-row-sub {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
   margin-top: 2px;
 }
@@ -13930,7 +14424,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 
 /* role / status pill */
 .roam-chip {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -13968,7 +14462,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   border-color: var(--accent);
 }
 .roam-ch-tag {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.05em;
   padding: 1px 5px;
@@ -13995,7 +14489,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 600;
   color: var(--text-dim);
   padding: var(--space-2) 10px;
@@ -14105,6 +14599,17 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   align-items: center;
   min-width: 0;
 }
+/* The VFO readout is a display well (DISPLAY WELLS): dark in both themes. The padding is its
+   bezel, deep enough that the digits' focus ring (2px, offset 2px) stays on the dark face.
+   The bezel's HEIGHT is paint, not layout: the negative block margin hands back exactly what
+   the padding takes, so the header is the height it always was. Without it the readout became
+   the tallest item in its row at 1024×768 and the Phone and Operate headers grew ~7px (measured
+   in a real browser); the face now overhangs into the row gap instead. */
+.ch-readout.well {
+  padding: var(--space-1) var(--space-2);
+  margin-block: calc(-1 * var(--space-1));
+  border-radius: var(--radius-sm);
+}
 /* FT8/Tempo keep their frequency-PRESET dropdown (14.074 etc. — operator wants
    that, unchanged), but restyle it in the header's band slot to the BandPicker's
    bold/mono/bordered look so the band slot reads the same across every cockpit.
@@ -14118,7 +14623,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 }
 .ch-band .freq-channel {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.02em;
   border: 1.5px solid var(--border);
@@ -14279,14 +14784,77 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   color: var(--text-faint);
   cursor: default;
 }
+/* ⊞ Panels ▸ Layout — Connect's layout presets (ConnectView), above the entries. A column of
+   full-width choices rather than a chip row: the popover is 220px wide, where three chips side by
+   side wrap at Large text or in German. The one on screen is FILLED — a change of form, not of
+   hue alone (DESIGN.md: never colour alone). */
+.connect-layouts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+.connect-layouts-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+.connect-layout-now {
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text);
+}
+.connect-layout-opt {
+  text-align: left;
+  font-size: var(--fs-label);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.connect-layout-opt:hover {
+  border-color: var(--accent);
+}
+.connect-layout-opt.active {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+/* What a tap costs, shown only over the operator's own arrangement. The entry notes' look
+   (.panels-menu-why) without their indent: there is no checkbox here to sit past. */
+.connect-layout-note {
+  color: var(--text-dim);
+  font-size: var(--fs-micro);
+  line-height: var(--lh-tight);
+}
 .cockpit-txstate {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text-dim);
   white-space: nowrap;
+  /* The ON AIR pill's box, worn unkeyed too, with a transparent border: keying then only
+     repaints, and nothing beside the pill (Stop TX) moves as the rig keys. The clickable latch
+     (`.cockpit-txarm`, below) re-declares all three. */
+  padding: 1px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
 }
+/* ON AIR (see `--on-air-*`). */
 .cockpit-txstate.on {
-  color: var(--tx);
+  color: var(--on-air-ink);
+  background: var(--on-air-bg);
+  border-color: var(--on-air-rim);
 }
 /* Clickable arm variant (RTTY/SSTV cockpits — WSJT-X "Enable Tx"). Looks like the Tune
    button so it reads as an action, not a status pill. Green when armed. */
@@ -14472,7 +15040,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   background: var(--bg-elev-2);
 }
 .cs-opt {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--text-dim);
@@ -14640,7 +15208,7 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   min-width: 0;
 }
 .txp-cq-hint {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-style: italic;
   white-space: nowrap;
@@ -14805,12 +15373,21 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   font-weight: 800;
   letter-spacing: 0.04em;
   white-space: nowrap;
+  /* The ON AIR pill's box in every state, so the key-down only repaints (the header pill's
+     reasoning; the panic controls already sit before this in the strip). */
+  padding: 1px var(--space-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
 }
 .cockpit-qso.rx .cq-statecap {
   color: var(--state-good, #29c281);
 }
+/* Operate's ON AIR sign (see `--on-air-*`). Its rim is what separates it from the strip's own
+   red wash above. */
 .cockpit-qso.tx .cq-statecap {
-  color: var(--tx);
+  color: var(--on-air-ink);
+  background: var(--on-air-bg);
+  border-color: var(--on-air-rim);
 }
 /* Deliberate wrap point (graft of the two-row discipline): hidden at xl ONLY,
    where the one row always fits; everywhere below it forces the break BETWEEN
@@ -14899,7 +15476,7 @@ button.cq-skiptx1.on {
 .cockpit-qso .op-btn {
   min-height: 24px;
   padding: 3px var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 /* The toggle's label flips TX On ↔ TX Off (incl. the automatic disable after 73):
    a fixed floor keeps Tune / Stop TX / Hold Tx from shifting with it. em at the
@@ -14953,7 +15530,7 @@ button.cq-skiptx1.on {
 .txp-dx-actions button {
   flex: 1;
   padding: 3px var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   background: var(--bg-elev-2);
@@ -14997,7 +15574,7 @@ button.cq-skiptx1.on {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 .txp-row.next .txp-msg {
@@ -15017,7 +15594,7 @@ button.cq-skiptx1.on {
 }
 .txp-btn {
   padding: 2px 10px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-dim);
@@ -15102,9 +15679,18 @@ button.cq-skiptx1.on {
    fit-scales (useScale) so at normal sizes everything stays comfortably
    visible, and only genuinely tiny windows fall back to internal scroll. */
 .cockpit-lower.classic .cockpit-rxfreq {
-  flex: 1 1 0;
+  /* A 6em BASIS, not a floor: while the column has room the pane grows exactly as it did
+     from 0; when it is short (the 1024×768 floor at large text, #215) it SHARES the deficit
+     with the Tx1–Tx6 panel below, which scrolls, instead of collapsing to nothing. */
+  flex: 1 1 6em;
   max-height: none;
   min-height: 0;
+}
+/* The Tx1–Tx6 machine yields inside its column and scrolls, rather than overflowing the
+   column into the cockpit's clip (where Tx5/Tx6 were unreachable at large text). */
+.cockpit-qsocol > .tx-panel {
+  flex: 0 1 auto;
+  overflow-y: auto;
 }
 .cockpit-lower.classic .cockpit-roster {
   /* The Stations roster shares the classic rail with the (often empty) decode list, and
@@ -15124,7 +15710,7 @@ button.cq-skiptx1.on {
    no CQ hint line) and the roster chrome. Scoped to the classic rail only;
    plenty-of-height layouts (4K) simply have more list rows visible. */
 .cockpit-lower.classic .tx-panel-compact .txp-msg {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .cockpit-lower.classic .tx-panel-compact .txp-rows {
   gap: 1px;
@@ -15157,6 +15743,17 @@ button.cq-skiptx1.on {
   min-height: 24px;
   padding: 3px var(--space-2);
 }
+/* The Stations list SCROLLS as a whole when its header, filters and rows cannot all fit, never
+   clips — the decode panes' treatment (.cockpit-rxfreq), for the same short pane at the 1024×768
+   floor with large text (#215). Its row list keeps one station card: a floor of --touch plus the
+   list's padding, under the 145px it measures at Normal text there, so it only engages at
+   larger text. */
+.cockpit-roster > .station-list {
+  overflow-y: auto;
+}
+.cockpit-roster .station-scroll {
+  min-height: calc(var(--touch) + 2 * var(--space-2));
+}
 /* The FT8 cockpit's Stations panel is the CALL ROSTER — the Tempo chat chrome
    inside the shared StationList either leaves (Recent chats = Tempo
    conversations, meaningless in FT8/FT4) or slims to one line (the band row),
@@ -15186,7 +15783,11 @@ button.cq-skiptx1.on {
   max-height: none;
   min-height: 0;
   display: flex;
-  overflow: hidden;
+  /* The pane SCROLLS when its header and list cannot both fit, never clips (the contract's
+     first fate). Inert whenever they fit; it bites at the 1024×768 floor with large text,
+     where the header alone outgrows a short pane (#215). See .od-scroll's one-row floor. */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 6px 10px;
 }
 .cockpit-rxfreq > .operate-decodes {
@@ -15207,7 +15808,9 @@ button.cq-skiptx1.on {
 .cockpit-decodes {
   min-height: 0;
   display: flex;
-  overflow: hidden;
+  /* Scrolls rather than clips — see .cockpit-rxfreq. */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: var(--space-2) 10px;
 }
 .cockpit-decodes > .operate-decodes {
@@ -15292,7 +15895,9 @@ button.cq-skiptx1.on {
   flex: var(--pane-share, 1.6) 1 0;
   min-height: 0;
   display: flex;
-  overflow: hidden;
+  /* Scrolls rather than clips — see .cockpit-rxfreq. */
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 6px 10px;
 }
 .cockpit-decodes-side > .operate-decodes {
@@ -15512,7 +16117,7 @@ button.cq-skiptx1.on {
   margin-right: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -15624,7 +16229,7 @@ button.cq-skiptx1.on {
 .np-point {
   margin-left: var(--space-1);
   padding: 0 3px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1;
   color: var(--text-faint);
   background: transparent;
@@ -15658,7 +16263,7 @@ button.cq-skiptx1.on {
 }
 .np-rotator-go {
   padding: 0 5px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1.5;
   color: var(--text-faint);
   background: transparent;
@@ -15926,13 +16531,18 @@ button.cq-skiptx1.on {
   /* Call comes first (people scan by callsign), then Calling — who they are working, the pair
      read together as "K2DEF → W1ABC" — then the Need column, the "why work this station" column
      carrying the need chips AND the rarity pill. Call is compact (callsigns are short; its
-     88px min still fits VE2OPR-length calls + the B4/L marks); Calling holds a bare callsign, so
+     124px min fits a six-character call + the B4/L marks + the ↗ QRZ link, measured — the old
+     88px predated the link and cut it off at the 1024×768 floor); Calling holds a bare callsign, so
      it needs no room for marks; Need is the WIDEST and flexible so it has room for all the chips
      + a 💎 ULTRA pill without clipping. Anything past the (roomy) Need cell is clipped by
      `.or-need` rather than bleeding into the next column. State is a fixed two letters. */
+  /* The fixed tracks hold text (state, grid, distance, bearing, SNR, age), so they grow with
+     Settings ▸ Workspace ▸ Text size (#215); at Normal each is exactly its px. */
   grid-template-columns:
-    minmax(88px, 1fr) minmax(68px, 0.8fr) minmax(105px, 1.13fr) minmax(50px, 0.85fr)
-    40px 54px 56px 48px 44px 48px;
+    minmax(calc(124px * var(--text-scale)), 1fr) minmax(calc(68px * var(--text-scale)), 0.8fr)
+    minmax(calc(105px * var(--text-scale)), 1.13fr) minmax(calc(50px * var(--text-scale)), 0.85fr)
+    calc(40px * var(--text-scale)) calc(54px * var(--text-scale)) calc(56px * var(--text-scale))
+    calc(48px * var(--text-scale)) calc(44px * var(--text-scale)) calc(48px * var(--text-scale));
   align-items: center;
   gap: var(--space-2);
   /* Density-aware row packing (see .decode-row) — ×1 at 'standard'. */
@@ -16071,7 +16681,7 @@ button.cq-skiptx1.on {
    three-character subdivision would need the column widened, and the row is already at a hard
    673px + padding inside a pane that clips. */
 .or-state .or-subdiv {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   border-radius: 999px;
@@ -16507,7 +17117,11 @@ button.cq-skiptx1.on {
 }
 .od-scroll {
   flex: 1;
-  min-height: 0;
+  /* One decode row, never less (#215). When a short pane's header outgrows it, the PANE
+     scrolls (.cockpit-rxfreq) — and a list squeezed to 0px inside it would be a dead
+     scroller. 1.5em is under every list height measured at Normal text (26.5px at the
+     1024×768 floor), so it only ever engages at larger text. */
+  min-height: 1.5em;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -16520,7 +17134,7 @@ button.cq-skiptx1.on {
   align-items: center;
   gap: var(--space-2);
   padding: 2px var(--space-3);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
   user-select: none;
@@ -16651,7 +17265,7 @@ button.cq-skiptx1.on {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   padding: var(--space-1) 26px var(--space-1) var(--space-3);
   width: 240px;
   transition: var(--transition);
@@ -16669,7 +17283,7 @@ button.cq-skiptx1.on {
   border: none;
   background: transparent;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   cursor: pointer;
   padding: 0 2px;
 }
@@ -16680,7 +17294,7 @@ button.cq-skiptx1.on {
 /* ---- CW/Phone scope honesty controls (PhoneScope header row) ---- */
 .ph-scope-dyn {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
@@ -16694,7 +17308,7 @@ button.cq-skiptx1.on {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   color: var(--text-faint);
 }
@@ -16715,7 +17329,7 @@ button.cq-skiptx1.on {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   padding: var(--space-1) 10px;
   cursor: pointer;
@@ -16872,7 +17486,7 @@ button.cq-skiptx1.on {
 }
 .need-badge {
   flex: 0 0 auto;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -17585,7 +18199,7 @@ button.cq-skiptx1.on {
   flex-wrap: wrap;
 }
 .pota-badge {
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.05em;
   border-radius: 999px;
@@ -17643,14 +18257,14 @@ button.cq-skiptx1.on {
 .pota-spot-prog {
   color: var(--accent);
   font-weight: 700;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--text-scale));
   letter-spacing: 0.04em;
 }
 
 /* HUNT action button */
 .pota-hunt-btn {
   flex: none;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   padding: 5px 13px;
@@ -17782,7 +18396,7 @@ button.cq-skiptx1.on {
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .aw-needfilter:focus {
   outline: none;
@@ -17795,7 +18409,7 @@ button.cq-skiptx1.on {
   border-radius: var(--radius-sm);
   background: var(--bg-elev-2);
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
 }
 .aw-needsort.active {
@@ -17826,7 +18440,7 @@ button.cq-skiptx1.on {
   gap: var(--space-1);
 }
 .aw-chip {
-  font-size: 9px;
+  font-size: calc(9px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   color: var(--accent);
@@ -19833,7 +20447,7 @@ button.sat-chip:disabled {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   padding: 3px 10px;
   cursor: pointer;
 }
@@ -19861,7 +20475,7 @@ button.sat-chip:disabled {
   flex: 1;
 }
 .wizard-field > span:first-child {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 .wizard-field input,
@@ -19870,7 +20484,7 @@ button.sat-chip:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   padding: 6px 10px;
 }
 /* ⚠️ BOTH ELEMENTS, and the select is the one that matters. The wizard puts `bad` on the
@@ -19884,7 +20498,7 @@ button.sat-chip:disabled {
   border-color: var(--band-marginal);
 }
 .wizard-field-hint {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
 }
 .wizard-field-hint.bad {
@@ -19907,7 +20521,7 @@ button.sat-chip:disabled {
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   padding: 5px 14px;
   cursor: pointer;
 }
@@ -19920,7 +20534,7 @@ button.sat-chip:disabled {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   padding: 6px var(--space-3);
   cursor: pointer;
   width: 100%;
@@ -20254,10 +20868,11 @@ button.sat-chip:disabled {
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+/* A display well (DISPLAY WELLS): `.well` paints the dark face, and the trace and gridline the
+   component reads off this canvas resolve to the dark theme's inks. */
 .mini-spectrum-canvas {
   width: 100%;
   display: block;
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
   border: 1px solid var(--border);
   border-radius: 4px;
 }
@@ -20290,7 +20905,7 @@ button.sat-chip:disabled {
 
 /* Field Day section-picker inline validation warning (Settings ▸ Field Day). */
 .fd-section-warn {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   color: var(--alert-warning);
 }
@@ -20586,7 +21201,7 @@ button.sat-chip:disabled {
 }
 .rp-chan-btns button {
   padding: 1px 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
   background: transparent;
   border: 1px solid var(--border);
@@ -20936,7 +21551,7 @@ button.sat-chip:disabled {
 /* HF / VHF-UHF band-range section headers in the memories list + table. */
 .mv-section {
   padding: var(--space-2) var(--space-1) 2px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -20949,7 +21564,7 @@ button.sat-chip:disabled {
 }
 .mv-section-row td {
   padding: var(--space-2) var(--space-1) 2px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -21695,7 +22310,7 @@ button.sat-chip:disabled {
 }
 /* RTTY RX arm toggle (stream head) — armed state must read at a glance. */
 .rtty-arm {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.04em;
   padding: 1px var(--space-2);
@@ -21716,7 +22331,7 @@ button.sat-chip:disabled {
 /* AFC readout pill — "+12 Hz 🔒" once acquired-then-frozen on a signal. */
 .rtty-afc-pill {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   color: var(--text-dim);
   border: 1px solid var(--border);
@@ -21777,7 +22392,7 @@ button.sat-chip:disabled {
   border-radius: var(--radius-sm);
   background: var(--bg);
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   overflow: hidden;
 }
 .rtty-txline-plate {
@@ -22420,7 +23035,7 @@ button.sat-chip:disabled {
   white-space: nowrap;
 }
 .sstv-thumb-meta {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -22555,7 +23170,7 @@ button.sat-chip:disabled {
 }
 .sstv-ov-remove {
   color: var(--state-weak);
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1;
   padding: 0 var(--space-1);
 }
@@ -22736,7 +23351,7 @@ button.sat-chip:disabled {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-faint);
 }
 .aprs-beacon input,
@@ -22746,7 +23361,7 @@ button.sat-chip:disabled {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 1px var(--space-1);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .aprs-beacon-comment {
   flex: 1;
@@ -22756,16 +23371,16 @@ button.sat-chip:disabled {
   flex: 1;
 }
 .aprs-status {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-dim);
 }
 .aprs-msg-count {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 .aprs-dial {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--text);
@@ -22779,7 +23394,7 @@ button.sat-chip:disabled {
    severity, the tooltip carries what to do about it. Both fault states earn a
    colour because both are fixable by the operator in seconds. */
 .aprs-health {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -22801,7 +23416,7 @@ button.sat-chip:disabled {
 /* Which radio is being listened to. Informational, never a fault colour: on a multi-radio
    station this is normal context, and it only appears when there was a choice to make. */
 .aprs-radio {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   white-space: nowrap;
   padding: 2px var(--space-2);
@@ -22816,7 +23431,7 @@ button.sat-chip:disabled {
   color: var(--state-ok);
 }
 .aprs-health-fix {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 /* A genuine fault: nothing is arriving from the capture device. */
 .aprs-health-nocapture {
@@ -22839,7 +23454,7 @@ button.sat-chip:disabled {
    inlets fail independently, and a green internet chip next to a silent RF chip is precisely the
    diagnostic: it proves the fault is in the radio chain, not the app. */
 .aprs-inet {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -22863,7 +23478,7 @@ button.sat-chip:disabled {
   border-radius: var(--radius);
   background: var(--panel);
   box-shadow: var(--shadow);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .aprs-card:focus-visible {
   outline: 2px solid var(--state-good);
@@ -22890,7 +23505,7 @@ button.sat-chip:disabled {
   border-radius: 7px;
   background: var(--bg-elev);
   color: var(--text);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   line-height: 14px;
   text-align: center;
@@ -22902,11 +23517,11 @@ button.sat-chip:disabled {
   min-width: 0;
 }
 .aprs-card-id strong {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 .aprs-card-symname {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .aprs-card-close {
   flex: 0 0 auto;
@@ -22914,7 +23529,7 @@ button.sat-chip:disabled {
   background: none;
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1;
 }
 .aprs-card-close:hover {
@@ -22934,7 +23549,7 @@ button.sat-chip:disabled {
 }
 .aprs-card-row dt {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .aprs-card-row dd {
   margin: 0;
@@ -22951,7 +23566,7 @@ button.sat-chip:disabled {
   display: block;
   margin: var(--space-2) 0 3px;
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -22966,7 +23581,7 @@ button.sat-chip:disabled {
   color: var(--text-dim);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .aprs-card-rawtext {
   margin: 3px 0 0;
@@ -22975,7 +23590,7 @@ button.sat-chip:disabled {
   background: var(--bg);
   color: var(--text-dim);
   font-family: var(--font-mono), monospace;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   overflow-x: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -22994,7 +23609,7 @@ button.sat-chip:disabled {
   color: var(--text-dim);
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   text-decoration: none;
 }
 .aprs-card-actions button:hover,
@@ -23013,7 +23628,7 @@ button.aprs-inet {
   background: none;
   cursor: pointer;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -23042,7 +23657,7 @@ button.aprs-inet.open {
 .aprs-inet-detail {
   margin: 0;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1.4;
 }
 .aprs-inet-row {
@@ -23050,7 +23665,7 @@ button.aprs-inet.open {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .aprs-inet-row .settings-input {
   width: 7rem;
@@ -23066,7 +23681,7 @@ button.aprs-inet.open {
 .aprs-inet-note {
   margin: 0;
   color: var(--text-faint);
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   line-height: 1.4;
 }
 
@@ -23087,7 +23702,7 @@ button.aprs-inet.open {
    receiver heard the station. An internet-only station is dimmed to match its hollow map marker:
    present, but not something this radio has proven it can reach. */
 .aprs-src {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -23139,7 +23754,7 @@ tr.sel .aprs-sym {
   border-radius: 6px;
   background: var(--panel);
   color: var(--text);
-  font-size: 8px;
+  font-size: calc(8px * var(--text-scale));
   font-weight: 700;
   line-height: 11px;
   text-align: center;
@@ -23152,7 +23767,7 @@ tr.sel .aprs-sym {
   align-items: center;
 }
 .cockpit-depth-chip {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   padding: 2px 6px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
@@ -23172,7 +23787,7 @@ tr.sel .aprs-sym {
   box-shadow: 0 0 0 1px var(--accent, #4f8cff) inset;
 }
 .radio-editing-badge {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -23198,7 +23813,7 @@ tr.sel .aprs-sym {
   background: transparent;
 }
 .setup-health-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -23208,7 +23823,7 @@ tr.sel .aprs-sym {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
@@ -23229,7 +23844,7 @@ tr.sel .aprs-sym {
 }
 .setup-health .health-prove {
   margin-left: auto;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .aprs-messages {
   display: flex;
@@ -23250,7 +23865,7 @@ tr.sel .aprs-sym {
   display: flex;
   align-items: baseline;
   gap: var(--space-1);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .aprs-msg-arrow {
   color: var(--text-faint);
@@ -23259,7 +23874,7 @@ tr.sel .aprs-sym {
   font-weight: 600;
 }
 .aprs-msg-id {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -23269,11 +23884,11 @@ tr.sel .aprs-sym {
 .aprs-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .aprs-table th {
   text-align: left;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -23304,7 +23919,7 @@ tr.sel .aprs-sym {
   font-family: var(--font-mono);
 }
 .aprs-kind {
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   text-transform: uppercase;
 }
 .aprs-kind-position,
@@ -23319,7 +23934,7 @@ tr.sel .aprs-sym {
   color: var(--text-dim);
 }
 .aprs-freq {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-variant-numeric: tabular-nums;
 }
 .aprs-kind-object {
@@ -24087,7 +24702,7 @@ tr.sel .aprs-sym {
   border-radius: 6px;
   padding: 6px var(--space-2);
   background: var(--bg-elev);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-dim);
 }
 .assist-note.compact {
@@ -24097,7 +24712,7 @@ tr.sel .aprs-sym {
   border-bottom: 0;
   background: transparent;
   padding: var(--space-1) var(--space-2);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .assist-note-head {
   display: flex;
@@ -24107,7 +24722,7 @@ tr.sel .aprs-sym {
 }
 .assist-note-state {
   flex: none;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
   font-weight: 800;
   letter-spacing: 0.06em;
   padding: 1px 5px;
@@ -24134,7 +24749,7 @@ tr.sel .aprs-sym {
 .assist-note-why > summary {
   cursor: pointer;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 .assist-note-why ul {
   margin: 6px 0 0;
@@ -24161,7 +24776,7 @@ tr.sel .aprs-sym {
   list-style: none;
   display: grid;
   gap: 2px;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   max-height: 190px;
   overflow-y: auto;
 }
@@ -24383,7 +24998,7 @@ tr.sel .aprs-sym {
 }
 .gsg-rail-label {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   color: var(--text-dim);
 }
@@ -24433,7 +25048,7 @@ tr.sel .aprs-sym {
 .gsg-h2 {
   margin: 14px 0 0;
   font-family: var(--font-sans);
-  font-size: 26px;
+  font-size: calc(26px * var(--text-scale));
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.01em;
@@ -24441,11 +25056,11 @@ tr.sel .aprs-sym {
   color: var(--text);
 }
 .gsg-h2.big {
-  font-size: 30px;
+  font-size: calc(30px * var(--text-scale));
 }
 .gsg-lede {
   margin: 14px 0 0;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
   line-height: 1.6;
   color: var(--text-dim);
   max-width: 62ch;
@@ -24469,7 +25084,7 @@ tr.sel .aprs-sym {
 
 /* --- prose column --- */
 .gsg-prose {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1.7;
   color: var(--text-dim);
 }
@@ -24518,7 +25133,7 @@ tr.sel .aprs-sym {
 }
 .gsg-prose-h3 {
   font-family: var(--font-mono);
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
   font-weight: 600;
   color: var(--text);
   margin: 26px 0 var(--space-3);
@@ -24731,7 +25346,7 @@ tr.sel .aprs-sym {
 }
 .gsg-wsjtx-body {
   margin: var(--space-3) 0 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1.7;
   color: var(--text-dim);
   max-width: 78ch;
