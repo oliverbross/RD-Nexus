@@ -364,6 +364,7 @@ const MIGRATED = [
   'App.tsx',
   'DetachedPanel.tsx',
   'components/ModeNav.tsx',
+  'components/DxChaserView.tsx',
   'components/NowBar.tsx',
   'components/TempoHeader.tsx',
   'components/PanelsMenu.tsx',

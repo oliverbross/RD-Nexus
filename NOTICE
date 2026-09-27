@@ -22,6 +22,17 @@ asserting it.
 
 ## Upstream lineage
 
+### MSHV Auto DX Chaser — Christo (LZ2HV) / KD9TAW integration
+License: **GNU GPL, version 3**.
+
+The DX Chaser decision engine in `crates/dx-chaser/` is a Rust behavioral port of
+the Auto DXer, Auto Band, settings and DXCC-chasing work published at
+<https://github.com/kd9taw/mshv-auto-dx-chaser>. The reviewed upstream revision
+and update procedure are recorded in `integrations/mshv-auto-dx-chaser/`. Nexus
+does not redistribute the upstream Qt/MSHV source tree or binary; the port uses
+Nexus's own decoder, radio, logbook and spot services. Our thanks to the MSHV and
+Auto DX Chaser authors for the feature design and GPL source.
+
 ### WSJT-X — Joe Taylor (K1JT) and the WSJT Development Group
 License: **GNU GPL, version 3** (GPLv3).
 

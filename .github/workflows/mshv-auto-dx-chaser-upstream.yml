@@ -1,0 +1,20 @@
+name: MSHV Auto DX Chaser upstream watch
+
+on:
+  schedule:
+    # A moved pin is a review request, never an automatic source import.
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-revision:
+    name: Check reviewed upstream revision
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Detect upstream additions
+        run: bash scripts/sync-mshv-auto-dx-chaser.sh --check

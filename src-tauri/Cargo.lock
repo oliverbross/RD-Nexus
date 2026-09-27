@@ -1208,6 +1208,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
+name = "dx-chaser"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5363,6 +5370,7 @@ dependencies = [
 name = "tempo"
 version = "1.15.0"
 dependencies = [
+ "dx-chaser",
  "futures-util",
  "gdk",
  "keyring",
@@ -5385,6 +5393,7 @@ dependencies = [
  "tempo-sstv",
  "tokio",
  "tokio-tungstenite",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

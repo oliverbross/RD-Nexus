@@ -25,6 +25,7 @@ import {
   RotateCcw,
   Users,
   MessagesSquare,
+  Crosshair,
 } from 'lucide-react'
 import { Fragment, useState, type ButtonHTMLAttributes } from 'react'
 import { Tooltip, TooltipProvider } from './ui/Tooltip'
@@ -185,6 +186,16 @@ const CW: Item = {
     return t('nav.cw.title')
   },
 }
+const DX_CHASER: Item = {
+  id: 'dxChaser',
+  get label() {
+    return t('nav.dxChaser.label')
+  },
+  icon: Crosshair,
+  get title() {
+    return t('nav.dxChaser.title')
+  },
+}
 
 // Everything below the operating group: global situational/logging surfaces + opt-in
 // extras (all `core: false`, so they appear only when enabled in Settings ▸ Features).
@@ -327,6 +338,9 @@ export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, on
               )
             })}
           </div>
+          {/* Fixed directly below Digital: DX Chaser is an operating controller, not a
+              reorderable situational board. */}
+          {navBtn(DX_CHASER)}
           {/* Global situational/logging surfaces + opt-in extras — drag to reorder. */}
           {items.map((it) => (
             <Fragment key={it.id}>

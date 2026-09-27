@@ -537,6 +537,12 @@ jobs:
       - name: Test UI (Vitest)
         run: npm --prefix ui test
 
+      # The release jobs run this inspector against the real platform packages.
+      # These hermetic fixtures exercise every extractor and both failure modes
+      # here, without spending CI time building a release merely to test the gate.
+      - name: Test DX Chaser package-content gate
+        run: bash scripts/inspect-dx-chaser-package.test.sh
+
       # `ui/`'s build output IS the hosted browser application, and nothing audited it - while
       # remote/ has had this gate all along and Rust is covered by cargo-deny on both lockfiles.
       #
