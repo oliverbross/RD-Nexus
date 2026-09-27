@@ -25,6 +25,7 @@ import { EN } from './en'
 
 export const JA: PartialCatalog = {
   ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  'settings.tabs.groupsio': 'Groups.io',
   'groupsio.connected': '接続済み — メンバーシップとダウンロード済みメッセージを利用できます。',
   'groupsio.offline': 'オフラインキャッシュを利用できます。ライブ同期には設定でAPIキーを接続してください。',
   'groupsio.newTopic': '新しいトピック',

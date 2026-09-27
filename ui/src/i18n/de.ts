@@ -20,6 +20,7 @@ import { EN } from './en'
 
 export const DE: PartialCatalog = {
   ...Object.fromEntries(Object.entries(EN).filter(([key]) => key.startsWith('groupsio.'))),
+  'settings.tabs.groupsio': 'Groups.io',
   'groupsio.connected': 'Verbunden — Mitgliedschaften und heruntergeladene Nachrichten sind hier verfügbar.',
   'groupsio.offline': 'Der Offline-Cache ist verfügbar. Hinterlegen Sie unter Einstellungen einen API-Schlüssel für die Live-Synchronisierung.',
   'groupsio.newTopic': 'Neues Thema',

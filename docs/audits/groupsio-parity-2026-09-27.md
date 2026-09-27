@@ -5,8 +5,8 @@
 - Source product: ShackCQ in `/Users/oliver/Documents/Projects/RigWeave/f17-resolution-20260923`.
 - Source revision reviewed: `636d25c` (`codex/f17-resolution-20260923`); refreshed `origin/main` was `4fdb14c`.
 - Source implementation reviewed: `services/application/src/groupsio/service.ts`, `services/application/src/groupsio/routes.ts`, `web/src/groupsio/GroupsIoWorkspace.tsx`, `web/src/groupsio/groupsio.css`, the Groups.io node/web tests, and the two Groups.io QA scripts.
-- RD-Nexus base reviewed and merged: `kd9taw/Nexus` `upstream/main` at `68d89dd3`; merge revision `b55880d4`.
-- RD-Nexus implementation revision: recorded in the handoff after the implementation commit (the ledger cannot contain its own Git object ID).
+- RD-Nexus base reviewed and merged initially at `68d89dd3`, then refreshed and merged again at `kd9taw/Nexus` `upstream/main` `35ec66ca` (Landing 61).
+- RD-Nexus Groups.io implementation revision: `8322c3ef`; refreshed-upstream merge revision: `12431d14`.
 - Provider contract carried forward: `https://groups.io/api/v1`, revision marker `2026-07-31`.
 
 `COMPLETE` below means the ShackCQ behavior has an RD-Nexus implementation and local executable or rendered evidence. `EXTERNAL` means implementation is present but proof requires an operator-owned Groups.io account/key and is deliberately not represented as local proof.
@@ -62,10 +62,9 @@
 ## Verification record
 
 - `npm run build`: PASS after integration and upstream merge.
-- Groups.io component tests: PASS (3 tests).
-- i18n hardcoded/placeholder/runtime tests: PASS (236 tests).
-- Rust Groups.io tests: recorded in the final handoff after the feature-enabled native build completes.
-- `cargo fmt --all -- --check`: recorded in the final handoff.
+- Post-upstream UI selection (Groups.io components, i18n guards/runtime, feature registry): PASS (248 tests).
+- Rust Groups.io tests with the CI-required `radio` feature: PASS (9 tests; 719 filtered).
+- `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`: PASS.
 - Real rendered browser evidence:
   - `/Users/oliver/.codex/visualizations/2026/09/27/01a0e2aa-3b8f-7b00-868d-80aba8311f7e/groupsio-screen.png`
   - `/Users/oliver/.codex/visualizations/2026/09/27/01a0e2aa-3b8f-7b00-868d-80aba8311f7e/groupsio-settings.png`
