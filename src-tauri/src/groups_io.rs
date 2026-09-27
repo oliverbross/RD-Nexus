@@ -398,11 +398,7 @@ fn write_private_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.as_file()
         .sync_all()
         .map_err(|e| format!("couldn't sync the Groups.io attachment: {e}"))?;
-    file.persist(path)
-        .map(|_| ())
-        .map_err(|e| format!("couldn't commit the Groups.io attachment: {e}"))?;
-    sync_parent_after_commit(parent);
-    Ok(())
+    persist_temp_durably(file, path, "Groups.io attachment")
 }
 
 fn keychain() -> Result<keyring::Entry, String> {
@@ -471,19 +467,74 @@ fn try_store_transaction() -> Result<MutexGuard<'static, ()>, String> {
         .map_err(|_| "another Groups.io state operation is already running".to_string())
 }
 
-fn sync_parent_after_commit(parent: &Path) {
-    // The temporary file itself is synced before persist. POSIX additionally supports syncing
-    // the containing directory so the rename survives power loss. That sync happens *after* the
-    // commit point and is therefore best-effort: returning an error here would tell the caller
-    // the write failed even though the new file is already visible. Windows does not provide a
-    // supported FlushFileBuffers contract for directory handles; NamedTempFile::persist uses the
-    // platform atomic replacement primitive and the pre-persist file sync is its durability bound.
-    #[cfg(unix)]
-    {
-        let _ = fs::File::open(parent).and_then(|directory| directory.sync_all());
+#[cfg(windows)]
+const WINDOWS_DURABLE_REPLACE_FLAGS: u32 = 0x0000_0001 | 0x0000_0008;
+
+#[cfg(windows)]
+fn replace_path_durably(temp: &Path, target: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
     }
-    #[cfg(not(unix))]
-    let _ = parent;
+    let existing: Vec<u16> = temp.as_os_str().encode_wide().chain(Some(0)).collect();
+    let replacement: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    // MOVEFILE_REPLACE_EXISTING preserves overwrite semantics; MOVEFILE_WRITE_THROUGH makes the
+    // replacement durable before this function reports success.
+    let result = unsafe {
+        MoveFileExW(
+            existing.as_ptr(),
+            replacement.as_ptr(),
+            WINDOWS_DURABLE_REPLACE_FLAGS,
+        )
+    };
+    if result == 0 {
+        Err(format!(
+            "Windows durable atomic replacement failed: {}",
+            std::io::Error::last_os_error()
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+fn replace_path_durably_with_sync(
+    temp: &Path,
+    target: &Path,
+    sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> Result<(), String> {
+    fs::rename(temp, target).map_err(|error| format!("atomic replacement failed: {error}"))?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| "atomic replacement target has no parent".to_string())?;
+    sync_parent(parent).map_err(|error| {
+        format!(
+            "persistence uncertain after atomic replacement; provider submission is blocked: {error}"
+        )
+    })
+}
+
+#[cfg(unix)]
+fn replace_path_durably(temp: &Path, target: &Path) -> Result<(), String> {
+    replace_path_durably_with_sync(temp, target, |parent| {
+        fs::File::open(parent).and_then(|directory| directory.sync_all())
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn replace_path_durably(temp: &Path, target: &Path) -> Result<(), String> {
+    fs::rename(temp, target).map_err(|error| format!("atomic replacement failed: {error}"))
+}
+
+fn persist_temp_durably(
+    file: tempfile::NamedTempFile,
+    path: &Path,
+    label: &str,
+) -> Result<(), String> {
+    let temp = file.into_temp_path();
+    replace_path_durably(temp.as_ref(), path)
+        .map_err(|error| format!("couldn't durably commit {label}: {error}"))
 }
 
 fn mutate_store_at<T>(
@@ -540,11 +591,7 @@ fn write_store_to(path: &Path, store: &Store) -> Result<(), String> {
     file.as_file()
         .sync_all()
         .map_err(|e| format!("couldn't sync Groups.io local data: {e}"))?;
-    file.persist(path)
-        .map(|_| ())
-        .map_err(|e| format!("couldn't commit Groups.io local data: {e}"))?;
-    sync_parent_after_commit(parent);
-    Ok(())
+    persist_temp_durably(file, path, "Groups.io local data")
 }
 
 fn write_store(store: &Store) -> Result<(), String> {
@@ -798,6 +845,18 @@ fn begin_final_post(store: &mut Store, index: usize, mut draft: Draft, remote_id
     draft.updated_unix = now();
     store.drafts[index] = draft.clone();
     draft
+}
+
+fn persist_final_post_intent(
+    store: &mut Store,
+    index: usize,
+    draft: Draft,
+    remote_id: &str,
+    persist: impl FnOnce(&Store) -> Result<(), String>,
+) -> Result<Draft, String> {
+    let draft = begin_final_post(store, index, draft, remote_id);
+    persist(store)?;
+    Ok(draft)
 }
 
 fn complete_final_post(store: &mut Store, index: usize, mut draft: Draft, response: &Value) {
@@ -2264,8 +2323,7 @@ pub fn groups_io_send_draft(id: String, confirmed: bool) -> Result<Status, Strin
         }
         write_store(&store)?;
     }
-    draft = begin_final_post(&mut store, index, draft, &remote_id);
-    write_store(&store)?;
+    draft = persist_final_post_intent(&mut store, index, draft, &remote_id, write_store)?;
     match post_final(&client, &key, remote_id) {
         Ok(value) => complete_final_post(&mut store, index, draft, &value),
         Err(failure) => {
@@ -2807,11 +2865,63 @@ mod tests {
         let _ = fs::remove_file(path);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn post_commit_parent_sync_cannot_turn_a_committed_write_into_an_error() {
-        // Unsupported/inaccessible directory flushing is deliberately best-effort after the
-        // atomic commit point, so the caller never receives a false failure for visible data.
-        sync_parent_after_commit(&temp_file("missing-parent"));
+    fn parent_sync_failure_blocks_provider_and_recovers_prepared_intent() {
+        let path = temp_file("parent-sync-failure");
+        let mut store = Store::default();
+        let draft = Draft {
+            id: "durability-draft".into(),
+            remote_draft_id: Some("remote-durable".into()),
+            subject: "Durability".into(),
+            body: "Body".into(),
+            ..Draft::default()
+        };
+        store.drafts.push(draft.clone());
+        let result =
+            persist_final_post_intent(&mut store, 0, draft, "remote-durable", |prepared| {
+                let parent = path.parent().unwrap();
+                fs::create_dir_all(parent).unwrap();
+                let bytes = serde_json::to_vec_pretty(prepared).unwrap();
+                let mut file = tempfile::NamedTempFile::new_in(parent).unwrap();
+                file.write_all(&bytes).unwrap();
+                file.as_file().sync_all().unwrap();
+                let temp = file.into_temp_path();
+                replace_path_durably_with_sync(temp.as_ref(), &path, |_| {
+                    Err(std::io::Error::other("injected directory sync failure"))
+                })
+            });
+        let mut provider_called = false;
+        let submission = result.and_then(|_| {
+            provider_called = true;
+            Ok(())
+        });
+        assert!(submission.is_err());
+        assert!(!provider_called);
+        assert_eq!(read_store_from(&path).unwrap().drafts[0].state, "posting");
+        let recovered = load_recovered_store_from(&path).unwrap();
+        assert_eq!(recovered.drafts[0].state, "delivery_unknown");
+        let _ = fs::remove_file(path);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_atomic_replace_executes_with_write_through() {
+        assert_ne!(WINDOWS_DURABLE_REPLACE_FLAGS & 0x0000_0008, 0);
+        assert_ne!(WINDOWS_DURABLE_REPLACE_FLAGS & 0x0000_0001, 0);
+        let path = temp_file("windows-write-through");
+        write_store_to(&path, &Store::default()).unwrap();
+        let mut second = Store::default();
+        second.settings.default_lookback_days = 77;
+        write_store_to(&path, &second).unwrap();
+        assert_eq!(
+            read_store_from(&path)
+                .unwrap()
+                .settings
+                .default_lookback_days,
+            77
+        );
+        let _ = fs::remove_file(path);
     }
 
     fn posting_store() -> Store {
