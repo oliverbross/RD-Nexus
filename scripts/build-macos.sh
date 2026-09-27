@@ -14,6 +14,7 @@ if [[ "${1:-}" == "--debug" ]]; then
   shift
 fi
 app="$repo/src-tauri/target/$profile/bundle/macos/RD-Nexus.app"
+generated_resources="$repo/src-tauri/target/$profile/resources"
 app_hamlib="$app/Contents/Resources/resources/hamlib"
 app_neural="$app/Contents/Resources/resources/neural-dx"
 app_openham="$app/Contents/Resources/resources/openhamclock"
@@ -21,6 +22,14 @@ app_openham="$app/Contents/Resources/resources/openhamclock"
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "scripts/build-macos.sh is for macOS." >&2
   exit 1
+fi
+
+# Tauri incrementally recopies resources before assembling the app. A dependency sourced from a
+# read-only package prefix can leave its generated target copy without an owner-write bit, which
+# makes the next build fail inside `tauri-build` with EACCES. These are disposable generated
+# copies, so restore owner write access before Tauri refreshes them; source resources are untouched.
+if [[ -d "$generated_resources" ]]; then
+  chmod -R u+w "$generated_resources"
 fi
 
 cd "$repo/src-tauri"

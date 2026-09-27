@@ -60,6 +60,15 @@ test('the default release build never expands an empty array under macOS Bash no
   assert.ok(script.includes('cargo tauri build "${tauri_args[@]}" "$@"'))
 })
 
+test('incremental macOS builds repair read-only generated resource copies before Tauri runs', () => {
+  const script = read('scripts/build-macos.sh')
+  const repair = 'chmod -R u+w "$generated_resources"'
+  const build = 'cargo tauri build "${tauri_args[@]}" "$@"'
+  assert.ok(script.includes('generated_resources="$repo/src-tauri/target/$profile/resources"'))
+  assert.ok(script.includes(repair), 'build-macos.sh no longer repairs generated resource modes')
+  assert.ok(script.indexOf(repair) < script.indexOf(build), 'resource repair must run before Tauri')
+})
+
 test('the assembled-app self-test parser accepts Python json.dumps output and rejects bad payloads', () => {
   const checker = join(root, 'scripts', 'check-neural-dx-self-test.mjs')
   const run = (input) => spawnSync(process.execPath, [checker, '--version', '12.7'], {
