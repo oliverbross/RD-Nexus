@@ -104,7 +104,8 @@ try {
   }
   const sw = await fetch(`${base}/sw.js`).then((res) => res.text())
   const swPolicy = await fetch(`${base}/sw-policy.js`).then((res) => res.text())
-  if (!sw.includes('staleCacheNames') || !sw.includes('caches.delete') || !swPolicy.includes('staleCacheNames')) {
+  if (!sw.includes('staleCacheNames') || !sw.includes('caches.delete') || !sw.includes('localRef.exec(html)') ||
+      !swPolicy.includes('staleCacheNames') || !swPolicy.includes("'/vendor/'")) {
     throw new Error('service-worker upgrade path does not evict stale OpenHamClock caches')
   }
   for (const route of inventory.routes) {

@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-27T14:01:24.433Z",
+  "generatedAt": "2026-09-27T14:58:04.817Z",
   "targets": [
     {
       "target": "win-x64",
       "format": "PE32+ executable (console) x86-64, for MS Windows",
-      "size": 160270805,
-      "sha256": "69e31a6d1fd70592119eac6ab5e8cc1ba96b71bae723738e43879898ceee8195",
+      "size": 160274447,
+      "sha256": "4b39d154fbca38fa912fb0742480f110be7a83bf13720970a5f20dc24b14bfa3",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
@@ -14,8 +14,8 @@
     {
       "target": "linux-x64",
       "format": "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=ca84d2a66235a3419ee31ec0465cfeb582064b1a, for GNU/Linux 3.2.0, stripped",
-      "size": 176997489,
-      "sha256": "7c3a0dbb1fa86e7405b1f50e2f1cb80a6c764c618c235500b5e67634869fa58c",
+      "size": 177001131,
+      "sha256": "a353d440b43e724cfc051b9f1938923bd35c9a3886f1a177bd4f31ee129d9ff0",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
@@ -24,8 +24,8 @@
     {
       "target": "linux-arm64",
       "format": "ELF 64-bit LSB executable, ARM aarch64, version 1 (GNU/Linux), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, BuildID[sha1]=33d9f7d4a0e9d1f4534dd79728f4a647079672b2, for GNU/Linux 3.7.0, stripped",
-      "size": 171676457,
-      "sha256": "59d1e21ef2f2f6eea699e1b3a9bd73b01b2ae1483a43286a2a30d2072724b555",
+      "size": 171680099,
+      "sha256": "5177dbbc09518300c4e43ae29d5350cd2ff70f4785f240c7bb7be00a1ca8a712",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
@@ -34,8 +34,8 @@
     {
       "target": "macos-x64",
       "format": "Mach-O 64-bit executable x86_64",
-      "size": 166626896,
-      "sha256": "ec1c28e8fbdf3196ed254bac9a9a9784979f975bc6005fbf86b4535a7c718212",
+      "size": 166630576,
+      "sha256": "1371d6d4c612a017264d39df3452a2888a6e8e004bb4c69f49be55c220bc78ec",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "EXTERNAL",
       "runtimeEvidence": "resource format and closure inspected on macOS; execution not claimed",
@@ -44,8 +44,8 @@
     {
       "target": "macos-arm64",
       "format": "Mach-O 64-bit executable arm64",
-      "size": 163258768,
-      "sha256": "03f4b3c16e57ae4c08dba2d28690d8268eb55692724bb46418c95e5b6d733bf7",
+      "size": 163262416,
+      "sha256": "7adb09be2f572ce2d210e52018937a80fe2d2a00605943fab154262f254cbc6e",
       "packageStatus": "VERIFIED",
       "runtimeStatus": "VERIFIED",
       "runtimeEvidence": "packaged health, route, asset, persistence, collision, restart, and browser probes on the build host",

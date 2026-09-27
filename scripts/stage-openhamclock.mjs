@@ -178,6 +178,16 @@ try {
     '        process.env[key] = value.trim();',
     '        if (process.env[key] === undefined) process.env[key] = value.trim();',
   )
+  replaceOnce(
+    join(work, 'public', 'sw-policy.js'),
+    "var STATIC_ASSET_PREFIXES = ['/assets/', '/icons/', '/geo/', '/models/', '/wasm/'];",
+    "var STATIC_ASSET_PREFIXES = ['/assets/', '/vendor/', '/icons/', '/geo/', '/models/', '/wasm/'];",
+  )
+  replaceOnce(
+    join(work, 'public', 'sw.js'),
+    "var assetUrls = html.match(/\\/assets\\/[^\"'\\s>)]+/g) || [];",
+    "var assetUrls = [];\n          var localRef = /(?:src|href)=[\"'](\\/[^\"'#\\s>]+)[\"']/g;\n          var match;\n          while ((match = localRef.exec(html)) !== null) assetUrls.push(match[1]);",
+  )
   cpSync(join(integration, 'nexusBridge.js'), join(work, 'src', 'nexusBridge.js'))
   cpSync(join(integration, 'nexusLogMerge.mjs'), join(work, 'src', 'nexusLogMerge.js'))
   cpSync(join(integration, 'nexusMirrorStore.mjs'), join(work, 'src', 'nexusMirrorStore.js'))
