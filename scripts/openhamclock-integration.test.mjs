@@ -23,7 +23,8 @@ for (const invariant of [
   'process.env[key] === undefined', 'nexusBridge.js', 'mergeFromNexus',
   'nexusLogMerge.mjs', 'nexusMirrorStore.mjs', 'commitNexusDelta', 'applyNexusDelta', 'NEXUS_LEDGER_KEY', 'nexus-rig-state', 'OHC_NEXUS_PARENT_PID',
   'OHC_NEXUS_PORT_FILE', 'EADDRINUSE', '@yao-pkg', 'process.execPath',
-  'configuration',
+  'configuration', 'nexusEmbed.css', 'nexus-modern-layout', 'nexus-solar-panel',
+  'nexus-world-map',
 ]) assert.ok(stage.includes(invariant), 'staging adaptation missing: ' + invariant)
 for (const control of ['rig:setFreq', 'rig:setMode', 'rig:setPTT']) {
   assert.match(stage, new RegExp(control.replace(':', '\\:') + "[^\\n]+return;"), `embedded ${control} must return before upstream actuation`)
@@ -55,6 +56,11 @@ assert.match(read('ui/src/App.tsx'), /<HamClockView snap={snap} onSnap={setSnap}
 const bridge = read('integrations/openhamclock/nexusBridge.js')
 for (const channel of ['logbook', 'dxcluster', 'rotator', 'wsjtx', 'nexus-rig-state']) {
   assert.ok(bridge.includes(channel), 'Nexus bridge channel missing: ' + channel)
+}
+assert.match(bridge, /documentElement\.dataset\.nexusEmbed/, 'embedded dashboard must expose its bounded layout mode')
+const embedCss = read('integrations/openhamclock/nexusEmbed.css')
+for (const selector of ['nexus-modern-layout', 'nexus-solar-panel', 'nexus-world-map']) {
+  assert.ok(embedCss.includes(selector), 'embedded layout stylesheet missing: ' + selector)
 }
 assert.ok(statSync(join(root, 'third_party/openhamclock')).isDirectory())
 process.stdout.write('OpenHamClock integration pin, bundle, navigation, and bridge invariants pass (' + actual + ').\n')

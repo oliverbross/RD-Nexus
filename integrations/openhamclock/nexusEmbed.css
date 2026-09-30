@@ -1,0 +1,61 @@
+/* RD-Nexus owns the outer workspace. These rules apply only to the supervised
+   iframe (`?nexus=1`) and keep the complete OpenHamClock dashboard inside the
+   space the shell gives it without changing standalone OpenHamClock. */
+html[data-nexus-embed='true'],
+html[data-nexus-embed='true'] body,
+html[data-nexus-embed='true'] #root,
+html[data-nexus-embed='true'] #main-content {
+  inline-size: 100%;
+  block-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+html[data-nexus-embed='true'] .nexus-modern-layout {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  min-inline-size: 0;
+  min-block-size: 0;
+  transform-origin: top left !important;
+}
+
+html[data-nexus-embed='true'] .nexus-modern-layout > *,
+html[data-nexus-embed='true'] .nexus-modern-sidebar,
+html[data-nexus-embed='true'] .nexus-map-viewport,
+html[data-nexus-embed='true'] .nexus-world-map {
+  min-inline-size: 0;
+  min-block-size: 0 !important;
+}
+
+html[data-nexus-embed='true'] .nexus-modern-sidebar {
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+html[data-nexus-embed='true'] .nexus-modern-layout .nexus-solar-panel {
+  --nexus-solar-size: clamp(10.5rem, calc(var(--nexus-embed-vh, 800px) * 0.24), 18rem);
+  flex: 0 1 var(--nexus-solar-size);
+  block-size: var(--nexus-solar-size) !important;
+  min-block-size: min(10.5rem, calc(var(--nexus-embed-vh, 800px) * 0.24));
+  max-block-size: var(--nexus-solar-size);
+  overflow: hidden;
+}
+
+html[data-nexus-embed='true'] .nexus-modern-layout .nexus-solar-panel img[alt='SDO Solar Image'] {
+  inline-size: auto !important;
+  block-size: auto !important;
+  max-inline-size: min(100%, 15rem) !important;
+  max-block-size: min(100%, 15rem) !important;
+}
+
+html[data-nexus-embed='true'] .nexus-projection-switch button {
+  min-inline-size: 2.75rem;
+  min-block-size: 2.25rem;
+}
+
+@media (pointer: coarse) {
+  html[data-nexus-embed='true'] .nexus-projection-switch button {
+    min-inline-size: 3rem;
+    min-block-size: 2.75rem;
+  }
+}
