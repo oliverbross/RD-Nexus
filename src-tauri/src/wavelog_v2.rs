@@ -20,9 +20,11 @@ use std::sync::{
 };
 use std::time::Duration;
 use tempo_app::engine::{engine_lock, Engine};
-use tempo_core::logbook::{LogOp, QslRcvd, QslSent, QslVia, QsoEdit, QsoRecord, RecordId};
+use tempo_core::logbook::{LogOp, OpClass, QslRcvd, QslSent, QslVia, QsoEdit, QsoRecord, RecordId};
 
 const PAGE_SIZE: usize = 5_000;
+const CONFIRMATION_PAGE_SIZE: usize = 1_000;
+const CLUBLOG_RECEIVED_EXTRA: &str = "APP_RD_NEXUS_CLUBLOG_QSL_RCVD";
 const MAX_PAGE_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_JSON_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_REMOTE_QSOS: usize = 2_000_000;
@@ -635,6 +637,124 @@ fn fetch_qsos_filtered(
 
 fn fetch_qsos(base: &str, token: &str, station_id: &str) -> Result<Vec<RemoteQso>, String> {
     fetch_qsos_filtered(base, token, station_id, None)
+}
+
+#[derive(Debug, Clone, Default)]
+struct Confirmation {
+    received: QslRcvd,
+    clublog: bool,
+}
+
+impl Confirmation {
+    fn add_type(&mut self, label: &str) -> Result<(), String> {
+        match label {
+            "LoTW" => self.received.lotw = true,
+            "eQSL" => self.received.eqsl = true,
+            "QSL Card" => self.received.card = true,
+            "QRZ.com" => self.received.qrz = true,
+            "Clublog" => self.clublog = true,
+            _ => return Err("Wavelog returned an unknown confirmation type".into()),
+        }
+        Ok(())
+    }
+}
+
+/// The confirmation resource is independent of the QSO `since_id` cursor: a confirmation can
+/// arrive for any old QSO. Read every page on both sync modes, before making any changes.
+/// A token without confirmation:read (403), or an older server (404), can still sync QSOs.
+fn fetch_confirmations(
+    base: &str,
+    token: &str,
+    station_id: &str,
+) -> Result<BTreeMap<String, Confirmation>, String> {
+    let client = client()?;
+    let mut confirmations = BTreeMap::<String, Confirmation>::new();
+    let mut seen = HashSet::new();
+    let mut expected = None;
+    let mut page = 1usize;
+    loop {
+        cancelled()?;
+        if page > MAX_REMOTE_PAGES {
+            return Err("Wavelog confirmation pagination exceeded the safety page limit".into());
+        }
+        let response = client
+            .get(format!("{base}/confirmation"))
+            .header(AUTHORIZATION, bearer(token))
+            .header(ACCEPT, "application/json")
+            .query(&[
+                ("station_id", station_id.to_string()),
+                ("page", page.to_string()),
+                ("per_page", CONFIRMATION_PAGE_SIZE.to_string()),
+            ])
+            .send()
+            .map_err(|_| "could not reach Wavelog confirmations".to_string())?;
+        if page == 1 && matches!(response.status().as_u16(), 403 | 404) {
+            tempo_core::applog::warn("wavelog", &format!("Confirmations unavailable (HTTP {}); confirmation:read or a supporting server is required", response.status().as_u16()));
+            return Ok(confirmations);
+        }
+        let body = limited_json(checked(response)?, MAX_PAGE_BYTES, "confirmation page")?;
+        let meta: PaginationMeta = serde_json::from_value(
+            body.get("meta")
+                .cloned()
+                .ok_or_else(|| "Wavelog omitted confirmation pagination metadata".to_string())?,
+        )
+        .map_err(|_| "Wavelog returned incomplete confirmation pagination metadata".to_string())?;
+        let rows = body
+            .get("data")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "Wavelog returned an invalid confirmation list".to_string())?;
+        if meta.page != page
+            || meta.count != rows.len()
+            || meta.per_page == 0
+            || meta.per_page > CONFIRMATION_PAGE_SIZE
+            || rows.len() > meta.per_page
+            || meta.total > MAX_REMOTE_QSOS * 5
+            || expected.is_some_and(|proof| proof != (meta.total, meta.total_pages, meta.per_page))
+            || (meta.total == 0 && !matches!(meta.total_pages, 0 | 1))
+            || (meta.total > 0 && meta.total_pages != meta.total.div_ceil(meta.per_page))
+            || meta.has_more != (page < meta.total_pages)
+            || (meta.has_more && rows.len() != meta.per_page)
+        {
+            return Err(
+                "Wavelog returned inconsistent confirmation pagination; no changes were applied"
+                    .into(),
+            );
+        }
+        expected = Some((meta.total, meta.total_pages, meta.per_page));
+        for row in rows {
+            cancelled()?;
+            let obj = row
+                .as_object()
+                .ok_or_else(|| "Wavelog returned a non-object confirmation row".to_string())?;
+            let id = text_field(obj, &["qso_id"])
+                .filter(|id| remote_numeric_id(id).is_some_and(|id| id > 0))
+                .ok_or_else(|| "Wavelog confirmation omitted a usable QSO id".to_string())?;
+            let label = text_field(obj, &["type"])
+                .ok_or_else(|| "Wavelog confirmation omitted its type".to_string())?;
+            if !seen.insert((id.clone(), label.clone())) {
+                return Err(
+                    "Wavelog repeated a confirmation during pagination; no changes were applied"
+                        .into(),
+                );
+            }
+            confirmations.entry(id).or_default().add_type(&label)?;
+        }
+        if seen.len() > meta.total {
+            return Err(
+                "Wavelog returned more confirmations than its pagination proof allows".into(),
+            );
+        }
+        if !meta.has_more {
+            if seen.len() != meta.total {
+                return Err(
+                    "Wavelog returned a truncated confirmation list; no changes were applied"
+                        .into(),
+                );
+            }
+            return Ok(confirmations);
+        }
+        page += 1;
+    }
 }
 
 fn fetch_qsos_since(
@@ -1711,6 +1831,71 @@ fn apply_remote(
     Err("the local QSO changed too many times while Wavelog was updating it".into())
 }
 
+fn merge_confirmation(row: &mut QsoRecord, confirmation: &Confirmation) -> bool {
+    let before = row.qsl_rcvd;
+    row.qsl_rcvd.merge(confirmation.received);
+    row.confirmed = row.qsl_rcvd.any();
+    row.award_confirmed = row.qsl_rcvd.award();
+    // Clublog has no native QslRcvd channel. Preserve its evidence in the durable ADIF extras,
+    // without classifying it as paper/LoTW, a QRZ confirmation, or award-eligible evidence.
+    let clublog_new = confirmation.clublog
+        && !row
+            .extra
+            .iter()
+            .any(|(name, value)| name.eq_ignore_ascii_case(CLUBLOG_RECEIVED_EXTRA) && value == "Y");
+    if clublog_new {
+        set_record_extra(&mut row.extra, CLUBLOG_RECEIVED_EXTRA, Some(&"Y".into()));
+    }
+    row.qsl_rcvd != before || clublog_new
+}
+
+fn apply_confirmations(
+    engine: &Mutex<Engine>,
+    state: &SyncState,
+    confirmations: &BTreeMap<String, Confirmation>,
+) -> Result<usize, String> {
+    let local = collect_local(engine)?;
+    let mut updates = 0;
+    for (remote_id, confirmation) in confirmations {
+        cancelled()?;
+        let Some(row) = state
+            .bindings
+            .get(remote_id)
+            .and_then(|binding| local.get(&binding.local_id))
+        else {
+            // Never match confirmation callsigns or timestamps, create rows, or treat absence as
+            // deletion. Only the QSO reconciliation owns binding/import/delete decisions.
+            continue;
+        };
+        let Some(id) = row.id else { continue };
+        // An ordinary Edit intentionally keeps the old derived QSL flags. This is a provider
+        // confirmation upgrade, planned on the latest stored row and committed by the same
+        // authority as other logbook changes, with the lock released while awaiting durability.
+        let (result, durability) = tempo_app::logwrite::change_row(
+            engine,
+            id,
+            "wavelog confirmations",
+            |_, stored| {
+                let mut row = stored.as_ref().clone();
+                Ok(merge_confirmation(&mut row, confirmation)
+                    .then_some((OpClass::Upgrade, Some(row))))
+            },
+            |_, _| (),
+        );
+        match result.map_err(|error| error.to_string())? {
+            Ok(Some(())) => {
+                durability
+                    .wait(tempo_app::logstore::DURABLE_WAIT)
+                    .map_err(|error| error.to_string())?;
+                updates += 1;
+            }
+            Ok(None) | Err(tempo_app::station::RowRefusal::Gone) => {}
+            Err(_) => return Err("the local QSO kept changing while Wavelog confirmed it".into()),
+        }
+    }
+    Ok(updates)
+}
+
 fn append_remote_adif(remote: &CommonQso, adif: &mut String) {
     fn tag(name: &str, value: &str, out: &mut String) {
         out.push_str(&format!("<{name}:{}>{value}", value.len()));
@@ -1874,6 +2059,7 @@ pub fn sync_incremental(
     state.full_sync_interval_seconds = full_sync_interval_seconds.max(INCREMENTAL_INTERVAL_SECONDS);
     let since_id = derive_remote_high_water(&state);
     let remote = fetch_qsos_since(&base, token, station_id, since_id)?;
+    let confirmations = fetch_confirmations(&base, token, station_id)?;
     let fetched_high_water = remote
         .iter()
         .filter_map(|row| remote_numeric_id(&row.id))
@@ -2063,6 +2249,7 @@ pub fn sync_incremental(
         report.uploaded += usize::from(created);
     }
 
+    report.local_updates += apply_confirmations(engine, &state, &confirmations)?;
     report.local_total = local.len();
     report.remote_total = report
         .remote_total
@@ -2113,6 +2300,7 @@ pub fn sync(
     let (state_path, mut state) = load_scoped_state(state_path, &base, station_id)?;
     reject_delivery_unknown_creates(&state)?;
     let remote = fetch_qsos(&base, token, station_id)?;
+    let confirmations = fetch_confirmations(&base, token, station_id)?;
     state.full_sync_interval_seconds = full_sync_interval_seconds.max(INCREMENTAL_INTERVAL_SECONDS);
     let fetched_high_water = remote
         .iter()
@@ -2362,6 +2550,7 @@ pub fn sync(
             create_with_journal(&base, token, station_id, &state_path, &mut state, id, &qso)?;
         report.uploaded += usize::from(created);
     }
+    report.local_updates += apply_confirmations(engine, &state, &confirmations)?;
     report.local_total = local.len();
     report.remote_total = report
         .remote_total
@@ -2438,6 +2627,303 @@ mod tests {
                 return String::from_utf8_lossy(&bytes).into_owned();
             }
         }
+    }
+
+    fn confirmation_page(page: usize, total: usize, rows: Value) -> Value {
+        json!({"data": rows, "meta": {"page": page, "per_page": 2,
+            "count": rows.as_array().unwrap().len(), "total": total,
+            "total_pages": total.div_ceil(2), "has_more": page < total.div_ceil(2)}})
+    }
+
+    fn confirmation_server(responses: Vec<(u16, Value)>) -> (String, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/index.php/api/v2", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            for (index, (status, body)) in responses.into_iter().enumerate() {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                assert!(request.starts_with("GET /index.php/api/v2/confirmation?"));
+                assert!(request.contains("station_id=7"));
+                assert!(request.contains("per_page=1000"));
+                assert!(request.contains(&format!("&page={}&", index + 1)));
+                assert!(!request.contains("since_id="));
+                let body = body.to_string();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        (base, server)
+    }
+
+    #[test]
+    fn confirmation_pages_map_all_sources_by_qso_id() {
+        let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
+        SYNC_CANCEL.store(false, Ordering::Release);
+        let (base, server) = confirmation_server(vec![
+            (
+                200,
+                confirmation_page(
+                    1,
+                    5,
+                    json!([
+                {"qso_id": 42, "type": "LoTW"}, {"qso_id": 42, "type": "eQSL"}]),
+                ),
+            ),
+            (
+                200,
+                confirmation_page(
+                    2,
+                    5,
+                    json!([
+                {"qso_id": 42, "type": "QSL Card"}, {"qso_id": 42, "type": "QRZ.com"}]),
+                ),
+            ),
+            (
+                200,
+                confirmation_page(3, 5, json!([{"qso_id": 43, "type": "Clublog"}])),
+            ),
+        ]);
+        let confirmations = fetch_confirmations(&base, "wl2_test", "7").unwrap();
+        server.join().unwrap();
+        let qsl = confirmations["42"].received;
+        assert!(qsl.card && qsl.lotw && qsl.eqsl && qsl.qrz);
+        assert!(!confirmations["42"].clublog);
+        assert!(confirmations["43"].clublog);
+        assert!(!confirmations["43"].received.any());
+    }
+
+    #[test]
+    fn confirmations_optional_scope_and_old_server_preserve_qso_compatibility() {
+        let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
+        SYNC_CANCEL.store(false, Ordering::Release);
+        for status in [403, 404] {
+            let (base, server) = confirmation_server(vec![(status, json!({}))]);
+            assert!(fetch_confirmations(&base, "wl2_test", "7")
+                .unwrap()
+                .is_empty());
+            server.join().unwrap();
+        }
+        for status in [401, 429, 500] {
+            let (base, server) = confirmation_server(vec![(status, json!({}))]);
+            assert!(fetch_confirmations(&base, "wl2_test", "7").is_err());
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn malformed_partial_or_repeated_confirmation_pages_fail_before_apply() {
+        let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
+        SYNC_CANCEL.store(false, Ordering::Release);
+        let first = confirmation_page(
+            1,
+            3,
+            json!([
+            {"qso_id": 42, "type": "LoTW"}, {"qso_id": 42, "type": "eQSL"}]),
+        );
+        for last in [
+            confirmation_page(2, 3, json!([{"qso_id": 42, "type": "LoTW"}])),
+            confirmation_page(2, 3, json!([])),
+            confirmation_page(2, 4, json!([{"qso_id": 43, "type": "LoTW"}])),
+            confirmation_page(2, 3, json!([{"type": "LoTW"}])),
+        ] {
+            let (base, server) = confirmation_server(vec![(200, first.clone()), (200, last)]);
+            assert!(fetch_confirmations(&base, "wl2_test", "7").is_err());
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn bound_confirmations_are_additive_durable_and_idempotent() {
+        let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
+        SYNC_CANCEL.store(false, Ordering::Release);
+        let dir = test_state_path("confirmation-store").with_extension("dir");
+        fs::create_dir_all(&dir).unwrap();
+        let log_path = dir.join("log.adi");
+        let mut engine = Engine::new("N0CALL", "AA00", 0);
+        engine.set_log_path(log_path.clone());
+        engine.import_adif("<CALL:5>K1ABC<BAND:3>20M<MODE:3>FT8<QSO_DATE:8>20260928<TIME_ON:6>001500<COMMENT:4>keep<QSL_RCVD:1>Y<EOR><CALL:5>K1ABC<BAND:3>20M<MODE:3>FT8<QSO_DATE:8>20260928<TIME_ON:6>001600<EOR>");
+        engine.flush_log_store(Duration::from_secs(60)).unwrap();
+        let engine = Mutex::new(engine);
+        let local = collect_local(&engine).unwrap();
+        assert_eq!(local.len(), 2);
+        let (id, row) = local
+            .iter()
+            .find(|(_, row)| row.comment.as_deref() == Some("keep"))
+            .unwrap();
+        let mut state = SyncState::fresh("https://log.example/index.php/api/v2", "7");
+        state.bindings.insert(
+            "42".into(),
+            Binding {
+                local_id: id.clone(),
+                last_local: local_common(row),
+                last_remote: local_common(row),
+            },
+        );
+        let mut incoming = Confirmation::default();
+        for label in ["LoTW", "eQSL", "QRZ.com", "Clublog"] {
+            incoming.add_type(label).unwrap();
+        }
+        let confirmations =
+            BTreeMap::from([("42".into(), incoming.clone()), ("99".into(), incoming)]);
+        assert_eq!(
+            apply_confirmations(&engine, &state, &confirmations).unwrap(),
+            1
+        );
+        assert_eq!(
+            apply_confirmations(&engine, &state, &confirmations).unwrap(),
+            0
+        );
+        assert_eq!(
+            apply_confirmations(&engine, &state, &BTreeMap::new()).unwrap(),
+            0
+        );
+        let after = collect_local(&engine).unwrap();
+        assert_eq!(after.len(), 2);
+        let updated = &after[id];
+        assert!(
+            updated.qsl_rcvd.card
+                && updated.qsl_rcvd.lotw
+                && updated.qsl_rcvd.eqsl
+                && updated.qsl_rcvd.qrz
+        );
+        assert_eq!(updated.comment.as_deref(), Some("keep"));
+        assert!(patch_equivalent(
+            &local_common(updated),
+            &state.bindings["42"].last_local
+        ));
+        assert!(after
+            .iter()
+            .filter(|(other, _)| *other != id)
+            .all(|(_, row)| !row.qsl_rcvd.any()));
+        drop(engine);
+        let mut reopened = Engine::new("N0CALL", "AA00", 0);
+        reopened.set_log_path(log_path);
+        let reopened = Mutex::new(reopened);
+        let durable = collect_local(&reopened).unwrap();
+        assert_eq!(durable[id].qsl_rcvd, updated.qsl_rcvd);
+        assert!(durable[id]
+            .extra
+            .iter()
+            .any(|(name, value)| name == CLUBLOG_RECEIVED_EXTRA && value == "Y"));
+        assert_eq!(
+            apply_confirmations(&reopened, &state, &confirmations).unwrap(),
+            0
+        );
+        drop(reopened);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clublog_evidence_does_not_claim_native_or_award_confirmation() {
+        let mut row =
+            tempo_core::logbook::parse_adif("<CALL:5>K1ABC<BAND:3>20M<MODE:2>CW<EOR>").remove(0);
+        let mut confirmation = Confirmation::default();
+        confirmation.add_type("Clublog").unwrap();
+        assert!(merge_confirmation(&mut row, &confirmation));
+        assert!(!row.qsl_rcvd.any() && !row.confirmed && !row.award_confirmed);
+        assert!(!merge_confirmation(&mut row, &confirmation));
+    }
+
+    #[test]
+    fn full_and_incremental_sync_receive_confirmations_for_existing_qsos() {
+        let _serial = SERIAL_SYNC_TESTS.lock().unwrap();
+        let dir = test_state_path("confirmation-sync").with_extension("dir");
+        fs::create_dir_all(&dir).unwrap();
+        let mut engine = Engine::new("N0CALL", "AA00", 0);
+        engine.set_log_path(dir.join("log.adi"));
+        engine.import_adif(
+            "<CALL:5>K1ABC<BAND:3>20M<MODE:3>FT8<QSO_DATE:8>20260928<TIME_ON:6>001500<EOR>",
+        );
+        engine.flush_log_store(Duration::from_secs(60)).unwrap();
+        let engine = Mutex::new(engine);
+        let local = collect_local(&engine).unwrap();
+        let (id, row) = local.iter().next().unwrap();
+        let qso = local_common(row);
+        let mut provider = create_qso_json(&qso, "7");
+        provider["id"] = json!(42);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let endpoint = api_base(&url).unwrap();
+        let legacy_path = dir.join("sync.json");
+        let state_path = scoped_state_path(&legacy_path, &endpoint, "7");
+        let mut state = SyncState::fresh(&endpoint, "7");
+        state.last_remote_id = 42;
+        state.last_remote_total = 1;
+        state.bindings.insert(
+            "42".into(),
+            Binding {
+                local_id: id.clone(),
+                last_local: qso.clone(),
+                last_remote: qso,
+            },
+        );
+        save_state(&state_path, &state).unwrap();
+        let server = std::thread::spawn(move || {
+            for run in 0..4 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                assert!(request.starts_with("GET /index.php/api/v2/qso?"));
+                assert_eq!(request.contains("since_id=42"), run > 0);
+                let rows = if run == 0 {
+                    json!([provider.clone()])
+                } else {
+                    json!([])
+                };
+                let total = rows.as_array().unwrap().len();
+                let body = json!({"data": rows, "meta": {"page": 1, "per_page": 5000,
+                    "count": total, "total": total, "total_pages": total, "has_more": false}})
+                .to_string();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                assert!(request.starts_with("GET /index.php/api/v2/confirmation?"));
+                let (status, body) = match run {
+                    0 => (
+                        200,
+                        confirmation_page(1, 1, json!([{"qso_id": 42, "type": "eQSL"}])),
+                    ),
+                    1 => (
+                        200,
+                        confirmation_page(1, 1, json!([{"qso_id": 42, "type": "LoTW"}])),
+                    ),
+                    2 => (403, json!({"error": "insufficient_scope"})),
+                    _ => (200, json!({"data": [], "meta": {"page": 1}})),
+                };
+                let body = body.to_string();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        let full = sync(&engine, &url, "wl2_test", "7", &legacy_path, 86400).unwrap();
+        assert_eq!(
+            (
+                full.local_updates,
+                full.remote_updates,
+                full.local_deletes,
+                full.remote_deletes
+            ),
+            (1, 0, 0, 0)
+        );
+        let incremental =
+            sync_incremental(&engine, &url, "wl2_test", "7", &legacy_path, 86400).unwrap();
+        assert_eq!(
+            (
+                incremental.local_updates,
+                incremental.remote_updates,
+                incremental.downloaded
+            ),
+            (1, 0, 0)
+        );
+        let without_scope =
+            sync_incremental(&engine, &url, "wl2_test", "7", &legacy_path, 86400).unwrap();
+        assert_eq!(without_scope.local_updates, 0);
+        let before = fs::read(&state_path).unwrap();
+        assert!(sync_incremental(&engine, &url, "wl2_test", "7", &legacy_path, 86400).is_err());
+        assert_eq!(fs::read(&state_path).unwrap(), before);
+        server.join().unwrap();
+        let local = collect_local(&engine).unwrap();
+        assert_eq!(local.len(), 1);
+        assert!(local[id].qsl_rcvd.eqsl && local[id].qsl_rcvd.lotw);
+        drop(engine);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
