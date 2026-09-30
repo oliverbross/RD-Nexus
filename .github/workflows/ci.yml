@@ -63,6 +63,7 @@ jobs:
       - name: Verify integration and license invariants
         run: |
           node scripts/openhamclock-integration.test.mjs
+          node scripts/test-openhamclock-embed-layout.mjs
           node scripts/test-openhamclock-log-binding.mjs
           node scripts/test-openhamclock-bridge-contract.mjs
           node scripts/test-openhamclock-mirror-transaction.mjs

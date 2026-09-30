@@ -190,10 +190,56 @@ try {
   cpSync(join(integration, 'nexusBridge.js'), join(work, 'src', 'nexusBridge.js'))
   cpSync(join(integration, 'nexusLogMerge.mjs'), join(work, 'src', 'nexusLogMerge.js'))
   cpSync(join(integration, 'nexusMirrorStore.mjs'), join(work, 'src', 'nexusMirrorStore.js'))
+  cpSync(join(integration, 'nexusEmbed.css'), join(work, 'src', 'styles', 'nexusEmbed.css'))
+  replaceOnce(
+    join(work, 'src', 'main.jsx'),
+    "import './styles/main.css';\n",
+    "import './styles/main.css';\nimport './styles/nexusEmbed.css';\n",
+  )
   replaceOnce(
     join(work, 'src', 'main.jsx'),
     "import { setupServiceWorker } from './pwa/registerServiceWorker';\n",
     "import { setupServiceWorker } from './pwa/registerServiceWorker';\nimport './nexusBridge.js';\n",
+  )
+  replaceOnce(
+    join(work, 'src', 'layouts', 'ModernLayout.jsx'),
+    "  const mapComponent = (style) => (\n    <div style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', ...style }}>",
+    "  const mapComponent = (style) => (\n    <div className=\"nexus-map-viewport\" style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', ...style }}>",
+  )
+  replaceOnce(
+    join(work, 'src', 'layouts', 'ModernLayout.jsx'),
+    "    <div\n      style={{\n        width: scale < 1 ? `${100 / scale}vw` : '100vw',",
+    "    <div\n      className=\"nexus-modern-layout\"\n      style={{\n        width: scale < 1 ? `${100 / scale}vw` : '100vw',",
+  )
+  replaceOnce(
+    join(work, 'src', 'layouts', 'ModernLayout.jsx'),
+    "        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', overflowX: 'hidden' }}>",
+    "        <div className=\"nexus-modern-sidebar\" style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', overflowX: 'hidden' }}>",
+  )
+  replaceOnce(
+    join(work, 'src', 'layouts', 'ModernLayout.jsx'),
+    "        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>",
+    "        <div className=\"nexus-modern-sidebar\" style={{ display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>",
+  )
+  replaceOnce(
+    join(work, 'src', 'components', 'SolarPanel.jsx'),
+    '      className="panel"\n      style={{',
+    '      className="panel nexus-solar-panel"\n      style={{',
+  )
+  replaceOnce(
+    join(work, 'src', 'components', 'WorldMap.jsx'),
+    "    <div style={{ position: 'relative', height: '100%', minHeight: '200px' }}>",
+    "    <div className=\"nexus-world-map\" style={{ position: 'relative', height: '100%', minHeight: '200px' }}>",
+  )
+  replaceOnce(
+    join(work, 'src', 'components', 'WorldMap.jsx'),
+    "          <div\n            style={{\n              display: projectionOverride ? 'none' : 'flex',",
+    "          <div\n            className=\"nexus-projection-switch\"\n            style={{\n              display: projectionOverride ? 'none' : 'flex',",
+  )
+  replaceOnce(
+    join(work, 'src', 'components', 'WorldMap.jsx'),
+    "                key={key}\n                onClick={() => {",
+    "                key={key}\n                type=\"button\"\n                data-projection={key}\n                aria-pressed={mapProjection === key}\n                onClick={() => {",
   )
   replaceOnce(
     join(work, 'src', 'services', 'logbookStore.js'),

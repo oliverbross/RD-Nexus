@@ -3,6 +3,22 @@ import * as logbookStore from './services/logbookStore.js';
 const embedded = window.self !== window.top && new URLSearchParams(window.location.search).get('nexus') === '1';
 window.__NEXUS_EMBEDDED__ = embedded;
 
+if (embedded) {
+  document.documentElement.dataset.nexusEmbed = 'true';
+  let resizeFrame = 0;
+  const publishViewport = () => {
+    resizeFrame = 0;
+    document.documentElement.style.setProperty('--nexus-embed-vh', `${window.innerHeight}px`);
+    document.documentElement.style.setProperty('--nexus-embed-vw', `${window.innerWidth}px`);
+  };
+  const queueViewport = () => {
+    if (resizeFrame) cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(publishViewport);
+  };
+  publishViewport();
+  window.addEventListener('resize', queueViewport, { passive: true });
+}
+
 let clusterSpots = [];
 let station = { callsign: '', grid: '' };
 let rotator = { azimuth: null, live: false };
