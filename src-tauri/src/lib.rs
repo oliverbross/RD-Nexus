@@ -6317,7 +6317,7 @@ async fn get_propagation(
     wx_history: State<'_, SharedWxHistory>,
     tallies: State<'_, LogTallies>,
 ) -> Result<propagation::PropagationSnapshot, String> {
-    let (mycall, mygrid, local_spots) = with_engine(&state, |eng| {
+    let (mycall, mygrid, local_spots, cluster_active, rbn_active) = with_engine(&state, |eng| {
         let s = eng.settings();
         let (mycall, mygrid) = (s.mycall.clone(), s.mygrid.clone());
         // The operator's OWN decoded roster on the current band → "I heard X"
@@ -6341,7 +6341,13 @@ async fn get_propagation(
                 );
             }
         }
-        (mycall, mygrid, local_spots)
+        (
+            mycall,
+            mygrid,
+            local_spots,
+            s.cluster_active(),
+            s.rbn_active(),
+        )
     })
     .await?;
 
@@ -6500,7 +6506,10 @@ async fn get_propagation(
             std::time::Instant::now(),
             std::time::Duration::from_secs(cfg.base_w as u64),
         );
-        for cs in cluster {
+        for cs in cluster
+            .into_iter()
+            .filter(|spot| cluster_spot_source_active(spot, cluster_active, rbn_active))
+        {
             if let Some(band) = propagation::model::Band::from_mhz(cs.freq_mhz()) {
                 let rx_grid = propagation::skimmer_grid(&cs.spotter).map(str::to_string);
                 // VHF locality gate (weak-signal-sleuth principle): on 6m/4m/2m a
@@ -18445,6 +18454,25 @@ fn get_all_spots(spots: State<'_, SharedSpots>, state: State<'_, SharedEngine>) 
     read_all_spots(&spots, &state, false).unwrap_or_default()
 }
 
+/// Whether a buffered cluster-family row still belongs to a source the operator has enabled.
+///
+/// Disabling a feed stops its socket immediately, but the shared buffer deliberately retains
+/// recent rows for up to twenty minutes. Every reader therefore needs this read-side gate too:
+/// a saved source preference must change the visible boards on the next poll, not after the
+/// retention window expires. The feed stamps `rbn` at admission, so classification never depends
+/// on a callsign suffix or a free-text comment.
+fn cluster_spot_source_active(
+    spot: &tempo_net::cluster::ClusterSpot,
+    cluster_active: bool,
+    rbn_active: bool,
+) -> bool {
+    if spot.rbn {
+        rbn_active
+    } else {
+        cluster_active
+    }
+}
+
 /// #174: where the voices for one spot are — `(continent codes, DXCC entities)` of the spotter
 /// and then each corroborator, each list de-duplicated in first-seen order. A voice that does
 /// not resolve adds nothing. Uses `spotter_origin`, the resolver behind `spotter_local`, so the
@@ -18502,7 +18530,7 @@ fn read_all_spots(
     //
     // Poison recovers (engine_lock), so the gate always sees real state; the Option
     // shape is kept for the chains below.
-    let (class, my_call, roster_grids, last_worked) = {
+    let (class, my_call, roster_grids, last_worked, cluster_active, rbn_active) = {
         let eng = Some(if nonblocking {
             engine_try_lock(state).map_err(|_| "applicationBusy")?
         } else {
@@ -18545,10 +18573,18 @@ fn read_all_spots(
                     .collect()
             })
             .unwrap_or_default();
-        (class, my_call, grids, last_worked)
+        (
+            class,
+            my_call,
+            grids,
+            last_worked,
+            eng.as_ref().is_some_and(|e| e.settings().cluster_active()),
+            eng.as_ref().is_some_and(|e| e.settings().rbn_active()),
+        )
     };
     let mut rows: Vec<SpotRow> = recent
         .into_iter()
+        .filter(|spot| cluster_spot_source_active(spot, cluster_active, rbn_active))
         .map(|cs| {
             let freq = cs.freq_mhz();
             let band = propagation::Band::from_mhz(freq)
@@ -18950,6 +18986,8 @@ fn read_need_alerts(
     // License class for the privilege gate below — a station on a frequency the operator may not
     // transmit to is not a "need". Open (non-US) short-circuits tx_allowed to true, so no gate.
     let license_class = eng.settings().license_class;
+    let cluster_active = eng.settings().cluster_active();
+    let rbn_active = eng.settings().rbn_active();
     drop(eng); // nothing below needs the engine — don't hold the hot lock
     let needs = needs_finish(needs, needs_kept)?;
     let hunted = log_folds::hunted_today(&hunted_rows, now_unix())?;
@@ -19037,11 +19075,16 @@ fn read_need_alerts(
     // ARRL name first. Ingestion is already gated at the feed callbacks, so this is the
     // read-side guarantee (see `get_all_spots`).
     if let Some(buf) = spots.lock().ok().filter(|_| !unassisted()) {
+        let recent = buf.recent_within(
+            std::time::Instant::now(),
+            std::time::Duration::from_secs(900),
+        );
+        let recent: Vec<_> = recent
+            .into_iter()
+            .filter(|spot| cluster_spot_source_active(spot, cluster_active, rbn_active))
+            .collect();
         heard.extend(cluster_spot_heards(
-            &buf.recent_within(
-                std::time::Instant::now(),
-                std::time::Duration::from_secs(900),
-            ),
+            &recent,
             me_ll,
             &snap.mycall,
             license_class,
@@ -39137,6 +39180,51 @@ mod tests {
         let k1abc = rows.iter().find(|r| r.call == "K1ABC").expect("K1ABC row");
         assert_eq!(k1abc.worked_ago_secs, None, "control: never worked");
         assert!(!k1abc.worked_today_utc);
+    }
+
+    #[test]
+    fn saved_spot_source_switches_gate_buffered_rows_on_the_next_read() {
+        use tempo_net::cluster::{ClusterSpot, SpotBuffer};
+
+        let make = |call: &str, rbn: bool| ClusterSpot {
+            spotter: if rbn { "W3LPL-#" } else { "K1ABC" }.into(),
+            dx_call: call.into(),
+            freq_khz: if rbn { 14_025.0 } else { 14_195.0 },
+            comment: if rbn { "CW 18 dB 28 WPM" } else { "CQ DX" }.into(),
+            time_utc: None,
+            received_unix: 0,
+            corroborators: Vec::new(),
+            rbn,
+        };
+
+        for (cluster_enabled, rbn_enabled, expected) in [
+            (false, false, Vec::<&str>::new()),
+            (true, false, vec!["K1HUMAN"]),
+            (false, true, vec!["DL1RBN"]),
+            (true, true, vec!["DL1RBN", "K1HUMAN"]),
+        ] {
+            let mut settings = tempo_app::settings::Settings::default();
+            settings.cluster_enabled = cluster_enabled;
+            settings.rbn_enabled = rbn_enabled;
+            let engine: SharedEngine = std::sync::Arc::new(std::sync::Mutex::new(
+                tempo_app::engine::Engine::with_settings(settings),
+            ));
+            let mut buffer = SpotBuffer::new(10);
+            buffer.push(make("K1HUMAN", false));
+            buffer.push(make("DL1RBN", true));
+            let spots: crate::SharedSpots = std::sync::Arc::new(std::sync::Mutex::new(buffer));
+
+            let mut calls: Vec<_> = crate::read_all_spots(&spots, &engine, false)
+                .expect("spot rows")
+                .into_iter()
+                .map(|row| row.call)
+                .collect();
+            calls.sort();
+            assert_eq!(
+                calls, expected,
+                "cluster={cluster_enabled} rbn={rbn_enabled}"
+            );
+        }
     }
 
     /// #184 (akhepcat): "just because I'm not licensed to transmit in the US, there are no

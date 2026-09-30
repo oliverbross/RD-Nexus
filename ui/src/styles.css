@@ -25999,9 +25999,12 @@ tr.sel .aprs-sym {
 /* Neural DX is a full view with one scroll owner. Its bridges deliberately route to the
    existing native authorities instead of mounting duplicate collectors in this surface. */
 .neural-dx-view {
+  flex: 1;
+  width: 100%;
   min-width: 0;
   min-height: 0;
   height: 100%;
+  box-sizing: border-box;
   overflow: auto;
   padding: 1rem;
   display: grid;
@@ -26091,8 +26094,8 @@ tr.sel .aprs-sym {
 .neural-dx-bridge > svg { color: var(--accent); }
 .neural-dx-bridge h2 { margin: 0 0 .35rem; }
 .neural-dx-bridge p { margin: 0; max-width: 70ch; color: var(--text-dim); }
-.neural-dx-watcher { min-width: 0; min-height: min(42rem, calc(var(--vh-eff) - 15rem)); overflow: hidden; padding: 0; }
-.neural-dx-watcher iframe { display: block; width: 100%; height: min(62rem, calc(var(--vh-eff) - 13rem)); min-height: 34rem; border: 0; background: #071014; }
+.neural-dx-watcher { min-width: 0; min-height: max(34rem, calc(var(--vh-eff) - 14rem)); overflow: hidden; padding: 0; }
+.neural-dx-watcher iframe { display: block; width: 100%; height: max(34rem, calc(var(--vh-eff) - 14rem)); border: 0; background: #071014; }
 .neural-dx-watcher > div { min-height: 24rem; display: grid; place-content: center; justify-items: center; gap: .7rem; padding: 2rem; text-align: center; }
 .neural-dx-watcher > div svg { color: var(--accent); }
 .neural-dx-watcher > div h2, .neural-dx-watcher > div p { margin: 0; }

@@ -2,6 +2,8 @@
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { NeuralDxAction } from '../api'
 
 const api = vi.hoisted(() => ({
@@ -96,6 +98,22 @@ describe('NeuralDxView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Satellites' }))
     fireEvent.click(screen.getByRole('button', { name: 'Open satellite console' }))
     expect(navigate).toHaveBeenCalledWith('sats')
+  })
+
+  it('fills the app shell and lets the watcher use tall-window space', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const rule = (selector: string) => {
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return css.match(new RegExp(`${escaped}\\s*\\{([^}]+)\\}`))?.[1] ?? ''
+    }
+
+    expect(rule('.neural-dx-view')).toMatch(/flex\s*:\s*1\s*;/)
+    expect(rule('.neural-dx-view')).toMatch(/width\s*:\s*100%\s*;/)
+    expect(rule('.neural-dx-view')).toMatch(/box-sizing\s*:\s*border-box\s*;/)
+    expect(rule('.neural-dx-watcher iframe')).toMatch(
+      /height\s*:\s*max\(34rem,\s*calc\(var\(--vh-eff\)\s*-\s*14rem\)\)\s*;/,
+    )
+    expect(rule('.neural-dx-watcher iframe')).not.toContain('62rem')
   })
 
   it('sends only spots and lets native code supply station and log truth', async () => {
