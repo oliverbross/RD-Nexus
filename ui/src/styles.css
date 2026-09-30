@@ -4493,12 +4493,12 @@ body.resizing {
 [data-viewport='xl'] .layout.single > .panel.fieldday {
   max-width: 1600px;
 }
-/* Groups.io is a three-pane data workspace. Giving it the prose measure leaves the message pane
-   cramped and a wide monitor mostly blank; use the same bounded data-surface width as Logbook. */
+/* Groups.io is a three-pane data workspace. Let its pane grid use the shell width so messages,
+   search and the settings entry point remain part of the same native workspace at every desktop size. */
 [data-viewport='md'] .layout.single > .panel.groupsio-view,
 [data-viewport='lg'] .layout.single > .panel.groupsio-view,
 [data-viewport='xl'] .layout.single > .panel.groupsio-view {
-  max-width: 1600px;
+  max-width: none;
 }
 /* SETTINGS IS NOT PROSE-SHAPED, and calling it that cost it half the window.
    (Operator, 2026-08-12: "make the settings full screen. It's small and in the middle.

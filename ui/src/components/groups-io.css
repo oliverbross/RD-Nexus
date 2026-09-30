@@ -155,10 +155,16 @@
   border-radius: var(--radius-sm);
   background: var(--bg-elev);
 }
-.groupsio-account .settings-input-row { max-width: 68rem; align-items: stretch; }
+.groupsio-account .settings-input-row {
+  display: grid;
+  grid-template-columns: minmax(22rem, 1fr) auto auto;
+  width: 100%;
+  max-width: none;
+  align-items: stretch;
+}
 .groupsio-api-key {
-  flex: 1 1 30rem;
-  min-width: min(30rem, 100%);
+  width: 100%;
+  min-width: 0;
   font-family: var(--font-mono);
   letter-spacing: .02em;
 }
@@ -179,8 +185,8 @@
 :is([data-viewport='xs'], [data-viewport='sm']) .groupsio-pane { min-height: 12rem; border-right: 0; border-bottom: 1px solid var(--border); }
 :is([data-viewport='xs'], [data-viewport='sm']) .groupsio-pane.messages { min-height: 20rem; border-bottom: 0; }
 :is([data-viewport='xs'], [data-viewport='sm']) .groupsio-settings-overrides article { grid-template-columns: 1fr 1fr; }
-:is([data-viewport='xs'], [data-viewport='sm']) .groupsio-account .settings-input-row { flex-wrap: wrap; }
-:is([data-viewport='xs'], [data-viewport='sm']) .groupsio-api-key { flex-basis: 100%; min-width: 0; }
+:is([data-viewport='xs'], [data-viewport='sm']) .groupsio-account .settings-input-row { grid-template-columns: minmax(0, 1fr) auto; }
+:is([data-viewport='xs'], [data-viewport='sm']) .groupsio-api-key { grid-column: 1 / -1; }
 
 [data-viewport='xs'] .groupsio-searchbar { align-items: stretch; flex-direction: column; }
 [data-viewport='xs'] .groupsio-searchbar label { grid-template-columns: 1fr; }

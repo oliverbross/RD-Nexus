@@ -1038,6 +1038,9 @@ fn rows(value: &Value) -> Vec<Value> {
     Vec::new()
 }
 fn next_token(value: &Value) -> Option<String> {
+    if field(value, &["has_more", "hasMore"]).and_then(Value::as_bool) == Some(false) {
+        return None;
+    }
     let token = text(value, &["next_page_token", "nextPageToken", "page_token"]);
     (!token.trim().is_empty()).then_some(token)
 }
@@ -2623,6 +2626,23 @@ mod tests {
         assert_eq!(settings.default_maximum_messages, 20_000);
         assert_eq!(settings.maximum_attachment_bytes, 100 * 1024 * 1024);
         assert_eq!(settings.foreground_refresh_minutes, 5);
+    }
+
+    #[test]
+    fn pagination_stops_when_groups_io_marks_the_last_page() {
+        let last_page = json!({
+            "has_more": false,
+            "next_page_token": 1,
+            "data": []
+        });
+        assert_eq!(next_token(&last_page), None);
+
+        let more = json!({
+            "has_more": true,
+            "next_page_token": 42,
+            "data": []
+        });
+        assert_eq!(next_token(&more).as_deref(), Some("42"));
     }
 
     #[test]
