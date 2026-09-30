@@ -254,10 +254,11 @@ export function GroupsIoView({ onOpenSettings }: Props) {
   return (
     <section className="panel groupsio-view" aria-label={t('groupsio.title')}>
       <header className="groupsio-view-header">
-        <div>
-          <span className="eyebrow">{t('groupsio.eyebrow')}</span>
+        <div className="groupsio-heading">
           <h2>{t('groupsio.title')}</h2>
-          <p>{status?.connected ? t('groupsio.connected') : t('groupsio.offline')}</p>
+          <span className={`groupsio-connection${status?.connected ? ' connected' : ''}`} role="status">
+            {status?.connected ? t('groupsio.connected') : t('groupsio.offline')}
+          </span>
         </div>
         <div className="groupsio-header-actions">
           <button type="button" onClick={newTopic} disabled={!status?.connected || !group?.canPost}>{t('groupsio.newTopic')}</button>

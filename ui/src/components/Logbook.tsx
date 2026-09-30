@@ -2624,26 +2624,14 @@ export function Logbook({
                 >
                   {q.ota?.theirRef ?? (q.ota?.myRef ? `@${q.ota.myRef}` : '—')}
                 </span>
-                <span className="log-cell">
-                  {q.qslRcvd && (q.qslRcvd.card || q.qslRcvd.lotw || q.qslRcvd.eqsl) ? (
+                <span className="log-cell log-qsl-cell">
+                  {q.qslRcvd && (q.qslRcvd.card || q.qslRcvd.lotw || q.qslRcvd.eqsl || q.qslRcvd.qrz) ? (
                     // Per-source detail: which channel(s) actually confirmed.
-                    <span
-                      className={`log-qsl ${q.awardConfirmed ? 'ok' : 'eqsl'}`}
-                      title={[
-                        q.qslRcvd.lotw ? t('logbook.row.qsl.lotw') : null,
-                        q.qslRcvd.card ? t('logbook.row.qsl.card') : null,
-                        q.qslRcvd.eqsl ? t('logbook.row.qsl.eqsl') : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    >
-                      {[
-                        q.qslRcvd.lotw ? 'L' : null,
-                        q.qslRcvd.card ? 'C' : null,
-                        q.qslRcvd.eqsl ? 'E' : null,
-                      ]
-                        .filter(Boolean)
-                        .join('·')}
+                    <span className="log-qsl-sources">
+                      {q.qslRcvd.lotw && <span className="log-qsl ok" title={t('logbook.row.qsl.lotw')} aria-label={t('logbook.row.qsl.lotw')}>L</span>}
+                      {q.qslRcvd.card && <span className="log-qsl ok" title={t('logbook.row.qsl.card')} aria-label={t('logbook.row.qsl.card')}>C</span>}
+                      {q.qslRcvd.eqsl && <span className="log-qsl eqsl" title={t('logbook.row.qsl.eqsl')} aria-label={t('logbook.row.qsl.eqsl')}>E</span>}
+                      {q.qslRcvd.qrz && <span className="log-qsl qrz" title={t('logbook.row.qsl.qrz')} aria-label={t('logbook.row.qsl.qrz')}>Q</span>}
                     </span>
                   ) : q.awardConfirmed ? (
                     <span className="log-qsl ok" title={t('logbook.row.qsl.confirmed')}>
@@ -2662,7 +2650,7 @@ export function Logbook({
                       state as a quiet muted marker so the row stays "needs conf". */}
                   {q.qslSent?.sent && (
                     <span
-                      style={{ marginLeft: 4, opacity: 0.6, fontSize: '0.85em' }}
+                      className="log-qsl-sent"
                       title={fmtQslSent(q.qslSent)}
                       aria-label={fmtQslSent(q.qslSent)}
                     >

@@ -28,9 +28,12 @@ describe('GroupsIoSettings', () => {
   it('never renders the stored key and applies a bulk group policy', async () => {
     api.status.mockResolvedValue(fixture)
     api.save.mockResolvedValue(fixture)
-    render(<GroupsIoSettings onOpenGroupsIo={() => {}} />)
+    const { container } = render(<GroupsIoSettings onOpenGroupsIo={() => {}} />)
     expect(await screen.findByText('Nexus Users')).toBeTruthy()
     expect(screen.queryByDisplayValue(/api|secret|bearer/i)).toBeNull()
+    expect(screen.getByLabelText('Account').getAttribute('type')).toBe('password')
+    expect(container.querySelector('.groupsio-settings-grid')).toBeTruthy()
+    expect(container.querySelector('.groupsio-account')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('Select Nexus Users for bulk policy changes'))
     fireEvent.click(screen.getByText('Apply defaults to selected'))
     fireEvent.click(screen.getByText('Save Groups.io settings'))

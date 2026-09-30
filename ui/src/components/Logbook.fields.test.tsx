@@ -100,6 +100,20 @@ describe('own location and rig on each contact (#239)', () => {
 })
 
 describe('QSL status is editable in the edit form (#239)', () => {
+  it('shows every received source and the outbound mark in the ledger', async () => {
+    await renderLog({
+      confirmed: true,
+      awardConfirmed: true,
+      qslRcvd: { card: true, lotw: true, eqsl: true, qrz: true },
+      qslSent: { sent: true, via: 'B', dateUnix: 1_700_000_000 },
+    })
+    expect(screen.getByLabelText('LoTW confirmed (award-eligible)')).toBeTruthy()
+    expect(screen.getByLabelText('Paper card received (award-eligible)')).toBeTruthy()
+    expect(screen.getByLabelText('eQSL received (NOT DXCC/WAZ/WAS-eligible)')).toBeTruthy()
+    expect(screen.getByLabelText('QRZ Logbook confirmed (not DXCC/WAZ/WAS-eligible)')).toBeTruthy()
+    expect(screen.getByLabelText(/QSL sent .* via Bureau/i)).toBeTruthy()
+  })
+
   it('marks a card sent by post and a card received, in the same one change as the fields', async () => {
     const { container } = await renderLog()
     const form = await openEdit(container)

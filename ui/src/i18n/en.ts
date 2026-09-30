@@ -1262,6 +1262,7 @@ export const EN = {
   'logbook.row.qsl.lotw': 'LoTW confirmed (award-eligible)',
   'logbook.row.qsl.card': 'Paper card received (award-eligible)',
   'logbook.row.qsl.eqsl': 'eQSL received (NOT DXCC/WAZ/WAS-eligible)',
+  'logbook.row.qsl.qrz': 'QRZ Logbook confirmed (not DXCC/WAZ/WAS-eligible)',
   'logbook.row.qsl.confirmed': 'LoTW / paper — award-eligible',
   'logbook.row.qsl.eqslOnly': 'eQSL only — not accepted for DXCC/WAZ/WAS',
   'logbook.row.qsl.none': 'Not confirmed',
