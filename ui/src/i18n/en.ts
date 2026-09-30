@@ -10486,7 +10486,6 @@ export const EN = {
   // both translations. When in doubt, give the surface its own key.
   // ── Groups.io ───────────────────────────────────────────────────────────────────────
   'groupsio.title': 'Groups.io',
-  'groupsio.eyebrow': 'MEMORIES / GROUPS.IO',
   'groupsio.connected': 'Connected — memberships and downloaded messages are available here.',
   'groupsio.offline': 'Offline cache is available. Connect an API key in Settings for live sync.',
   'groupsio.newTopic': 'New topic',

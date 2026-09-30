@@ -874,6 +874,7 @@ export const JA: PartialCatalog = {
   "logbook.row.qsl.lotw": "LoTWコンファーム済み（アワード有効）",
   "logbook.row.qsl.card": "紙カード受領（アワード有効）",
   "logbook.row.qsl.eqsl": "eQSL受領（DXCC/WAZ/WASには無効）",
+  "logbook.row.qsl.qrz": "QRZログブック確認済み（DXCC/WAZ/WASには無効）",
   "logbook.row.qsl.confirmed": "LoTW／紙カード — アワード有効",
   "logbook.row.qsl.eqslOnly": "eQSLのみ — DXCC/WAZ/WASには使えません",
   "logbook.row.qsl.none": "未コンファーム",

@@ -2079,6 +2079,7 @@ export const DE: PartialCatalog = {
   "logbook.row.qsl.lotw": "Über LoTW bestätigt (diplomtauglich)",
   "logbook.row.qsl.card": "Papier-QSL erhalten (diplomtauglich)",
   "logbook.row.qsl.eqsl": "eQSL erhalten (NICHT für DXCC/WAZ/WAS anerkannt)",
+  "logbook.row.qsl.qrz": "QRZ-Logbuch bestätigt (nicht für DXCC/WAZ/WAS anerkannt)",
   "logbook.row.qsl.confirmed": "LoTW / Papier — diplomtauglich",
   "logbook.row.qsl.eqslOnly": "Nur eQSL — nicht für DXCC/WAZ/WAS anerkannt",
   "logbook.row.qsl.none": "Nicht bestätigt",

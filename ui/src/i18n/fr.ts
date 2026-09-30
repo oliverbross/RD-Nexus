@@ -2229,6 +2229,7 @@ export const FR: PartialCatalog = {
   "logbook.row.qsl.card": "Carte papier reçue (valable pour les diplômes)",
   "logbook.row.qsl.confirmed": "LoTW / papier — valable pour les diplômes",
   "logbook.row.qsl.eqsl": "eQSL reçue (PAS valable DXCC/WAZ/WAS)",
+  "logbook.row.qsl.qrz": "Confirmé dans QRZ Logbook (non valable pour DXCC/WAZ/WAS)",
   "logbook.row.qsl.eqslOnly": "eQSL seulement — non accepté pour DXCC/WAZ/WAS",
   "logbook.row.qsl.lotw": "Confirmé LoTW (valable pour les diplômes)",
   "logbook.row.qsl.none": "Non confirmé",
