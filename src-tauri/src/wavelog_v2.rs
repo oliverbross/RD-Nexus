@@ -20,7 +20,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use tempo_app::engine::{engine_lock, Engine};
-use tempo_core::logbook::{LogOp, QsoEdit, QsoRecord, RecordId};
+use tempo_core::logbook::{LogOp, QslRcvd, QslSent, QslVia, QsoEdit, QsoRecord, RecordId};
 
 const PAGE_SIZE: usize = 5_000;
 const MAX_PAGE_BYTES: u64 = 128 * 1024 * 1024;
@@ -1067,6 +1067,63 @@ fn patch_equivalent(left: &CommonQso, right: &CommonQso) -> bool {
     left == right
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct RemoteQsl {
+    received: QslRcvd,
+    sent: QslSent,
+}
+
+fn extra_value<'a>(extra: &'a BTreeMap<String, String>, name: &str) -> Option<&'a str> {
+    extra
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.as_str())
+}
+
+fn extra_confirmed(extra: &BTreeMap<String, String>, name: &str) -> bool {
+    extra_value(extra, name)
+        .is_some_and(|value| matches!(value.trim().to_ascii_uppercase().as_str(), "Y" | "V"))
+}
+
+/// QSL fields are read-only in Wavelog API v2 PATCH, but they remain provider truth on reads.
+/// Keep them outside `patch_equivalent` so a local mark is never sent through an unsupported
+/// write path, while comparing them separately so a later LoTW/eQSL/card confirmation is not
+/// hidden forever behind an otherwise unchanged bound row.
+fn remote_qsl(qso: &CommonQso) -> RemoteQsl {
+    let sent = extra_confirmed(&qso.extra, "QSL_SENT");
+    let via = sent
+        .then(|| extra_value(&qso.extra, "QSL_SENT_VIA"))
+        .flatten()
+        .and_then(QslVia::from_code);
+    let date_unix = sent
+        .then(|| extra_value(&qso.extra, "QSLSDATE"))
+        .flatten()
+        .and_then(|date| unix_from_date_time(date, "000000"));
+    RemoteQsl {
+        received: QslRcvd {
+            card: extra_confirmed(&qso.extra, "QSL_RCVD"),
+            lotw: extra_confirmed(&qso.extra, "LOTW_QSL_RCVD"),
+            eqsl: extra_confirmed(&qso.extra, "EQSL_QSL_RCVD"),
+            qrz: extra_value(&qso.extra, "APP_QRZLOG_STATUS")
+                .is_some_and(|value| value.trim().eq_ignore_ascii_case("C")),
+        },
+        sent: QslSent {
+            sent,
+            via,
+            date_unix,
+            cleared_unix: None,
+        },
+    }
+}
+
+fn apply_remote_qsl(row: &mut QsoRecord, remote: &CommonQso) {
+    let incoming = remote_qsl(remote);
+    row.qsl_rcvd.merge(incoming.received);
+    row.qsl_sent.merge(&incoming.sent);
+    row.confirmed = row.qsl_rcvd.any();
+    row.award_confirmed = row.qsl_rcvd.award();
+}
+
 fn local_common(r: &QsoRecord) -> CommonQso {
     let (qso_date, time_on) = date_time(r.when_unix);
     let time_off = r.time_off_unix.map(|v| date_time(v).1);
@@ -1100,8 +1157,17 @@ fn local_common(r: &QsoRecord) -> CommonQso {
     if r.qsl_rcvd.eqsl {
         extra.insert("EQSL_QSL_RCVD".into(), "Y".into());
     }
+    if r.qsl_rcvd.qrz {
+        extra.insert("APP_QRZLOG_STATUS".into(), "C".into());
+    }
     if r.qsl_sent.sent {
         extra.insert("QSL_SENT".into(), "Y".into());
+        if let Some(via) = r.qsl_sent.via {
+            extra.insert("QSL_SENT_VIA".into(), via.code().into());
+        }
+        if let Some(date) = r.qsl_sent.date_unix {
+            extra.insert("QSLSDATE".into(), date_time(date).0);
+        }
     }
     if let Some(contest) = &r.contest {
         extra.insert("CONTEST_ID".into(), contest.contest_id.clone());
@@ -1598,6 +1664,7 @@ fn apply_remote_fields(row: &mut QsoRecord, remote: &CommonQso) {
         .time_off
         .as_deref()
         .and_then(|time| unix_from_date_time(&remote.qso_date, time));
+    apply_remote_qsl(row, remote);
 }
 
 fn apply_remote(
@@ -2191,12 +2258,15 @@ pub fn sync(
             if let Some(row) = local.get(&binding.local_id).cloned() {
                 let lq = local_common(&row);
                 let local_changed = !patch_equivalent(&lq, &binding.last_local);
-                let remote_changed = !patch_equivalent(&rq.qso, &binding.last_remote);
+                let remote_changed = !patch_equivalent(&rq.qso, &binding.last_remote)
+                    || remote_qsl(&rq.qso) != remote_qsl(&binding.last_remote);
                 let (last_local, last_remote) = if remote_changed {
                     if local_changed && !patch_equivalent(&lq, &rq.qso) {
                         report.conflicts_resolved_from_wavelog += 1;
                     }
-                    if !patch_equivalent(&lq, &rq.qso) && apply_remote(engine, &row, &rq.qso)? {
+                    if (!patch_equivalent(&lq, &rq.qso) || remote_qsl(&lq) != remote_qsl(&rq.qso))
+                        && apply_remote(engine, &row, &rq.qso)?
+                    {
                         report.local_updates += 1;
                     }
                     (rq.qso.clone(), rq.qso.clone())
@@ -2923,6 +2993,42 @@ mod tests {
             .extra
             .insert("QSL_RCVD".into(), "N".into());
         assert!(patch_equivalent(&qso, &confirmation_only_change));
+    }
+
+    #[test]
+    fn provider_qsl_changes_are_detected_and_projected_into_bound_rows() {
+        let mut local = tempo_core::logbook::parse_adif(
+            "<CALL:5>K1ABC<BAND:3>20M<MODE:3>FT8<QSO_DATE:8>20260928<TIME_ON:6>001500<EOR>",
+        )
+        .remove(0);
+        let previous = local_common(&local);
+        let mut remote = previous.clone();
+        for (name, value) in [
+            ("LOTW_QSL_RCVD", "Y"),
+            ("EQSL_QSL_RCVD", "Y"),
+            ("APP_QRZLOG_STATUS", "C"),
+            ("QSL_SENT", "Y"),
+            ("QSL_SENT_VIA", "B"),
+            ("QSLSDATE", "20260929"),
+        ] {
+            remote.extra.insert(name.into(), value.into());
+        }
+
+        // Confirmation bookkeeping remains outside the provider PATCH comparison, while its
+        // read projection changes and therefore wakes the remote-to-local reconciliation path.
+        assert!(patch_equivalent(&previous, &remote));
+        assert_ne!(remote_qsl(&previous), remote_qsl(&remote));
+
+        apply_remote_fields(&mut local, &remote);
+        assert!(local.confirmed);
+        assert!(local.award_confirmed);
+        assert!(local.qsl_rcvd.lotw);
+        assert!(local.qsl_rcvd.eqsl);
+        assert!(local.qsl_rcvd.qrz);
+        assert!(local.qsl_sent.sent);
+        assert_eq!(local.qsl_sent.via, Some(QslVia::Bureau));
+        assert!(local.qsl_sent.date_unix.is_some());
+        assert_eq!(remote_qsl(&local_common(&local)), remote_qsl(&remote));
     }
 
     #[test]

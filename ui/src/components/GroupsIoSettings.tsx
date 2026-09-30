@@ -81,14 +81,14 @@ export function GroupsIoSettings({ onOpenGroupsIo }: Props) {
   }
 
   return (
-    <>
+    <div className="groupsio-settings">
       <p className="settings-note">{t('groupsio.settings.keyStorage')}</p>
-      <div className="settings-grid">
-        <div className="settings-field settings-span-2">
-          <span className="settings-label">{t('groupsio.settings.account')}</span>
+      <div className="settings-grid groupsio-settings-grid">
+        <div className="settings-field groupsio-account">
+          <label className="settings-label" htmlFor="groupsio-api-key">{t('groupsio.settings.account')}</label>
           <span className="settings-hint">{t('groupsio.settings.accountHint')}</span>
           <div className="settings-input-row">
-            <input className="settings-input" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={status.connected || Boolean(busy)} placeholder={status.connected ? t('groupsio.settings.keyStored') : t('groupsio.settings.keyPlaceholder')} />
+            <input id="groupsio-api-key" className="settings-input groupsio-api-key" type="password" autoComplete="new-password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} disabled={status.connected || Boolean(busy)} placeholder={status.connected ? t('groupsio.settings.keyStored') : t('groupsio.settings.keyPlaceholder')} />
             <button type="button" className="settings-linkbtn" onClick={() => void openExternalUrl('https://groups.io/settings/apikeys')}>{t('groupsio.settings.keyManage')}</button>
             <button type="button" className="primary" disabled={status.connected || !apiKey.trim() || Boolean(busy)} onClick={() => void run(t('groupsio.settings.connectVerify'), () => connectGroupsIo(apiKey)).then((ok) => { if (ok) setApiKey('') })}>{t('groupsio.settings.connectVerify')}</button>
           </div>
@@ -146,7 +146,7 @@ export function GroupsIoSettings({ onOpenGroupsIo }: Props) {
         <button type="button" onClick={() => void clear(false)}>{t('groupsio.settings.clearCacheLong')}</button>
         <button type="button" className="danger" onClick={() => void clear(true)}>{t('groupsio.settings.deleteAll')}</button>
       </div>
-    </>
+    </div>
   )
 }
 

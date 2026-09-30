@@ -4493,6 +4493,13 @@ body.resizing {
 [data-viewport='xl'] .layout.single > .panel.fieldday {
   max-width: 1600px;
 }
+/* Groups.io is a three-pane data workspace. Giving it the prose measure leaves the message pane
+   cramped and a wide monitor mostly blank; use the same bounded data-surface width as Logbook. */
+[data-viewport='md'] .layout.single > .panel.groupsio-view,
+[data-viewport='lg'] .layout.single > .panel.groupsio-view,
+[data-viewport='xl'] .layout.single > .panel.groupsio-view {
+  max-width: 1600px;
+}
 /* SETTINGS IS NOT PROSE-SHAPED, and calling it that cost it half the window.
    (Operator, 2026-08-12: "make the settings full screen. It's small and in the middle.
    You have the opportunity to put far more on the page vs scrolling.")
@@ -14065,9 +14072,24 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
   margin-right: auto;
 }
 .log-qsl {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.55em;
+  min-height: 1.45em;
+  padding: 0 0.25em;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
   font-size: var(--fs-micro);
   font-weight: 800;
   letter-spacing: 0.03em;
+}
+.log-qsl-cell,
+.log-qsl-sources {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
 }
 .log-qsl.ok {
   color: var(--state-good);
@@ -14075,8 +14097,18 @@ button.recall-avatar:focus-visible .recall-avatar-qrz {
 .log-qsl.eqsl {
   color: var(--band-marginal);
 }
+.log-qsl.qrz {
+  color: var(--alert-info);
+}
 .log-qsl.none {
+  border-color: transparent;
+  background: transparent;
   color: var(--text-faint);
+}
+.log-qsl-sent {
+  color: var(--text-dim);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
 }
 
 /* Narrow (EFFECTIVE width — the old raw @media hid six columns at the 900-px
