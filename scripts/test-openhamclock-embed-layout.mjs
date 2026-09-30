@@ -26,6 +26,8 @@ for (const adaptation of [
 assert.match(bridge, /documentElement\.dataset\.nexusEmbed = 'true'/)
 assert.match(bridge, /--nexus-embed-vh/)
 assert.match(bridge, /window\.addEventListener\('resize'/)
+assert.match(bridge, /visualViewport\?\.addEventListener\('resize'/)
+assert.match(bridge, /new MutationObserver/)
 assert.match(css, /html\[data-nexus-embed='true'\]/)
 assert.match(css, /grid-template-rows:\s*auto minmax\(0, 1fr\)/)
 assert.match(css, /\.nexus-solar-panel img\[alt='SDO Solar Image'\]/)
