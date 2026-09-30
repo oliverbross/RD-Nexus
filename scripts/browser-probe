@@ -142,7 +142,11 @@ scenario_lines() { awk -v want="$1" '
     verdict = ($1 == "not") ? "fail" : "pass"
     desc = $0; sub(/^(ok|not ok) [0-9]+ - /, "", desc)
     if (desc !~ /\.mjs$/ && (want == "any" || want == verdict)) n++
-  } END { print n+0 }' "$LOG"; }
+    next
+  }
+  /^✔ /{ if ($0 !~ /\.mjs( |$)/ && (want == "any" || want == "pass")) n++; next }
+  /^✖ /{ if ($0 !~ /\.mjs( |$)/ && (want == "any" || want == "fail")) n++ }
+  END { print n+0 }' "$LOG"; }
 RAN=$(scenario_lines any)
 FAILED=$(scenario_lines fail)
 PASSED=$((RAN - FAILED))
