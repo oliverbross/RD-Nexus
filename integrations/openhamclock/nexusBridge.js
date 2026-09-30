@@ -17,6 +17,14 @@ if (embedded) {
   };
   publishViewport();
   window.addEventListener('resize', queueViewport, { passive: true });
+  window.visualViewport?.addEventListener('resize', queueViewport, { passive: true });
+  window.addEventListener('load', queueViewport, { once: true });
+  new MutationObserver(() => {
+    if (
+      !document.documentElement.style.getPropertyValue('--nexus-embed-vh') ||
+      !document.documentElement.style.getPropertyValue('--nexus-embed-vw')
+    ) queueViewport();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
 }
 
 let clusterSpots = [];

@@ -32,7 +32,7 @@ html[data-nexus-embed='true'] .nexus-modern-sidebar {
   scrollbar-gutter: stable;
 }
 
-html[data-nexus-embed='true'] .nexus-modern-layout .nexus-solar-panel {
+html[data-nexus-embed='true'] .nexus-solar-panel {
   --nexus-solar-size: clamp(10.5rem, calc(var(--nexus-embed-vh, 800px) * 0.24), 18rem);
   flex: 0 1 var(--nexus-solar-size);
   block-size: var(--nexus-solar-size) !important;
@@ -41,7 +41,7 @@ html[data-nexus-embed='true'] .nexus-modern-layout .nexus-solar-panel {
   overflow: hidden;
 }
 
-html[data-nexus-embed='true'] .nexus-modern-layout .nexus-solar-panel img[alt='SDO Solar Image'] {
+html[data-nexus-embed='true'] .nexus-solar-panel img[alt='SDO Solar Image'] {
   inline-size: auto !important;
   block-size: auto !important;
   max-inline-size: min(100%, 15rem) !important;
