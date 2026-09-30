@@ -150,6 +150,8 @@
 }
 .groupsio-account {
   grid-column: 1 / -1;
+  width: 100%;
+  max-width: none;
   padding: .85rem;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
