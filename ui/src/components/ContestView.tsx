@@ -9,7 +9,8 @@ import type {
   ModeRequest,
   Settings,
 } from '../types'
-import { exportLog, fdClubExport, fdMergeToGeneral, fdSetUpload, getSettings, setSettings, setFdOperator, openPanelWindow, saveTextToDownloads, type FdRulesetDto } from '../api'
+import { exportLog, fdClubExport, fdMergeToGeneral, fdSetUpload, getSettings, setFdOperator, openPanelWindow, saveTextToDownloads, type FdRulesetDto } from '../api'
+import { patchSettings } from '../settings/patch'
 import { FdAdvisories } from './FdAdvisories'
 import { pushToast } from '../toast'
 import { contestName, contestShortName, fdEventFromWindow, fdHeaderSubtitle, FD_EVENT_NAMES, isFieldDay, type FdKind } from '../fdEvent'
@@ -191,7 +192,7 @@ const EXT: Record<ExportFormat, string> = {
  * occurrences and called anything seen twice a dupe — a fourth copy of the dupe key, and
  * wrong three ways. Counting marked the ORIGINAL as well as the duplicate, so a real
  * scoring contact was styled as a dupe for being worked again later. The triple is the key
- * for two of the seventeen shipped rulesets: Sweepstakes works a station once on ANY band
+ * for two of the eighteen shipped rulesets: Sweepstakes works a station once on ANY band
  * (rule 2.2), so its cross-band dupe went unmarked, while a QSO party counts a new county
  * as a new contact, so two legal contacts were both marked. And it could not see what
  * actually decides whether a row scores — whether the ENGINE logged it as a dupe.
@@ -894,9 +895,12 @@ function bandClashClasses(here: FdClubStatus['board']): string[] {
  * COLOUR carries the two readings this board is glanced at for. A busy band takes its own
  * `BAND_COLOR` — the same ink the map spots and the band picker use, so 20m looks like 20m
  * everywhere — while a free band stays dim and uncoloured, because the gap is what the eye is
- * hunting for. A band where two live positions share a mode class goes to the alert ink with a
- * ⛔ and the word CLASH: it is read from across a tent, so it has to be wrong at a glance, and
- * the word (not the colour) is what carries it to a colour-blind operator or a screen reader.
+ * hunting for. (In the light theme, where that palette is too pale to read as lettering, a busy
+ * band's name takes the theme's ink and keeps its colour on an underline: the band chip's
+ * light-theme fix, on a name with no border to carry it.) A band where two live positions share a
+ * mode class goes to the alert ink with a ⛔ and the word CLASH: it is read from across a tent, so
+ * it has to be wrong at a glance, and the word (not the colour) is what carries it to a
+ * colour-blind operator or a screen reader.
  */
 export function FdBandOccupancy({ club, big = false }: { club: FdClubStatus; big?: boolean }) {
   const byBand = new Map<string, typeof club.board>()
@@ -927,10 +931,15 @@ export function FdBandOccupancy({ club, big = false }: { club: FdClubStatus; big
         const why = clash.length
           ? t('fieldDay.club.bands.clash.why', { band, mode: clash.join(' / ') })
           : undefined
+        // Lettered in its band's colour: busy and no clash. The light theme re-inks exactly these
+        // names and underlines them in that colour instead (styles.css, the band chip's rule), so
+        // the attribute is what keeps a clash's alarm ink out of its reach.
+        const bandInk = busy && clash.length === 0
         return (
           <Fragment key={band}>
             <span
               className="mono"
+              data-band-ink={bandInk ? '' : undefined}
               style={{
                 ...cell,
                 fontWeight: 800,
@@ -940,6 +949,7 @@ export function FdBandOccupancy({ club, big = false }: { club: FdClubStatus; big
                   : busy
                     ? bandColor(band)
                     : undefined,
+                textDecorationColor: bandInk ? bandColor(band) : undefined,
               }}
             >
               {band}
@@ -1470,7 +1480,8 @@ export function ContestView({ fieldDay, onSetMode, fdActive = false, fdRuleset =
     }
   }, [running])
 
-  // Settings round-trip for the bonus checklist (same pattern as specialOp in OperateCockpit).
+  // The settings as they were when the view opened: what the scoring panel and the operator field
+  // DISPLAY. Never the base of a save — see `saveScoringPatch`.
   const [nativeSettings, setSettingsState] = useState<Settings | null>(null)
   const settings = observation ?? nativeSettings
   useEffect(() => {
@@ -1533,16 +1544,20 @@ export function ContestView({ fieldDay, onSetMode, fdActive = false, fdRuleset =
   }
 
   // One optimistic writer for every scoring field on this panel (earned list, plan list,
-  // power multiplier) — the shape the single bonus checkbox already used. Each patches ONE
-  // field of the settings the panel is holding, so the three controls cannot write over
+  // power multiplier). Each edit names ONE field, so the three controls cannot write over
   // each other's state, and the power chips edit the very same `fdPowerMult` the Settings
   // panel does rather than a second copy of it.
-  const saveScoringPatch = async (patch: Partial<Settings>) => {
+  //
+  // ⚠️ SAVED OVER THE LIVE SETTINGS, NEVER OVER THIS VIEW'S COPY. The copy is as old as the
+  // view, and a save of `{ ...copy, ...edit }` wrote every field changed elsewhere since back
+  // to what it was: simultaneous radios on again after "use one radio", the previous operator
+  // after a seat swap in the pop-out scoreboard, the old dial after the rig was retuned. The
+  // copy only mirrors the edit, so the display does not wait on a round trip.
+  const saveScoringPatch = async (edit: (s: Settings) => Partial<Settings>) => {
     if (observed || !nativeSettings) return
-    const updated: Settings = { ...nativeSettings, ...patch }
-    setSettingsState(updated)
+    setSettingsState({ ...nativeSettings, ...edit(nativeSettings) })
     try {
-      await setSettings(updated)
+      await patchSettings(edit)
     } catch {
       // Revert optimistic update on failure
       setSettingsState(nativeSettings)
@@ -1552,15 +1567,15 @@ export function ContestView({ fieldDay, onSetMode, fdActive = false, fdRuleset =
     list.includes(id) ? list.filter((b) => b !== id) : [...list, id]
   /** Confirm / un-confirm a bonus. THIS is the list the score is made of. */
   const toggleEarned = (id: string) =>
-    saveScoringPatch({ fdBonuses: toggle(settings?.fdBonuses ?? [], id) })
+    saveScoringPatch((s) => ({ fdBonuses: toggle(s.fdBonuses ?? [], id) }))
   /** Put a bonus on the chase list (or take it off). Never touches the score. */
   const togglePlanned = (id: string) =>
-    saveScoringPatch({ fdBonusesPlanned: toggle(settings?.fdBonusesPlanned ?? [], id) })
-  const setPowerMult = (mult: number) => saveScoringPatch({ fdPowerMult: mult })
+    saveScoringPatch((s) => ({ fdBonusesPlanned: toggle(s.fdBonusesPlanned ?? [], id) }))
+  const setPowerMult = (mult: number) => saveScoringPatch(() => ({ fdPowerMult: mult }))
 
   // Persist the settable Field Day operator (optimistic). NOT the whole-struct save that
   // toggleBonus uses: a seat swap happens mid-QSO, and the heavyweight path drops the TX
-  // queue and re-derives the TX cycle from this component's settings snapshot (#54). Since
+  // queue and re-derives the TX cycle from the saved struct (#54). Since
   // #100 it no longer resets the operating mode, but those two still land on a live contact.
   // The engine trims + uppercases.
   const saveOperator = async (call: string) => {

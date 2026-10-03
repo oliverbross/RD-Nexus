@@ -1,9 +1,9 @@
 // ⚠️ THIS FILE IS ON THE PARTIAL LIST (i18n/hardcoded-strings.test.ts), for ONE reason and
 // no other: the TX On/Off ARM LATCH below keeps its label and its two tooltips. They are a
 // transmit-path control's accessible name, and every one of those moves in its own batch
-// with the stop-line sweeps re-run. APRS is the sixth cockpit and renders NO stop control —
-// the latch only holds the queue — so nothing here is on a stop-line census. The file
-// graduates to MIGRATED the moment that batch lands.
+// with the stop-line sweeps re-run. APRS is the sixth cockpit, and that latch is its one stop
+// control: turning it off stops a beacon on the air (the radio loop's TX-off cut) and drops
+// what is still queued. The file graduates to MIGRATED the moment that batch lands.
 //
 // Everything else operator-visible comes from the catalog. What does NOT: callsign-SSIDs,
 // symbol codes and their table, digipeater paths, the channel list and every dial reading,
@@ -14,9 +14,10 @@ import { useAprs } from '../remote-web/useAprs'
 import { displayNow } from '../remote-web/display-validation'
 import { MapView } from './MapView'
 import { AprsStationCard } from './AprsStationCard'
+import { AprsRailSeam } from './AprsRailSeam'
 import type { NeedTag, Station } from '../types'
 import type { Theme } from '../useTheme'
-import { useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   aprsArm,
@@ -27,6 +28,7 @@ import {
   getAprsHealth,
   getAprsIsStatus,
   getAprsStations,
+  getAprsTxNotice,
   setSettings,
   getSettings,
   type AprsHealth,
@@ -44,9 +46,16 @@ import { APRS_FREQS, BEACON_SYMBOLS, resolveAprsChannel } from '../aprsBeacon'
 import { parseOperatorNumber } from '../numInput'
 import { t } from '../i18n'
 import { pollSingleFlight } from '../singleFlight'
+import { surfaceGet, surfaceSet } from '../features/windowScope'
+import { aprsRailValue, parseAprsRail } from '../features/aprsRail'
 
 /** The mode's own name — four letters, the same in every language. */
 const APRS_MODE = 'APRS'
+
+/** Where the station list column's dragged width is stored (per surface): CSS px (layout L7). */
+const APRS_RAIL_KEY = 'nexus.aprs.railWidth'
+/** Where the map-side choice is stored (per surface): 'left', or anything else for the stock right. */
+const APRS_MAP_SIDE_KEY = 'nexus.aprs.mapSide'
 
 /** The North American APRS channel, named in the failed-checksum advice. A frequency is a
  * token: it is interpolated into that sentence, never written inside it. */
@@ -575,7 +584,7 @@ export function AprsCockpit({
   active,
   onTune,
   radio,
-  onSetTxEnabled,
+  txStrip,
   theme,
   myGrid = '',
   onOpenSettings,
@@ -597,9 +606,13 @@ export function AprsCockpit({
     /** Receive coverage from Hamlib's caps; EMPTY = unknown = allow (see `radioCoversMhz`). */
     rxRangesMhz?: [number, number][]
   }
-  /** Arm/disarm TX (the TopBar's Enable-Tx is hidden here, so APRS carries its own — otherwise a
-   * beacon/message is gated off with no way to turn TX on). */
-  onSetTxEnabled?: (on: boolean) => void
+  /** THE TX STRIP (CockpitTxStrip, FT's cluster: TX On/Off · Tune · ATU · Stop TX), drawn by App
+   *  and placed here as a SHELL CHILD right under the header line — APRS has no scope there. It
+   *  carries this screen's stop controls: the TX-enable latch (the TopBar's Enable-Tx is hidden
+   *  here, and without it a beacon or message is gated off with no way to turn TX on; its TX-off
+   *  cut stops a beacon on the air) and Stop TX (halt_tx). No ⊞ vocabulary exists here, so
+   *  nothing can hide it. */
+  txStrip?: ReactNode
   /** Open Settings at a section id (see settings/registry.ts). Absent ⇒ the note below names
    * where the rest of the APRS settings live without offering to open them. */
   onOpenSettings?: (target: string) => void
@@ -638,6 +651,22 @@ export function AprsCockpit({
   // point subscribing to a feed you then hide), but one click hides every station our own antenna
   // has not heard — which is the honest view of what this radio can actually reach.
   const [showInet, setShowInet] = useState(true)
+  // THE BODY'S LAYOUT (layout L7), both per window: the rail's width, which the layout clamps
+  // (features/aprsRail) and the divider sets, and which side the map stands on.
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const railRef = useRef<HTMLDivElement | null>(null)
+  const [railPx, setRailPx] = useState(() => parseAprsRail(surfaceGet(APRS_RAIL_KEY)))
+  const commitRail = (px: number | null) => {
+    setRailPx(px)
+    // '' reads back as "never set" (parseAprsRail): the stock width.
+    surfaceSet(APRS_RAIL_KEY, px == null ? '' : String(Math.round(px)))
+  }
+  const [mapLeft, setMapLeft] = useState(() => surfaceGet(APRS_MAP_SIDE_KEY) === 'left')
+  const toggleMapSide = () => {
+    const next = !mapLeft
+    surfaceSet(APRS_MAP_SIDE_KEY, next ? 'left' : 'right')
+    setMapLeft(next)
+  }
   const [lat, setLat] = useState('')
   const [lon, setLon] = useState('')
   // Edit BUFFERS for the two blur-committed text fields, seeded from settings when they arrive.
@@ -654,6 +683,8 @@ export function AprsCockpit({
   const [msgTo, setMsgTo] = useState('')
   const [msgText, setMsgText] = useState('')
   const [status, setStatus] = useState<string | null>(null)
+  // The engine's last drop notice this board has shown (see the poll below), so each is shown once.
+  const shownTxNotice = useRef<string | null>(null)
   const [nativeNow, setNow] = useState(() => Math.floor(Date.now() / 1000))
   const [me, setMe] = useState<LatLon | null>(null)
   const prefilled = useRef(false)
@@ -771,7 +802,7 @@ export function AprsCockpit({
   // Poll the heard list + decoder health (and tick the age clock) while the cockpit is visible.
   useEffect(() => {
     if (!active || remote) return
-    // The age clock ticks on its own; the four reads are ONE single-flight poll (#335): each
+    // The age clock ticks on its own; the five reads are ONE single-flight poll (#335): each
     // takes the engine mutex, so a tick skips while any of the last set is still out.
     const clock = () => setNow(Math.floor(Date.now() / 1000))
     clock()
@@ -782,6 +813,13 @@ export function AprsCockpit({
         getAprsStations().then((v) => owns() && setRoster((prev) => (sameRoster(prev, v) ? prev : v))),
         getAprsHealth().then((h) => owns() && setHealth(h)),
         getAprsIsStatus().then((s) => owns() && setIsStatus(s)),
+        // What was queued and DROPPED (TX went off, or the dial left the licence privileges) says
+        // so in the status line, once per notice: the engine's own sentence, as a refused send's.
+        getAprsTxNotice().then((n) => {
+          if (!owns() || n === shownTxNotice.current) return
+          shownTxNotice.current = n
+          if (n) setStatus(n)
+        }),
       ]),
     )
     return () => {
@@ -1092,26 +1130,6 @@ export function AprsCockpit({
             {radio.dialMhz.toFixed(3)} {MHZ_UNIT} · {radio.band} · {radio.sideband || '—'}
           </span>
         )}
-        {/* ⚠️ NOT MIGRATED, DELIBERATELY. This is the TX-enable arm latch: its label and its
-            two tooltips are a transmit-path control's accessible name, and every one of those
-            moves in its own batch with the stop-line sweeps re-run. It stays English here
-            until then — see the file header. */}
-        {onSetTxEnabled && radio && (
-          <button
-            type="button"
-            className={`np-chip${radio.txEnabled ? ' active' : ''}`}
-            aria-pressed={radio.txEnabled}
-            disabled={!canControl}
-            onClick={() => { if (canControl) onSetTxEnabled(!radio.txEnabled) }}
-            title={
-              radio.txEnabled
-                ? 'Transmit ENABLED — beacons/messages will go out. Click to disable.'
-                : 'Transmit is OFF — enable it before a beacon or message can send.'
-            }
-          >
-            {radio.txEnabled ? 'TX On' : 'TX Off'}
-          </button>
-        )}
         {/* Three states, because "decoding" and "may transmit an ack by itself" are different
             things and the operator has to be able to tell them apart. Auto-armed must never look
             ack-capable — see aprs_auto_ack's gate. */}
@@ -1279,6 +1297,8 @@ export function AprsCockpit({
         )}
       </div>
 
+      {txStrip}
+
       {/* ⭐ APRS IS A GEOGRAPHIC MODE AND HAD NO MAP. Everything lived in one
           vertical stack, so on any real window the controls bunched into the
           top-left and the rest of the section was empty — operator, 2026-07-29:
@@ -1287,8 +1307,13 @@ export function AprsCockpit({
           The controls and lists become a left rail; the map takes the space they
           were not using. Positions were already in the packets (AprsHeard carries
           lat/lon, course and speed) — nothing new is decoded for this. */}
-      <div className="aprs-body">
-        <div className="aprs-rail">
+      <div
+        className="aprs-body"
+        ref={bodyRef}
+        data-map={mapLeft ? 'left' : undefined}
+        style={railPx == null ? undefined : ({ '--aprs-rail-w': aprsRailValue(railPx) } as React.CSSProperties)}
+      >
+        <div className="aprs-rail" ref={railRef}>
       <div className="aprs-beacon">
         <span className="aprs-beacon-title">{t('aprs.beacon.title')}</span>
         <label>
@@ -1485,6 +1510,17 @@ export function AprsCockpit({
             onSelectCall={noSelectCall}
             needByCall={noNeeds}
           />
+          {/* Which side the map stands on (layout L7). Over the map, not in the header: one more
+              chip there wraps the row at some widths and takes a line from the body. */}
+          <button
+            type="button"
+            className={`np-chip aprs-map-side${mapLeft ? ' active' : ''}`}
+            aria-pressed={mapLeft}
+            onClick={toggleMapSide}
+            title={t('aprs.mapLeft.title')}
+          >
+            {t('aprs.mapLeft.label')}
+          </button>
           {positioned === 0 && (
             <div className="aprs-map-empty">
               {decode.state === 'decoding' ? t('aprs.map.noPositions') : decode.detail}
@@ -1501,6 +1537,14 @@ export function AprsCockpit({
             />
           )}
         </div>
+        <AprsRailSeam
+          body={bodyRef}
+          rail={railRef}
+          stored={railPx}
+          mapLeft={mapLeft}
+          onCommit={commitRail}
+          label={t('aprs.rail.width.label')}
+        />
       </div>
     </main>
   )

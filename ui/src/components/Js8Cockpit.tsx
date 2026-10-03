@@ -5,8 +5,9 @@
 // in the code is the mode's own vocabulary (js8Vocab.ts): JS8, HB, CQ, @ALLCALL, the speed
 // names and their ALL.TXT letters, the 32 directed-command texts, callsigns, grids, offsets in
 // Hz, SNR in dB, UTC stamps and the s/m/h age units.
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStationControl, useStationData } from '../stationAccess'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useStationCapability, useStationControl, useStationData } from '../stationAccess'
+import { useEscStop } from '../useEscStop'
 import { useJs8Context } from '../remote-web/useJs8Context'
 import { useDecoderSettings } from '../remote-web/useDecoderSettings'
 import { useReceiverSettings } from '../remote-web/useReceiverSettings'
@@ -14,12 +15,21 @@ import { js8DisplayNow } from '../remote-web/js8'
 import { RemoteRecallEntry } from '../remote-web/RemoteRecall'
 import type { AppSnapshot, BandChannel, Js8InboxState, Js8Origin, Js8State, Js8Switch } from '../types'
 import { CockpitHeader } from './CockpitHeader'
+import { CockpitTxStrip } from './CockpitTxStrip'
 import { CockpitPaneFrame } from './panes/CockpitPaneFrame'
+import { RegionColumnSeams } from './panes/RegionColumnSeams'
+import { PaneSeam } from './PaneSeam'
+import { regionColsStyle } from '../features/paneColumns'
+import { WATERFALL_SPLIT_MAX, WATERFALL_SPLIT_MIN } from '../features/paneSeam'
 import { PanelsMenu } from './PanelsMenu'
+import { ArrangePanes } from './panes/ArrangePanes'
 import { panelHost } from '../features/panelHost'
-import { JS8_PANEL_IDS, type Js8PanelId, type PanelLayoutApi } from '../features/panelState'
+import { JS8_PANEL_IDS, JS8_PANELS, type Js8PanelId, type PanelLayoutApi } from '../features/panelState'
+import { regionGroups } from '../features/panelPlace'
 import { FrequencyControl } from './FrequencyControl'
 import { LogEntry } from './LogEntry'
+import { RotorStrip } from './RotorStrip'
+import { rotorPointAt } from './rotorPointAt'
 import { Waterfall } from './Waterfall'
 import { useRegionCols, type RegionCols } from '../useRegionCols'
 import {
@@ -29,12 +39,14 @@ import {
   haltTx,
   js8Arm,
   js8CallCq,
-  js8Cancel,
+  js8AnswerReply,
+  js8Composer,
   js8CqRepeat,
   js8DropQueue,
   js8Enter,
   js8InboxDelete,
   js8InboxMark,
+  js8LocatorRefusal,
   js8Send,
   js8SendCommand,
   js8SetSpeed,
@@ -63,6 +75,7 @@ import {
   JS8,
   JS8_COMMANDS,
   JS8_CQS,
+  JS8_GRID,
   JS8_QUICK_QUERIES,
   JS8_SPEEDS,
   JS8_SPEED_LIST,
@@ -71,10 +84,14 @@ import {
   TX_PLATE,
   ageLabel,
   bandActivityByOffset,
+  js8ShownOffsetRows,
+  js8UnreadFirst,
+  js8UnreadFrom,
   countBits,
   dtLabel,
   estimateFrames,
   fmtSnr,
+  js8ListedStations,
   utcClock,
 } from '../js8Vocab'
 
@@ -97,8 +114,17 @@ interface Props {
   onSetTxEnabled?: (on: boolean) => void
   theme?: string
   wheelSensitivity?: number
+  /** JS8Call's callsign aging from Settings, in minutes (0 = off): the Stations list leaves out
+   *  a call not heard for this long (`js8ListedStations`). */
+  callsignAgingMin?: number
+  /** JS8Call's band-activity aging, in minutes (Settings ▸ JS8; 0, the default here, is off):
+   *  App hands down the station's setting. */
+  activityAgingMin?: number
   /** Panel visibility record — host-owned (App) so it survives remounts. */
   panels?: PanelLayoutApi<Js8PanelId>
+  /** Open Settings at a section id: the rotor strip's "configured but not answering" chip
+   *  opens the Rotator section through it, as it does in the Phone, CW and FT cockpits. */
+  onOpenSettings?: (target: string) => void
 }
 
 /** Display labels for the JS8 removable panels — resolved when the menu is BUILT. */
@@ -151,10 +177,14 @@ export function Js8Cockpit({
   onSetTxEnabled,
   theme = 'dark',
   wheelSensitivity,
+  callsignAgingMin = 0,
+  activityAgingMin = 0,
   onOpenLogbook,
   panels,
+  onOpenSettings,
 }: Props) {
   const canControl = useStationControl(), dataAvailable = useStationData()
+  const rotatorControl = useStationCapability('rotator')
   const decoderSettings = useDecoderSettings(snap, 'JS8')
   const receiverSettings = useReceiverSettings(snap, 'JS8')
   const host = panels
@@ -186,6 +216,7 @@ export function Js8Cockpit({
       getJs8State()
         .then((s) => {
           if (owns()) setJs8(s)
+          if (!remote) return composerSync.current()
         })
         .catch(() => { if (owns() && remote) setJs8(null) }),
     )
@@ -201,6 +232,27 @@ export function Js8Cockpit({
     }
     idleTrippedRef.current = tripped
   }, [js8?.idleTripped, js8?.idleLimitMin])
+
+  // A MSG to me announces itself, as JS8Call's "New Message Received" box does
+  // (mainwindow.cpp:9143-9154): ONCE per message. What the first poll finds is taken as seen, so
+  // mail filed before this view opened (or restored from the journal) does not toast.
+  const seenInboxRef = useRef<Set<number> | null>(null)
+  useEffect(() => {
+    const inbox = js8?.inbox
+    if (!inbox) return
+    const seen = seenInboxRef.current
+    if (seen === null) {
+      seenInboxRef.current = new Set(inbox.map((e) => e.id))
+      return
+    }
+    for (const e of inbox) {
+      if (seen.has(e.id)) continue
+      seen.add(e.id)
+      if (e.state === 'unread') {
+        pushToast(t('js8.inbox.new', { from: e.from, time: utcClock(e.atMs) }), 'info', 8000)
+      }
+    }
+  }, [js8?.inbox])
 
   // ENTER the mode on the rising edge of `active` (works unconfigured, spec §Works unconfigured):
   // `js8_enter` sets the tier and the dial. ⚠️ RX ONLY, and the ENGINE guarantees it — the call
@@ -254,14 +306,14 @@ export function Js8Cockpit({
   }
   // Esc stops from anywhere in the cockpit — bound only while this is the VISIBLE view (the
   // cockpit stays mounted in the keep-alive host, so an unconditional listener would fire
-  // Stop TX from inside another section).
+  // Stop TX from inside another section). The stop rides the shared capture listener
+  // (useEscStop, operator 2026-10-01), so no control on the screen can swallow it; this listener
+  // still cancels the key's default, as it always did.
+  useEscStop(active && canControl, stop)
   useEffect(() => {
     if (!active || !canControl) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        stop()
-      }
+      if (e.key === 'Escape') e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -276,6 +328,34 @@ export function Js8Cockpit({
   const [cmdId, setCmdId] = useState<number | null>(null)
   const snapRef = useRef(snap)
   snapRef.current = snap
+  // THE COMPOSE BOX, BOTH WAYS (JS8Call's extFreeTextMsgEdit). With AUTO off the station puts a
+  // reply here for the operator to send, as JS8Call's processTxQueue types it into its box
+  // (mainwindow.cpp:9671): taken only into an EMPTY box, never over what the operator typed,
+  // and named back so the station knows the box holds it. The station is also told whether the
+  // box holds text. Native only: the Remote observes and has no compose box to fill.
+  const textRef = useRef(text)
+  textRef.current = text
+  const takenRef = useRef<number | null>(null)
+  const composerSync = useRef(async () => {})
+  composerSync.current = async () => {
+    if (!canControl) return
+    const taken = takenRef.current
+    const offered = await js8Composer(textRef.current.trim() !== '', taken).catch(() => undefined)
+    if (offered === undefined) return
+    if (takenRef.current === taken) takenRef.current = null
+    if (offered && typeof offered.text === 'string' && typeof offered.id === 'number' && textRef.current.trim() === '') {
+      takenRef.current = offered.id
+      textRef.current = offered.text
+      setToCall('')
+      setCmdId(null)
+      setText(offered.text)
+    }
+  }
+  const composing = text.trim() !== ''
+  useEffect(() => {
+    if (!active || remote) return
+    void composerSync.current()
+  }, [composing, active, remote])
   const selectStation = (call: string) => setToCall(call.toUpperCase())
   /** A RECEIVE move only — the offset table's double-click, JS8Call's own behaviour on
    *  tableWidgetRXAll. The TX offset is untouched; nothing here keys. */
@@ -323,9 +403,12 @@ export function Js8Cockpit({
       if (s) setJs8(s)
     })
   }
-  const cancelPending = () => {
-    if (!canControl) return
-    void withErrorToast(() => js8Cancel(), t('js8.toast.cancel.failed')).then((s) => {
+  // JS8Call's AutoreplyConfirmation box (mainwindow.cpp:5209-5230): the answer names the reply it
+  // was shown for, so a Yes can never reach a different one.
+  const answerPending = (yes: boolean) => {
+    const p = js8?.pendingReply
+    if (!canControl || !p) return
+    void withErrorToast(() => js8AnswerReply(yes, p.display, p.firesAtMs), t('js8.toast.answer.failed')).then((s) => {
       if (s) setJs8(s)
     })
   }
@@ -366,6 +449,18 @@ export function Js8Cockpit({
       if (s) setJs8(s)
     })
   }
+  // JS8Call's query menu sends a station your locator in one click, `<call> GRID <my_grid()>`
+  // (mainwindow.cpp:6656-6668), and is disabled while none is set (:6657). The button is disabled
+  // whenever the JS8 gate refuses the locator (`locatorRefusal`), and the engine refuses such a
+  // send whatever the button says.
+  const sendMyGrid = (call: string) => {
+    if (!canControl) return
+    if (refuseIfUnready()) return
+    const grid = (snapRef.current?.mygrid ?? '').trim().toUpperCase()
+    void withErrorToast(() => js8SendCommand(call, JS8_GRID.id, grid), t('js8.toast.command.failed')).then((s) => {
+      if (s) setJs8(s)
+    })
+  }
   const setSpeed = (idx: number) => {
     if (!canControl) {
       if (js8 && JS8_SPEEDS[js8.speed].idx !== idx) decoderSettings.change({ action: 'decoder.js8Speed', expectedSpeed: JS8_SPEEDS[js8.speed].idx, speed: idx })
@@ -393,15 +488,81 @@ export function Js8Cockpit({
   // "band of empty black" rebuilt. useRegionCols owns data-cols/data-flow.
   // The main track carries BOTH decode surfaces (the transcript and the offset table), so it
   // is present while either is: hiding only `activity` must not strand `offsets` in no column.
-  const activityPresent = shown('activity') || shown('offsets')
-  const auxPresent = shown('stations') || shown('inbox')
-  const logPresent = shown('log')
-  const populated = [activityPresent, auxPresent, logPresent].filter(Boolean).length
-  const { ref: panesRef, cols } = useRegionCols<HTMLDivElement>(Math.max(1, populated) as RegionCols)
+  //
+  // WHERE EACH PANE STANDS (layout L3, ⊞ Panels ▸ Arrange): the columns are the record's placement,
+  // or the stock grouping (features/panelPlace), and "has something to hold" is counted on them. The
+  // log pane needs a snapshot to render, so that is part of whether it is on screen.
+  const place = panels?.layout.place
+  const paneShown = (id: Js8PanelId): boolean => shown(id) && (id !== 'log' || snap != null)
+  const placed3 = regionGroups(JS8_PANELS.arrange!, place, 3, paneShown)
+  const populated = placed3.filter((g) => g.ids.length > 0).length
+  const { ref: panesRef, cols, flow } = useRegionCols<HTMLDivElement>(Math.max(1, populated) as RegionCols)
+  // The columns, for the dividers between them to measure (panes/RegionColumnSeams).
+  const mainColRef = useRef<HTMLDivElement>(null)
+  const auxColRef = useRef<HTMLDivElement>(null)
+  const logColRef = useRef<HTMLDivElement>(null)
+  // Two tracks with the log hidden are activity | stations + inbox: the second track is the
+  // stations column, and the width divider on its left edge says so.
+  const auxInLogTrack = cols === 2 && placed3[2].ids.length === 0
+  // The columns as this tier renders them: a | b | log at three; at two, a | b when the log column
+  // is empty and a + b | log otherwise; at one, a + b over the log.
+  const rendered: Js8PanelId[][] =
+    cols === 3 || auxInLogTrack
+      ? placed3.map((g) => g.ids)
+      : [[...placed3[0].ids, ...placed3[1].ids], placed3[2].ids]
+  /** Whether `below` sits directly under `above` in one rendered column — what makes them a pair. */
+  const adjacent = (above: Js8PanelId, below: Js8PanelId) =>
+    rendered.some((ids) => {
+      const i = ids.indexOf(above)
+      return i >= 0 && ids[i + 1] === below
+    })
+
+  // THE DIVIDERS BETWEEN PANES IN A COLUMN (layout L2): Activity | Band activity (the two decode
+  // surfaces) and Stations | Inbox. Each pair is adjacent in its column at every tier, and a
+  // pair only while both are shown and the region is bounded — in the stacking flow every pane is
+  // content height and a share moves nothing. While it is a pair, each pane carries the operator's
+  // share and its floor follows it (CockpitPaneFrame `split`). Activity weighs 2 and Band activity
+  // 1, so their divider paints grows of share × 1.5: the pair keeps its stock total of 3, and at
+  // two columns, where Stations and Inbox share the column, they stay exactly where they were.
+  // The waterfall strip, for the divider under it (its height; layout L2).
+  const wfRef = useRef<HTMLDivElement>(null)
+  const activityFrameRef = useRef<HTMLElement>(null)
+  const offsetsFrameRef = useRef<HTMLElement>(null)
+  const stationsFrameRef = useRef<HTMLElement>(null)
+  const inboxFrameRef = useRef<HTMLElement>(null)
+  const decodePair = panels != null && flow === 'fill' && shown('activity') && shown('offsets') && adjacent('activity', 'offsets')
+  const heardPair = panels != null && flow === 'fill' && shown('stations') && shown('inbox') && adjacent('stations', 'inbox')
+  /** The grow a share of 1 stands for in the decode pair: the mean of its stock weights 2 and 1. */
+  const DECODE_SPLIT = 1.5
+  const pairedShare = (paired: boolean, id: Js8PanelId, k: number) => {
+    const s = panels?.layout.share[id]
+    return paired && s != null ? s * k : undefined
+  }
 
   const activityPin = usePinnedScroll<HTMLDivElement>()
   const units = useUnits()
   const myGrid = snap?.mygrid ?? ''
+  const ownGrid = myGrid.trim().toUpperCase()
+  // JS8Call's Settings refuse a malformed locator (Configuration.cpp:2443-2446), so its GRID menu
+  // item only ever meets a good one or none, and is disabled for none (mainwindow.cpp:6657).
+  // Nexus's Settings can hold a malformed one, which the JS8 gate refuses. "Send my grid" asks
+  // that gate, its one rule, whenever the locator changes: disabled while it refuses, with its
+  // reason as the tooltip, and until it has answered. The Remote never asks (it cannot send).
+  const [locatorRefusal, setLocatorRefusal] = useState<string | null | undefined>(undefined)
+  useEffect(() => {
+    if (!active || !canControl) return
+    let live = true
+    void js8LocatorRefusal()
+      .then((reason) => {
+        if (live) setLocatorRefusal(reason)
+      })
+      .catch(() => {
+        if (live) setLocatorRefusal(undefined)
+      })
+    return () => {
+      live = false
+    }
+  }, [active, canControl, myGrid])
 
   // ONE row per offset, from the same activity feed (js8Vocab.bandActivityByOffset) — the
   // pane adds no engine state, it reads the decodes the transcript already carries.
@@ -428,6 +589,26 @@ export function Js8Cockpit({
   const selectedCall = toCall.trim().toUpperCase()
   const selected = js8?.stations.find((h) => h.call === selectedCall) ?? null
   const now = js8DisplayNow(js8)
+  // The list only: the station keeps every call it heard, so the log strip, the rotator and the
+  // To box still know an aged one, as JS8Call's call activity does.
+  const listedStations = js8
+    ? js8ListedStations(js8.stations, js8.inbox, {
+        agingMin: callsignAgingMin,
+        nowMs: now,
+        selectedCall,
+        myCall: snap?.mycall ?? '',
+      })
+    : []
+  // Band activity under JS8Call's aging (js8Vocab.js8ShownOffsetRows), with RX's offset as the
+  // selected one.
+  const shownOffsetRows = js8ShownOffsetRows(offsetRows, {
+    agingMin: activityAgingMin,
+    nowMs: now,
+    selectedHz: snap?.radio.rxOffsetHz ?? null,
+  })
+
+  // ⚑ and the lift to the top for a station with an unread message to me (js8Vocab.js8UnreadFrom).
+  const unreadFrom = js8 ? js8UnreadFrom(js8.inbox, snap?.mycall ?? '') : new Set<string>()
 
   const hbTitle =
     js8?.hbOn && js8.armed.hb
@@ -471,17 +652,6 @@ export function Js8Cockpit({
         : t('js8.dock.estimate', { count: frames, secs: frames * speedInfo.periodS })
   const canSend = !overCap && (cmdId !== null ? toCall.trim() !== '' : text.trim() !== '')
   const pendingSecs = js8?.pendingReply ? Math.max(0, Math.ceil((js8.pendingReply.firesAtMs - now) / 1000)) : 0
-
-  /** Whether the pending reply's ORIGIN can key right now — the engine's per-origin arm
-   *  (switch && txEnabled && !idleTripped), not the latch alone. */
-  const pendingCanKey = (s: Js8State): boolean => {
-    const p = s.pendingReply
-    if (!p) return false
-    if (p.origin === 'autoReply') return s.armed.autoreply
-    if (p.origin === 'relay') return s.armed.relay
-    if (p.origin === 'hbAck') return s.armed.hbAck
-    return s.txEnabled
-  }
 
   /** Literal keys per origin, so the orphan guard sees each referenced. */
   const originLabel = (o: Js8Origin): string => {
@@ -529,6 +699,9 @@ export function Js8Cockpit({
       title={t('js8.panel.activity')}
       paneId="activity"
       weight={2}
+      split={decodePair ? DECODE_SPLIT : undefined}
+      share={pairedShare(decodePair, 'activity', DECODE_SPLIT)}
+      paneRef={activityFrameRef}
       {...closeProps('activity')}
     >
       <div
@@ -574,13 +747,16 @@ export function Js8Cockpit({
       title={t('js8.panel.offsets')}
       paneId="offsets"
       weight={1}
+      split={decodePair ? DECODE_SPLIT : undefined}
+      share={pairedShare(decodePair, 'offsets', DECODE_SPLIT)}
+      paneRef={offsetsFrameRef}
       {...closeProps('offsets')}
     >
       <div className="js8-offsets" title={t('js8.panel.offsets.title')}>
-        {offsetRows.length === 0 ? (
+        {shownOffsetRows.length === 0 ? (
           <div className="cw-decode-idle">{t('js8.panel.offsets.empty')}</div>
         ) : (
-          offsetRows.map((r) => (
+          shownOffsetRows.map((r) => (
             <div
               key={r.offsetHz}
               className={`js8-offset-row${r.mine ? ' mine' : ''}${r.directedToMe ? ' directed' : ''}${
@@ -610,6 +786,9 @@ export function Js8Cockpit({
     <CockpitPaneFrame
       title={t('js8.panel.stations')}
       paneId="stations"
+      split={heardPair ? 1 : undefined}
+      share={pairedShare(heardPair, 'stations', 1)}
+      paneRef={stationsFrameRef}
       {...closeProps('stations')}
     >
       <div className="js8-stations">
@@ -620,7 +799,7 @@ export function Js8Cockpit({
         {!js8 || js8.stations.length === 0 ? (
           <div className="cw-decode-idle">{t('js8.station.empty')}</div>
         ) : (
-          sortPinnedFirst(js8.stations, pins).map((h) => {
+          sortPinnedFirst(js8UnreadFirst(listedStations, unreadFrom), pins).map((h) => {
             // The DX columns JS8Call carries (mainwindow.cpp:10296-10362): distance and
             // azimuth from MY grid to theirs, then the logbook's answer about this call. The
             // grid falls back to the one in the log when the station has not sent one — the
@@ -655,8 +834,10 @@ export function Js8Cockpit({
               </button>
               <span className="js8-cell">{grid}</span>
               <span className="js8-cell js8-snr">{fmtSnr(h.snrDb)}</span>
+              {/* JS8Call's call activity prints the offset held in an int, so truncated
+                  (`cd.offset`, mainwindow.cpp:10280 and :4029): the Band activity pane's rule. */}
               <span className="js8-cell">
-                {Math.round(h.freqHz)} {HZ}
+                {Math.trunc(h.freqHz)} {HZ}
               </span>
               <span className="js8-cell js8-speed">{JS8_SPEEDS[h.speed].letter}</span>
               <span className="js8-cell js8-age">{ageLabel(now - h.lastMs)}</span>
@@ -692,6 +873,11 @@ export function Js8Cockpit({
                   {det.comment}
                 </span>
               )}
+              {unreadFrom.has(h.call) && (
+                <span className="js8-chip" title={t('js8.station.unread.title', { call: h.call })}>
+                  ⚑
+                </span>
+              )}
               {h.lastHb && <span className="js8-chip">{HB}</span>}
               {h.lastCq && <span className="js8-chip">{CQ}</span>}
               {h.storedMsgs > 0 && (
@@ -712,6 +898,18 @@ export function Js8Cockpit({
                     {q.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  className="cw-macro js8-query js8-send-grid"
+                  disabled={!canControl || locatorRefusal !== null}
+                  onClick={() => sendMyGrid(h.call)}
+                  title={
+                    locatorRefusal ??
+                    (ownGrid ? t('js8.station.sendGrid.title', { grid: ownGrid, call: h.call }) : undefined)
+                  }
+                >
+                  {ownGrid ? `${JS8_GRID.label} ${ownGrid}` : JS8_GRID.label}
+                </button>
               </span>
             </div>
             )
@@ -725,6 +923,9 @@ export function Js8Cockpit({
     <CockpitPaneFrame
       title={t('js8.panel.inbox')}
       paneId="inbox"
+      split={heardPair ? 1 : undefined}
+      share={pairedShare(heardPair, 'inbox', 1)}
+      paneRef={inboxFrameRef}
       {...closeProps('inbox')}
     >
       <div className="js8-inbox">
@@ -796,6 +997,50 @@ export function Js8Cockpit({
     </CockpitPaneFrame>
   )
 
+  // The two dividers between panes (see decodePair / heardPair above). Each sits between its pair
+  // in whichever column holds them, as its own slot, so its coming and going moves no pane.
+  const decodeSeam = decodePair && panels && (
+    <PaneSeam
+      above={activityFrameRef}
+      below={offsetsFrameRef}
+      varName="--pane-share"
+      scale={DECODE_SPLIT}
+      onCommit={(a, b) => panels.setShares({ activity: a, offsets: b })}
+      onReset={() => panels.setShares({ activity: null, offsets: null })}
+      label={t('js8.seam.activityOffsets.label')}
+      className="in-column"
+    />
+  )
+  const heardSeam = heardPair && panels && (
+    <PaneSeam
+      above={stationsFrameRef}
+      below={inboxFrameRef}
+      varName="--pane-share"
+      onCommit={(a, b) => panels.setShares({ stations: a, inbox: b })}
+      onReset={() => panels.setShares({ stations: null, inbox: null })}
+      label={t('js8.seam.stationsInbox.label')}
+      className="in-column"
+    />
+  )
+
+  // Each placed pane by its id, KEYED by it (layout L3), with a pair's divider right after the pane
+  // above it: a move within a column is a React move, not a remount, and the pinned log never
+  // changes column.
+  const paneEls: Record<Js8PanelId, React.ReactNode> = {
+    scope: null,
+    activity: activityPane,
+    offsets: offsetsPane,
+    stations: stationsPane,
+    inbox: inboxPane,
+    log: logPane,
+  }
+  const slots = (ids: readonly Js8PanelId[]) =>
+    ids.flatMap((id, i) => [
+      <Fragment key={id}>{paneEls[id]}</Fragment>,
+      ...(id === 'activity' && ids[i + 1] === 'offsets' && decodeSeam ? [<Fragment key="seam-decode">{decodeSeam}</Fragment>] : []),
+      ...(id === 'stations' && ids[i + 1] === 'inbox' && heardSeam ? [<Fragment key="seam-heard">{heardSeam}</Fragment>] : []),
+    ])
+
   return (
     <main className="layout single js8-cockpit">
       {snap && (
@@ -803,9 +1048,6 @@ export function Js8Cockpit({
           snap={snap}
           onSnap={onSnap}
           remoteWorkspace="js8"
-          txActiveLabel="▲ JS8"
-          onStopTx={stop}
-          onSetTxEnabled={onSetTxEnabled ? (on) => { if (canControl) onSetTxEnabled(on) } : undefined}
           // TX DRIVE, the FT8 header's control: a configuration control on the transmit
           // path, not a transmit control.
           power={{
@@ -820,14 +1062,6 @@ export function Js8Cockpit({
             label: t('js8.header.power.label'),
             title: t('js8.header.power.title'),
           }}
-          // TUNE — a steady carrier; also a stop control (it stops the carrier it started),
-          // so it is on this cockpit's stop-line census and its sweep.
-          onTune={(on) => { if (canControl) void setTune(on).then((s) => onSnap?.(s)) }}
-          onAtuTune={() =>
-            canControl && void atuTune()
-              .then((s) => onSnap?.(s))
-              .catch((e) => pushToast(String(e), 'error'))
-          }
           modeIndicator={
             <>
               <span className="cw-mode-badge" title={t('js8.header.speed.title')}>
@@ -892,17 +1126,45 @@ export function Js8Cockpit({
                 onUndo={panels.undo}
                 canUndo={panels.canUndo}
                 onReset={panels.reset}
+                // ⊞ Arrange (layout L3): where each region pane stands. Undo and Reset above cover it.
+                lead={
+                  panels.movePane ? (
+                    <ArrangePanes
+                      spec={JS8_PANELS.arrange!}
+                      layout={panels.layout}
+                      shown={paneShown}
+                      labels={js8PanelLabels()}
+                      onMove={(id, move) => panels.movePane!(id, move, paneShown)}
+                    />
+                  ) : undefined
+                }
               />
             ) : undefined
           }
-        />
+        >
+          {/* THE ROTOR STRIP, in the header's own control cluster as in the keyboard cockpits.
+              → CALL points at the SELECTED station, the heard one the log strip is prefilled
+              from, and not at the To box, which also takes group addresses (@ALLCALL) and calls
+              nobody has heard. `active`, because this cockpit stays mounted while hidden. Its ■
+              stops the rotator, never a transmission. */}
+          {canControl || rotatorControl ? <RotorStrip
+            active={active}
+            onOpenSettings={onOpenSettings}
+            targetCall={selected?.call ?? null}
+            onPointAt={rotorPointAt(canControl)}
+          /> : <span className="dim" role="status" aria-label={t('remote.rotatorUnavailable')} title={t('remote.rotatorUnavailable')}>{t('rotor.strip.aria')} —</span>}
+        </CockpitHeader>
       )}
 
       {/* THE BAND WATERFALL — ⊞-hideable (SCOPE_PANEL_ID). The RX/TX cursors are the engine's
           audio offsets: a click sets RX, right-click/Shift TX, Ctrl/Command both.
-          It hosts no stop control and no sender. */}
+          It hosts no stop control and no sender. Its divider (layout L2) sits under it, a shell
+          child like Phone's and CW's scope dividers, and goes with it when the strip is hidden:
+          the stored height stays, so ticking the waterfall back brings back the height set. */}
       {shown('scope') && (
+        <>
         <Waterfall
+          stripRef={wfRef}
           {...closeProps('scope')}
           paneTitle={js8PanelLabels().scope}
           theme={theme}
@@ -928,6 +1190,37 @@ export function Js8Cockpit({
                 .catch(() => {})
           }}
         />
+        <PaneSeam
+          axis="y"
+          varName="--js8-wf-h"
+          strip={wfRef}
+          storageKey="nexus.split.js8.waterfall"
+          min={WATERFALL_SPLIT_MIN}
+          max={WATERFALL_SPLIT_MAX}
+          defaultPct={25}
+          label={t('js8.waterfall.splitter.label')}
+        />
+        </>
+      )}
+
+      {/* THE TX STRIP — FT's cluster under the waterfall (2026-10-01): the TX-enable
+          latch, Tune, the rig's ATU and Stop TX, sticky so they never leave the window. A shell
+          child with no ⊞ id, so hiding the waterfall leaves it directly under the header.
+          TUNE — a steady carrier; also a stop control (it stops the carrier it started), so it
+          is on this cockpit's stop-line census and its sweep. */}
+      {snap && (
+        <CockpitTxStrip
+          radio={snap.radio}
+          onSnap={onSnap}
+          onStopTx={stop}
+          onSetTxEnabled={onSetTxEnabled ? (on) => { if (canControl) onSetTxEnabled(on) } : undefined}
+          onTune={(on) => { if (canControl) void setTune(on).then((s) => onSnap?.(s)) }}
+          onAtuTune={() =>
+            canControl && void atuTune()
+              .then((s) => onSnap?.(s))
+              .catch((e) => pushToast(String(e), 'error'))
+          }
+        />
       )}
 
       {js8?.lastError && (
@@ -937,56 +1230,59 @@ export function Js8Cockpit({
       )}
 
       {/* THE PANE REGION — CW's keyed columns: the log column keeps its key across a 2↔3 flip so
-          the LogEntry never remounts mid-entry (the fix-round D1 rule). */}
-      <div className="cockpit-panes" ref={panesRef}>
-        {cols === 3 ? (
+          the LogEntry never remounts mid-entry (the fix-round D1 rule). The column dividers
+          (layout L2) ride the region after its columns and move only the boundaries between
+          them — Phone's twin, which says why. */}
+      <div className="cockpit-panes" ref={panesRef} style={regionColsStyle(panels?.layout.cols)}>
+        {/* The columns the placement gives at this tier (`rendered`, above), each ONE flat keyed
+            list — a pane that stays in its column keeps its fiber across a tier flip — with the two
+            pair dividers riding directly under the pane above them, wherever the pair is adjacent
+            (layout L3). The keys and refs of the columns are unchanged: main, aux, log. */}
+        {cols === 3 || auxInLogTrack ? (
           <>
-            <div className="cockpit-col" key="main">
-              {activityPane}
-              {offsetsPane}
+            <div className="cockpit-col" key="main" ref={mainColRef}>
+              {slots(rendered[0])}
             </div>
-            <div className="cockpit-col" key="aux">
-              {stationsPane}
-              {inboxPane}
+            <div className="cockpit-col" key="aux" ref={auxColRef}>
+              {slots(rendered[1])}
             </div>
-            <div className="cockpit-col" key="log">
-              {logPane}
-            </div>
-          </>
-        ) : cols === 2 && !logPresent ? (
-          <>
-            <div className="cockpit-col" key="main">
-              {activityPane}
-              {offsetsPane}
-            </div>
-            <div className="cockpit-col" key="aux">
-              {stationsPane}
-              {inboxPane}
-            </div>
+            {cols === 3 && (
+              <div className="cockpit-col" key="log" ref={logColRef}>
+                {slots(rendered[2])}
+              </div>
+            )}
           </>
         ) : (
           <>
-            {(activityPresent || auxPresent) && (
-              <div className="cockpit-col" key="main">
-                {activityPane}
-                {offsetsPane}
-                {stationsPane}
-                {inboxPane}
+            {rendered[0].length > 0 && (
+              <div className="cockpit-col" key="main" ref={mainColRef}>
+                {slots(rendered[0])}
               </div>
             )}
-            {logPresent && (
-              <div className="cockpit-col" key="log">
-                {logPane}
+            {rendered[1].length > 0 && (
+              <div className="cockpit-col" key="log" ref={logColRef}>
+                {slots(rendered[1])}
               </div>
             )}
           </>
         )}
+        {panels?.setCols && (
+          <RegionColumnSeams
+            region={panesRef}
+            cols={cols}
+            tracks={cols === 3 ? [mainColRef, auxColRef, logColRef] : [mainColRef, auxInLogTrack ? auxColRef : logColRef]}
+            stored={panels.layout.cols}
+            setCols={panels.setCols}
+            splitLabel={t('js8.seam.columns.label')}
+            widthLabel={auxInLogTrack ? t('js8.seam.auxWidth.label') : t('pane.seam.logWidth.label')}
+          />
+        )}
       </div>
 
       {/* TX DOCK — every transmit control, pinned OUTSIDE the pane region. None has a ⊞ id.
-          Stop TX and Tune are up in the header: THE STOP LINE. Everything down here is a
+          Stop TX and Tune are up in the TX strip: THE STOP LINE. Everything down here is a
           SENDER (Send, CQ), a second-act arm (HB / AUTOREPLY / RELAY / HB ACK — each is only
-          the SECOND act; the session TX latch in the header is the first, and the chip shows
+          the SECOND act; the session TX latch in the TX strip is the first, and the chip shows
           "armed" only when both agree), a cancel for a reply that has not fired, or Drop
           queue — a SENDER-class control (it empties the queue; a frame already keyed
           finishes) that must never enter the stop-line sweep. */}
@@ -1119,25 +1415,28 @@ export function Js8Cockpit({
             ))}
         </div>
 
-        {/* THE PENDING AUTO-REPLY (spec invariant 11): visible, counted down, cancellable.
-            Under the auto arm with TX off the station only SHOWS what it would have sent. */}
+        {/* THE AUTOMATIC REPLY THAT ASKS FIRST (JS8Call's AutoreplyConfirmation, on by default):
+            Yes queues it for the next period; No, or no answer before the count runs out, sends
+            nothing. With TX off it says so: a Yes then keys nothing. With the confirmation off a
+            reply never asks: it is in the queue below, and keys in the next period. */}
         {js8?.pendingReply && (
-          <div className="js8-dock-row js8-pending-row" role="status">
+          <div className="js8-dock-row js8-pending-row js8-confirm-row" role="status">
             <span className="js8-pending-text">
-              {pendingCanKey(js8)
-                ? t('js8.dock.pending', { to: js8.pendingReply.to, secs: pendingSecs, text: js8.pendingReply.display })
-                : !js8.txEnabled
-                  ? t('js8.dock.pending.txOff', { to: js8.pendingReply.to, text: js8.pendingReply.display })
-                  : t('js8.dock.pending.idle', { to: js8.pendingReply.to, text: js8.pendingReply.display })}
+              {js8.txEnabled
+                ? t('js8.dock.confirm', { text: js8.pendingReply.display })
+                : t('js8.dock.pending.txOff', { to: js8.pendingReply.to, text: js8.pendingReply.display })}
             </span>
-            <button type="button" className="cw-macro js8-cancel" disabled={!canControl} onClick={cancelPending} title={t('js8.dock.pending.cancel.title')}>
-              {t('js8.dock.pending.cancel.label')}
+            <button type="button" className="cw-macro js8-confirm-yes" disabled={!canControl} onClick={() => answerPending(true)} title={t('js8.dock.confirm.yes.title')}>
+              {t('js8.dock.confirm.yes.label')}
+            </button>
+            <button type="button" className="cw-macro js8-confirm-no" disabled={!canControl} onClick={() => answerPending(false)} title={t('js8.dock.confirm.no.title')}>
+              {t('js8.dock.confirm.no.label', { secs: pendingSecs })}
             </button>
           </div>
         )}
 
         {/* THE QUEUE — one frame leaves per period once TX is on. F/L are the i3 First/Last
-            flags (tokens). Drop queue is NOT a stop; Stop TX is in the header. */}
+            flags (tokens). Drop queue is NOT a stop; Stop TX is in the TX strip. */}
         {js8 && js8.queue.length > 0 && (
           <div className="js8-dock-row js8-queue-row" title={t('js8.dock.queue.title')}>
             {js8.queue.map((r, i) => (

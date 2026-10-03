@@ -26,7 +26,17 @@ import { PALETTE_ROLES } from './features/paletteRoles'
 export const PER_SURFACE = [
   'neededFilters',
   'nexus-ui-scale-mode',
+  // APRS's body (layout L7): the station list column's width and the side the map stands on —
+  // statements about THIS window's shape, like Connect's rail widths and Operate's rail side.
+  'nexus.aprs.mapSide',
+  'nexus.aprs.railWidth',
   'nexus.awardsTab',
+  // The Awards and Satellites views' column split (layout L7): a proportion of THIS window's grid.
+  'nexus.awards.columns',
+  // Whether THIS window's Connect draws the dashboard bar over its header (a layout writes it: Frame +
+  // bar on, every other layout and Reset layout off). A pop-out inherits the main window's until it
+  // picks a layout of its own, like the placement it is read back with.
+  'nexus.connect.bar',
   'nexus.connect.config',
   'nexus.connect.globe3d.layers',
   'nexus.connect.insights.collapsed',
@@ -39,6 +49,14 @@ export const PER_SURFACE = [
   // The Layers panel folded to its pill (MapLayersPanel) — per window, like the Conditions rail,
   // and one record for the 2-D and 3-D panels, which sit in the same place.
   'nexus.connect.layersPanel.collapsed',
+  // Connect's POTA/SOTA box keeps its OWN copy of the board's filters (PotaSotaView OTA_KEYS.box),
+  // per window like the view's `nexus.ota.*` below: a chip in the box never moves the view's.
+  'nexus.connect.ota.bandFilter',
+  'nexus.connect.ota.hideWorked',
+  'nexus.connect.ota.modeFilter',
+  'nexus.connect.ota.program',
+  'nexus.connect.ota.sortAsc',
+  'nexus.connect.ota.sortKey',
   'nexus.connect.map3d',
   // The map's full-screen chrome-hide. Per-surface for the same reason map3d is — it is a
   // statement about ONE window — and the one per-surface key here that is deliberately read
@@ -49,11 +67,19 @@ export const PER_SURFACE = [
   // The two rail widths the operator dragged (2026-09-13). A width is a statement about one
   // window's shape: a pop-out inherits it on first open and clamps it against its own box.
   'nexus.connect.railWidths',
+  // The dashboard rail beside the cockpits (features/dashRail): which box is in each slot, whether it
+  // shows beside each section, and its width — statements about THIS window, like Connect's.
+  'nexus.dashrail.config',
+  'nexus.dashrail.sections',
+  'nexus.dashrail.width',
   'nexus.decodes.filter',
   // The Phone cockpit's Needed pane's own filter record (#345). The board's `neededFilters`
   // under another name, for the same reason: what THIS board shows. Never that key — a chip in
   // the pane and one on the Needed view must not move each other.
   'nexus.phone.neededFilters',
+  // …and the CW cockpit's (plan H8: CW gains Phone's two feeds), for the same reason and apart
+  // from both of the above.
+  'nexus.cw.neededFilters',
   'nexus.decodes.hideB4',
   'nexus.decodes.hideBlocked',
   'nexus.decodes.hideConfirmed',
@@ -62,6 +88,9 @@ export const PER_SURFACE = [
   'nexus.decodes.newestTop',
   'nexus.logbook.globespin',
   'nexus.operate.layout',
+  // Which side Operate's rail stands on (layout L5): a layout choice of THIS window, like the
+  // Classic / Roster pick on either side of it.
+  'nexus.operate.railSide',
   'nexus.operateLayout',
   'nexus.ota.bandFilter',
   // Hide worked today: a statement about what THIS board shows, like the filters beside it — a
@@ -75,16 +104,32 @@ export const PER_SURFACE = [
   'nexus.phonescope.flow',
   'nexus.phonescope.win',
   'nexus.roster.filters',
+  'nexus.sats.columns',
   'nexus.sats.favOnly',
   'nexus.spotlegend',
+  // Connect's bottom strip height (layout L7): a % of THIS window's grid, like the strips below.
+  'nexus.split.connect.strip',
   'nexus.split.cw.scope',
+  // JS8's waterfall height (layout L2): a % of THIS window's shell, like the three beside it.
+  'nexus.split.js8.waterfall',
+  // The Logbook's globe band height (layout L7): a % of THIS window's list, the same kind.
+  'nexus.split.logbook.globe',
   'nexus.split.operate.waterfall',
+  // Operate Classic's Tx1–Tx6 machine height (layout L5), the same kind.
+  'nexus.split.operate.tx',
   'nexus.split.phone.scope',
+  // RTTY's and PSK's waterfall heights (layout L6), the same kind; and SSTV's picture stage.
+  'nexus.split.psk.waterfall',
+  'nexus.split.rtty.waterfall',
+  'nexus.split.sstv.stage',
   'nexus.view',
   'nexus.waterfall.dss',
   'nexus.waterfall.flow',
   'nexus.waterfall.zoom',
   'tempo-left-rail-w',
+  // Which Tempo rail the operator set last — the one that keeps its width when the pair must give
+  // (usePaneWidths.fitRails). A statement about THIS window's two widths, like them.
+  'tempo-rail-last',
   'tempo-right-rail-w',
 ]
 
@@ -135,6 +180,9 @@ const SHARED = [
   'nexus-palette-cyan',
   'nexus-palette-ok',
   'nexus-palette-readout',
+  // The built-in theme (Settings ▸ Appearance ▸ Theme; useSkin.ts): part of the theme, the same
+  // class, so a pop-out paints the theme the window that opened it paints.
+  'nexus-skin',
   'nexus-motion',
   'nexus-ui-scale-cap',
   'nexus.connect.chaseDefault.v1',
@@ -173,6 +221,10 @@ const SHARED = [
   // same reason (remote-web/useRareDxAlerts, remote-web/usePotaAlerts).
   'nexus.remote.potaAlerts',
   'nexus.remote.rareDxAlerts',
+  // The Remote page's flag that shows the old watch/control workspace again, hidden while streaming
+  // is proven (remote-web/RemoteApp, 2026-10-02). Set by hand or by the compiled sweep, for the whole
+  // browser: SHARED, like the alert opt-ins.
+  'nexus.remote.workspace',
   'nexus.operate.tuneStep',
   'nexus.panels.wfDetached.v1',
   'nexus.phone.tuneStep',
@@ -235,7 +287,9 @@ const SESSION_SCOPED = [
   // The band a PANE of the board follows, and the modes it opens on as an allow-list (#345: the
   // Phone cockpit's Spots pane). Each is kept only by that pane; the view keeps `hiddenModes`
   // instead and no follow switch at all. A pane keeps EVERY key here as its own copy,
-  // `<key>.<scope>` (`nexus.spots.bands.phone`): same store, same lifetime, same verdict.
+  // `<key>.<scope>` (`nexus.spots.bands.phone`): same store, same lifetime, same verdict. Connect's
+  // Spots box is a pane that names no modes and follows no band, so it keeps `hiddenModes` in
+  // its copy (`nexus.spots.hiddenModes.connect`), the view's rule, and no follow switch.
   'nexus.spots.followBand',
   'nexus.spots.shownModes',
   'nexus.spots.hiddenModes',
@@ -329,14 +383,37 @@ const INDIRECT: Record<string, string[]> = {
   // unscoped layout key — which no test could catch, since its literal would not be in the
   // classification either.
   'features/paneLayout.ts:spec': [],
-  'components/Splitter.tsx:storageKey': [
+  'components/PaneSeam.tsx:storageKey': [
     'nexus.split.operate.waterfall',
     'nexus.split.cw.scope',
     'nexus.split.phone.scope',
+    'nexus.split.js8.waterfall',
+    'nexus.split.rtty.waterfall',
+    'nexus.split.psk.waterfall',
+    'nexus.split.sstv.stage',
+    'nexus.split.operate.tx',
+    'nexus.split.connect.strip',
+    'nexus.split.logbook.globe',
   ],
   // The Needed board's filter record: its own key as the view and the pop-out, or the key the
-  // host of a PANE of it passes (NeededPane — the Phone cockpit's, #345).
-  'components/NeededPanel.tsx:key': ['neededFilters', 'nexus.phone.neededFilters'],
+  // host of a PANE of it passes (NeededPane — the Phone and CW cockpits', #345 and plan H8).
+  'components/NeededPanel.tsx:key': ['neededFilters', 'nexus.phone.neededFilters', 'nexus.cw.neededFilters'],
+  // The POTA/SOTA board's filters, read and written through its key table (OTA_KEYS): the view's
+  // own six, or the Connect box's six.
+  'components/PotaSotaView.tsx:keys': [
+    'nexus.ota.program',
+    'nexus.ota.bandFilter',
+    'nexus.ota.modeFilter',
+    'nexus.ota.sortKey',
+    'nexus.ota.sortAsc',
+    'nexus.ota.hideWorked',
+    'nexus.connect.ota.program',
+    'nexus.connect.ota.bandFilter',
+    'nexus.connect.ota.modeFilter',
+    'nexus.connect.ota.sortKey',
+    'nexus.connect.ota.sortAsc',
+    'nexus.connect.ota.hideWorked',
+  ],
 }
 
 const routed = new Set<string>()
@@ -480,6 +557,20 @@ describe('call sites agree with the classification', () => {
     expect([...indirect].sort()).toEqual(Object.keys(INDIRECT).sort())
   })
 
+  it('classifies every strip divider’s key — a JSX `storageKey` literal no call-site scan can see', () => {
+    // PaneSeam's strip kind stores through `surfaceGet(storageKey)`, so the literal lives in a JSX
+    // attribute at each caller and the scan above never meets it: a new divider's key (JS8's
+    // waterfall, layout L2) went unclassified and every test stayed green. Every one, found in
+    // the source, must be declared as that seam's key and classified per surface.
+    const found = new Set<string>()
+    for (const file of sources(SRC)) {
+      for (const m of readFileSync(file, 'utf8').matchAll(/storageKey="([^"]+)"/g)) found.add(m[1])
+    }
+    expect(found.size, 'the scan found no divider key at all — it is reading nothing').toBeGreaterThanOrEqual(3)
+    expect([...found].sort()).toEqual([...INDIRECT['components/PaneSeam.tsx:storageKey']].sort())
+    for (const k of found) expect(PER_SURFACE, `${k} is not classified`).toContain(k)
+  })
+
   it('checks the pass-through seams really carry the keys they claim', () => {
     const panes = readFileSync(join(SRC, 'usePaneWidths.ts'), 'utf8')
     expect(panes).toContain("const KEY_RIGHT = 'tempo-right-rail-w'")
@@ -491,6 +582,13 @@ describe('call sites agree with the classification', () => {
       ['components/OperateCockpit.tsx', 'nexus.split.operate.waterfall'],
       ['components/CwCockpit.tsx', 'nexus.split.cw.scope'],
       ['components/PhoneCockpit.tsx', 'nexus.split.phone.scope'],
+      ['components/Js8Cockpit.tsx', 'nexus.split.js8.waterfall'],
+      ['components/RttyCockpit.tsx', 'nexus.split.rtty.waterfall'],
+      ['components/PskCockpit.tsx', 'nexus.split.psk.waterfall'],
+      ['components/SstvView.tsx', 'nexus.split.sstv.stage'],
+      ['components/OperateCockpit.tsx', 'nexus.split.operate.tx'],
+      ['components/ConnectView.tsx', 'nexus.split.connect.strip'],
+      ['components/Logbook.tsx', 'nexus.split.logbook.globe'],
     ]) {
       expect(readFileSync(join(SRC, file), 'utf8')).toContain(`storageKey="${key}"`)
     }
@@ -501,6 +599,15 @@ describe('call sites agree with the classification', () => {
     const phone = readFileSync(join(SRC, 'components/PhoneCockpit.tsx'), 'utf8')
     expect(phone).toContain("const PHONE_NEEDED_FILTERS = 'nexus.phone.neededFilters'")
     expect(phone).toContain('pane={{ filterKey: PHONE_NEEDED_FILTERS,')
+    const cw = readFileSync(join(SRC, 'components/CwCockpit.tsx'), 'utf8')
+    expect(cw).toContain("const CW_NEEDED_FILTERS = 'nexus.cw.neededFilters'")
+    expect(cw).toContain('pane={{ filterKey: CW_NEEDED_FILTERS,')
+    // The POTA/SOTA board's key table: every key the seam claims is a literal in it, the board
+    // reads through it and nothing else, and it picks the box's half only as a box.
+    const ota = readFileSync(join(SRC, 'components/PotaSotaView.tsx'), 'utf8')
+    for (const k of INDIRECT['components/PotaSotaView.tsx:keys']) expect(ota).toContain(`'${k}'`)
+    expect(ota).toContain('const keys = pane ? OTA_KEYS.box : OTA_KEYS.view')
+    expect(ota).not.toMatch(/surface(?:Get|Set)\(\s*'nexus\.(?:connect\.)?ota\./)
   })
 
   it('scopes BOTH writers of a key written from two components', () => {

@@ -4,8 +4,10 @@
 // auto-radius. The Channel/RepeaterRecord DTOs mirror the Rust serde camelCase
 // shapes exactly (see crates/propagation/src/{memchan,repeaters}.rs).
 
-import type { ProgChannel, RepeaterRecord } from '../types'
-import type { Memory } from './memories'
+import type { ProgChannel, RepeaterRecord, RepeaterSearchRow } from '../types'
+import { addMemory, newMemoryId, standardOffsetMhz, type MemoriesBank, type Memory } from './memories'
+import { baseCall } from '../callsign'
+import { haversineKm } from '../grid'
 
 /** Per-radio channel-name display caps (the header "Max name" select). */
 export const NAME_CAPS = [
@@ -72,7 +74,7 @@ export function deriveNames(
   cap: number,
 ): string[] {
   // Strip /R-style suffixes — the base call is what operators call the machine.
-  const calls = rows.map((r) => sanitizeName(r.callsign.split('/')[0] ?? '', cap))
+  const calls = rows.map((r) => sanitizeName(baseCall(r.callsign), cap))
   const counts = new Map<string, number>()
   for (const c of calls) {
     if (c) counts.set(c, (counts.get(c) ?? 0) + 1)
@@ -107,6 +109,34 @@ export function bandOfMhz(mhz: number): string {
 
 export const BAND_CHIPS = ['2m', '70cm', '1.25m', '6m', '10m'] as const
 
+/** How close an output must be to a typed frequency to be ON it, MHz: 2.5 kHz, the merge's own
+ * same-channel tolerance (`SAME_CHANNEL_MHZ` in `repeaters.rs`). Under half the narrowest channel
+ * raster in use (6.25 kHz), so a typed frequency names one channel on any band plan (147.18 never
+ * finds 147.195 on a 15 kHz plan or 147.1875 on a 12.5 kHz one), while a directory that writes a
+ * 12.5 kHz channel to the kHz (438.5125 as 438.513) still matches it. */
+export const FREQ_MATCH_MHZ = 0.0025
+
+/** The search box's text read as a frequency in MHz, or null when it is not one: a number with a
+ * point or the decimal comma some languages write (147.18, 147.180, 438,5125), from 28 to
+ * 1300 MHz, 10 m to 23 cm. A callsign, a town or a lone digit stays a text filter. */
+export function frequencyQuery(q: string): number | null {
+  const t = q.trim()
+  if (!/^\d{2,4}([.,]\d{0,6})?$/.test(t)) return null
+  const mhz = Number(t.replace(',', '.'))
+  return mhz >= 28 && mhz <= 1300 ? mhz : null
+}
+
+/** Is a machine with this output on the typed frequency (within `FREQ_MATCH_MHZ`)? */
+export function onFrequency(outputMhz: number, mhz: number): boolean {
+  return Math.abs(outputMhz - mhz) <= FREQ_MATCH_MHZ + 1e-9
+}
+
+/** A frequency as Program prints one: four decimals, trailing zeros dropped (147.18, 438.5125,
+ * 147.0). */
+export function mhzLabel(mhz: number): string {
+  return mhz.toFixed(4).replace(/0+$/, '').replace(/\.$/, '.0')
+}
+
 /** Band-aware auto radius (miles): the reach you'd realistically work the band
  * at HT/mobile power. Multiple bands → the widest; none selected → 50. */
 export function autoRadiusMi(bands: string[]): number {
@@ -122,6 +152,12 @@ export function autoRadiusMi(bands: string[]): number {
 }
 
 export const RADIUS_CHIPS_MI = [10, 25, 50, 100, 200] as const
+
+/** A route's corridor (miles): how far either side of the line between its two places a machine
+ * may be. 25 mi by default, the 70 cm reach `autoRadiusMi` uses (2 m reaches farther), so a machine
+ * inside it can be worked from the road on either band. */
+export const CORRIDOR_CHIPS_MI = [10, 25, 50] as const
+export const DEFAULT_CORRIDOR_MI = 25
 
 export function miToKm(mi: number): number {
   return mi * 1.609344
@@ -182,7 +218,7 @@ export function rigRepeaterParams(c: ProgChannel): {
  * export), and the tail keeps a club's 2 m and 70 cm machines apart in the
  * cockpit strip. Falls back to the record's own name when there's no callsign. */
 export function favoriteName(c: ProgChannel): string {
-  const call = (c.source?.callsign ?? '').split('/')[0]?.trim().toUpperCase() ?? ''
+  const call = baseCall(c.source?.callsign ?? '')
   return call ? `${call} ${freqTail(c.rxMhz)}` : c.name
 }
 
@@ -201,18 +237,124 @@ export function repeaterMemory(
   site?: { lat: number; lon: number },
 ): Partial<Memory> & { rxMhz: number; mode: string } {
   const { shift, offsetHz, toneHz } = rigRepeaterParams(c)
+  // A DCS code rides into the bank (and its CHIRP export) as it is: a send-only one as CHIRP's
+  // Cross "DTCS->", which the bank writes for a cross memory carrying a code and nothing else
+  // (`isSendOnlyDcs`). Recall still tunes no code: the rig path has no DCS setting, which is
+  // why `rigRepeaterParams` carries none.
+  const dtcs = c.toneMode === 'dtcs'
+  const sendOnly = dtcs && !!c.dtcsTxOnly
   return {
     name,
     rxMhz: c.rxMhz,
-    mode: 'FM',
-    kind: shift === 'simplex' && !toneHz ? 'simplex' : 'repeater',
+    mode: c.mode === 'nfm' ? 'NFM' : 'FM',
+    kind: shift === 'simplex' && !toneHz && !dtcs ? 'simplex' : 'repeater',
     offsetDir: shift,
     offsetMhz: offsetHz ? offsetHz / 1e6 : undefined,
-    toneMode: toneHz ? 'tone' : 'none',
+    toneMode: sendOnly ? 'cross' : dtcs ? 'dtcs' : toneHz ? 'tone' : 'none',
     ctcssEncHz: toneHz || undefined,
+    dtcsCode: dtcs ? c.dtcsCode : undefined,
     callsign: c.source?.callsign || undefined,
+    // The town, the links and the DMR colour code, in the words both exports write them: Memories
+    // has no column for any of the three, and its CHIRP export carries the notes as the comment.
+    notes: exportComment(c) || undefined,
     lat: site?.lat,
     lon: site?.lon,
     source: 'program',
   }
+}
+
+/** The comment both of Program's exports write for a channel, mirrored from `Channel::export_comment`
+ * (memchan.rs): its own comment (the town, or the callsign when the directory gives no town), then
+ * its links and its DMR colour code, the parts there are joined with "; " ("Seattle; IRLP 3570;
+ * AllStar 2462; CC1"). */
+export function exportComment(c: ProgChannel): string {
+  return [c.comment, ...(c.links ?? []), ...(c.dmrColorCode != null ? [`CC${c.dmrColorCode}`] : [])]
+    .filter((part) => part !== '')
+    .join('; ')
+}
+
+/** How far apart two sites may be and still be one machine when neither row names it: the merge's
+ * `SAME_SITE_KM` (repeaters.rs). */
+export const SAME_SITE_KM = 5
+
+/** The callsign a machine is known by, without the decoration a list adds for a link or a node
+ * ("GB7DZ-L", "K1ABC-R", "W1XYZ/R"): upper case, up to the first `-`, `/` or space. The merge's
+ * `machine_call`. */
+export function machineCall(call: string): string {
+  return call.trim().toUpperCase().split(/[-/ ]/)[0] ?? ''
+}
+
+/** Where a memory transmits, MHz: its split's TX, or its output moved by its offset (the band's
+ * standard one when it stores none, as the bank's own CHIRP export does). */
+function memoryInputMhz(m: Memory): number {
+  if (m.offsetDir === 'split') return m.txMhz ?? m.rxMhz
+  const shift = m.offsetMhz ?? standardOffsetMhz(m.rxMhz)
+  if (m.offsetDir === 'plus') return m.rxMhz + shift
+  if (m.offsetDir === 'minus') return m.rxMhz - shift
+  return m.rxMhz
+}
+
+/** Is this memory the machine `r` is? THE MERGE'S OWN RULE (`same_machine` in repeaters.rs), so a
+ * repeater counts as saved exactly when the merge would have made the two one row: outputs within
+ * 2.5 kHz (`FREQ_MATCH_MHZ`) and the same machine callsign; or, with no callsign on either, inputs
+ * within 2.5 kHz too and sites within 5 km. A memory that names no callsign and no site cannot pass
+ * the second test, so it is never taken for a directory's machine: two machines can share an output
+ * and a tone a county apart. The mode does not enter into it (one machine is one row, whatever its
+ * modes), and neither does the tone the memory stores. */
+export function sameMachine(m: Memory, r: RepeaterRecord): boolean {
+  if (!onFrequency(m.rxMhz, r.outputMhz)) return false
+  const [a, b] = [machineCall(m.callsign ?? ''), machineCall(r.callsign)]
+  if (a && b) return a === b
+  if (m.lat == null || m.lon == null) return false
+  return (
+    onFrequency(memoryInputMhz(m), r.inputMhz) &&
+    haversineKm({ lat: m.lat, lon: m.lon }, { lat: r.lat, lon: r.lon }) < SAME_SITE_KM
+  )
+}
+
+/** The memory that already is this search row's machine, if the bank holds one ([`sameMachine`]). */
+export function savedMemoryOf(bank: MemoriesBank, row: RepeaterSearchRow): Memory | undefined {
+  return bank.memories.find((m) => sameMachine(m, row.record))
+}
+
+/** A search row saved into the bank as a memory (not a favourite): every field `repeaterMemory`
+ * maps, named the way it is said out loud ([`favoriteName`]), with the machine's site. A machine the
+ * bank already holds ([`savedMemoryOf`]) is left as it is, so saving twice adds nothing. `refused`:
+ * the bank would not take the channel (`coerceMemory` — no frequency or no mode), and nothing changed. */
+export function saveRepeater(
+  bank: MemoriesBank,
+  row: RepeaterSearchRow,
+): { bank: MemoriesBank; memory: Memory | undefined; result: 'saved' | 'exists' | 'refused' } {
+  const have = savedMemoryOf(bank, row)
+  if (have) return { bank, memory: have, result: 'exists' }
+  const id = newMemoryId()
+  const next = addMemory(bank, {
+    ...repeaterMemory(row.channel, favoriteName(row.channel), { lat: row.record.lat, lon: row.record.lon }),
+    id,
+  })
+  const memory = next.memories.find((m) => m.id === id)
+  return memory ? { bank: next, memory, result: 'saved' } : { bank, memory: undefined, result: 'refused' }
+}
+
+/** What Program's map makes of the rows it is given (the operator, 2026-09-30: "hearham-only map
+ * now"). The rows it plots are those with a hearham point (`row.map`, which the Rust merge fills
+ * from the machine's hearham row and nothing else), and the rest are counted by why they are left
+ * off: RepeaterBook's terms forbid a map, and the RSGB list is not mapped for now. */
+export interface MapSplit {
+  /** The rows on the map, in list order. */
+  mapped: RepeaterSearchRow[]
+  /** Rows only RepeaterBook lists (no hearham row). */
+  leftOffRb: number
+  /** Rows only the RSGB list has. */
+  leftOffRsgb: number
+}
+
+export function splitForMap(rows: readonly RepeaterSearchRow[]): MapSplit {
+  const out: MapSplit = { mapped: [], leftOffRb: 0, leftOffRsgb: 0 }
+  for (const row of rows) {
+    if (row.map) out.mapped.push(row)
+    else if (row.sources.some((s) => s.source === 'repeaterbook')) out.leftOffRb += 1
+    else if (row.sources.some((s) => s.source === 'rsgb')) out.leftOffRsgb += 1
+  }
+  return out
 }

@@ -1,5 +1,6 @@
 import { RemoteRecall } from '../remote-web/RemoteRecall'
 import { useStationControl, useStationTierControl, useStationCapability } from '../stationAccess'
+import { useEscStop } from '../useEscStop'
 import { useDecoderSettings } from '../remote-web/useDecoderSettings'
 import { useReceiverSettings } from '../remote-web/useReceiverSettings'
 // ⚠️ THIS FILE IS ON THE MIGRATED LIST (i18n/hardcoded-strings.test.ts). Every reading in this
@@ -13,7 +14,7 @@ import { useReceiverSettings } from '../remote-web/useReceiverSettings'
 // Nothing that stops or keys a transmission is in this file: Operate's stop line is Stop TX
 // and Tune in `OperateQsoStrip.tsx` (both deferred, see that file's header) plus the Esc
 // binding below, which is a keyboard handler with no string of its own.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { t } from '../i18n'
 import { controlFailureMessage } from '../remote-web/control-failure'
 import { engagedInQso } from '../alerts'
@@ -23,6 +24,7 @@ import type {
   ModeRequest,
   NeedAlert,
   NeedTag,
+  PointedAt,
   QrzLookup,
   Settings,
   SourceKind,
@@ -54,11 +56,12 @@ import { qrzLookup, resolveEntity } from '../api'
 import { pushToast } from '../toast'
 import { SplitControl } from './SplitControl'
 import { RotorStrip } from './RotorStrip'
+import { pointedTo } from './rotorPointAt'
 import { FastGraph } from './FastGraph'
 import { Waterfall } from './Waterfall'
 import { FT_PALETTE_SCOPE } from '../waterfallPalette'
-import { Splitter } from './Splitter'
-import { SplitterSeam } from './SplitterSeam'
+import { PaneSeam } from './PaneSeam'
+import { TX_SPLIT_MAX, TX_SPLIT_MIN } from '../features/paneSeam'
 import { buildHighlightMap, OperateDecodes } from './OperateDecodes'
 import { DecodeHistory } from '../decodeHistory'
 import { OperateQsoStrip } from './OperateQsoStrip'
@@ -71,6 +74,20 @@ import { CockpitHeader } from './CockpitHeader'
 import { PanelsMenu } from './PanelsMenu'
 import { WATERFALL_DETACHED_KEY, type OperatePanelId, type PanelLayoutApi } from '../features/panelState'
 import { panelHost, type PanelHostSpec } from '../features/panelHost'
+import {
+  CLASSIC_FLOOR,
+  CLASSIC_VARS,
+  ROSTER_FLOOR,
+  ROSTER_SCALE,
+  ROSTER_VARS,
+  classicCommit,
+  classicReset,
+  classicScale,
+  classicStyle,
+  classicWidths,
+  rosterStyle,
+} from '../features/operateColumns'
+import { surfaceGet, surfaceSet } from '../features/windowScope'
 import { FrequencyControl } from './FrequencyControl'
 import { TuningStrip } from './TuningStrip'
 import { IS_MAC, FN_KEY_HINT } from '../platform'
@@ -290,6 +307,19 @@ const LAYOUT_PANELS: Record<'classic' | 'roster', readonly OperatePanelId[]> = {
   roster: ['waterfall', 'callRoster', 'bandActivity', 'rxfreq', 'recall', 'txmeters'],
 }
 
+/** Where the rail side is stored (per surface): 'left', or anything else for the stock right. */
+const RAIL_SIDE_KEY = 'nexus.operate.railSide'
+
+/** Classic's column dividers' names, by the pair they sit between (column indices in grid order
+ *  with the rail on the right: 0 Band Activity, 1 the Rx Frequency column, 2 Stations). Resolved
+ *  per render, so a locale change reaches them. */
+const classicSeamLabel = (pair: string): string =>
+  pair === '0-1'
+    ? t('operate.seam.decodesQsocol.label')
+    : pair === '1-2'
+      ? t('operate.seam.qsocolStations.label')
+      : t('operate.seam.stationsDecodes.label')
+
 /** Side-rail occupants per layout — the rail unmounts when all of them are removed.
  *  Classic's rail is the Stations roster alone since the decode-first rebuild: the
  *  Rx-Frequency pane + Tx machine hold their own middle column (.cockpit-qsocol). */
@@ -377,38 +407,42 @@ export function OperateCockpit({
   const tierControl = useStationTierControl(snap.radio)
   const decoderSettings = useDecoderSettings(snap, 'MSK144')
   const receiverSettings = useReceiverSettings(snap, tier)
-  // Container the waterfall-height splitter measures + writes its CSS var on.
-  const bodyRef = useRef<HTMLDivElement>(null)
+  // The waterfall strip its height divider sizes: the divider sets its CSS var on the strip's
+  // container (.cockpit-body) and measures the range the layout honours (the sheet caps the strip
+  // at 60 % of the body).
+  const wfRef = useRef<HTMLElement>(null)
   // The two resizable side-rail panes in roster mode (Band Activity above, Rx Frequency
   // below) + the seam that splits them. A sole survivor auto-fills because flex-grow is
   // share-driven (`--pane-share`), so deleting Band Activity grows Rx Frequency to fill.
   const decodesSideRef = useRef<HTMLDivElement>(null)
   const rxfreqRef = useRef<HTMLDivElement>(null)
-  // Classic 3-col grid: the container (its template consumes the --op-col-a/-b
-  // fr tokens the column seam paints on it), the middle qsocol and the roster
-  // column — the x-axis seam splits the latter two.
-  const lowerClassicRef = useRef<HTMLDivElement>(null)
+  // The lower grid (its templates consume the column tokens the column dividers paint on it: a
+  // grid template cannot read a variable off its children) and the columns those dividers sit
+  // between (layout L5). Classic: Band Activity | the Rx Frequency column (qsocol) | the Stations
+  // rail; Roster: the Call Roster | the side rail.
+  const lowerRef = useRef<HTMLDivElement>(null)
+  const decodesRef = useRef<HTMLDivElement>(null)
   const qsocolRef = useRef<HTMLDivElement>(null)
   const classicSideRef = useRef<HTMLElement>(null)
+  const rosterMainRef = useRef<HTMLDivElement>(null)
+  const rosterSideRef = useRef<HTMLElement>(null)
+  // Classic's Tx1–Tx6 machine, which the divider above it sizes (layout L5).
+  const txRef = useRef<HTMLElement>(null)
   // Only apply a stored share; an un-dragged pane keeps the CSS default proportions.
   const shareStyle = (id: OperatePanelId): React.CSSProperties | undefined => {
     const s = panels.layout.share[id]
     return s != null ? ({ '--pane-share': s } as React.CSSProperties) : undefined
   }
-  // Persisted Classic column shares → fr tokens on the grid container (a grid template
-  // cannot read a var off its children). Keys: 'txmsgs' = the qsocol column (its Tx
-  // machine — deliberately NOT 'rxfreq', whose share the roster-mode y-seam already
-  // owns; sharing the key would let a roster drag silently reshape the Classic
-  // columns), 'stations' = the roster column. Undragged → the CSS defaults apply.
-  // Values are clamped on load by coercePanelLayout ([MIN_SHARE, 2−MIN_SHARE]).
-  const classicColStyle = (): React.CSSProperties | undefined => {
-    const a = panels.layout.share['txmsgs']
-    const b = panels.layout.share['stations']
-    if (a == null && b == null) return undefined
-    const s: Record<string, string> = {}
-    if (a != null) s['--op-col-a'] = `${a}fr`
-    if (b != null) s['--op-col-b'] = `${b}fr`
-    return s as React.CSSProperties
+  // Which side the rail stands on (layout L5): Classic's Stations rail, Roster's Band Activity +
+  // Rx Frequency rail. A layout choice like Classic / Roster, per surface. CSS `order` and the
+  // mirrored templates move it (styles.css `[data-rail='left']`), so no pane changes its place in
+  // the tree and nothing remounts.
+  const [railLeft, setRailLeft] = useState(() => surfaceGet(RAIL_SIDE_KEY) === 'left')
+  const railNoteId = `${useId()}-rail`
+  const toggleRail = () => {
+    const next = !railLeft
+    surfaceSet(RAIL_SIDE_KEY, next ? 'left' : 'right')
+    setRailLeft(next)
   }
   const source = snap.radio.source
 
@@ -630,6 +664,58 @@ export function OperateCockpit({
   }
   const { shown, sideShown, dataCols, menuItems, closeProps } = panelHost(panels, panelSpec)
   const wfState = stateOf('waterfall')
+
+  // THE COLUMN DIVIDERS (layout L5): absolutely positioned children of the lower grid, each placed
+  // on the gap before its track (styles.css `.op-colseam`), so none takes a track, a cell or a
+  // column's clip. Only where the template has the columns to divide: Classic's three, Roster's
+  // two. Each divider moves only its own pair — Classic's paint a pair at its own total
+  // (features/operateColumns) — and the rail side only reverses which column is where. The rail
+  // is on the left only while it and at least one other column are on screen.
+  const railOnLeft = railLeft && sideShown && dataCols !== 'one'
+  let columnSeams: React.ReactNode = null
+  if (layoutMode === 'roster' && dataCols === 'two') {
+    columnSeams = (
+      <PaneSeam
+        above={railOnLeft ? rosterSideRef : rosterMainRef}
+        below={railOnLeft ? rosterMainRef : rosterSideRef}
+        axis="x"
+        columnsOn={lowerRef}
+        varName="--op-roster"
+        columnVars={railOnLeft ? [ROSTER_VARS[1], ROSTER_VARS[0]] : ROSTER_VARS}
+        scale={ROSTER_SCALE}
+        floors={railOnLeft ? [ROSTER_FLOOR[1], ROSTER_FLOOR[0]] : ROSTER_FLOOR}
+        className="op-colseam op-colseam-2"
+        // The Call Roster's share is stored; the rail's is the rest of 2 (operateColumns).
+        onCommit={(av, bv) => panels.setShares({ callRoster: railOnLeft ? bv : av })}
+        onReset={() => panels.setShares({ callRoster: null })}
+        label={railOnLeft ? t('operate.seam.railRoster.label') : t('operate.seam.rosterRail.label')}
+      />
+    )
+  } else if (layoutMode === 'classic' && dataCols === 'three') {
+    const widths = classicWidths(panels.layout)
+    const cols = [decodesRef, qsocolRef, classicSideRef]
+    const order = railOnLeft ? [2, 0, 1] : [0, 1, 2]
+    columnSeams = [
+      [order[0], order[1]],
+      [order[1], order[2]],
+    ].map(([i, j], n) => (
+      <PaneSeam
+        key={`${i}-${j}`}
+        above={cols[i]}
+        below={cols[j]}
+        axis="x"
+        columnsOn={lowerRef}
+        varName="--op-col"
+        columnVars={[CLASSIC_VARS[i], CLASSIC_VARS[j]]}
+        scale={classicScale(widths, i, j)}
+        floors={[CLASSIC_FLOOR[i], CLASSIC_FLOOR[j]]}
+        className={`op-colseam op-colseam-${n + 2}`}
+        onCommit={(av, bv) => panels.setCols?.(classicCommit(widths, i, j, av, bv))}
+        onReset={() => panels.setCols?.(classicReset(widths, i, j) ?? { a: null, b: null })}
+        label={classicSeamLabel(`${i}-${j}`)}
+      />
+    ))
+  }
 
   // Waterfall pop-out: 'popped' unmounts the docked copy so the decode lists + roster
   // reclaim the space (that's the whole point of popping it out) and leaves the re-dock
@@ -855,17 +941,21 @@ export function OperateCockpit({
   // Alt+1…6 = the Tx buttons. Window-level and active-view only. F6 and Alt+1–6 stay behind
   // the typing guard; Esc and F4 are hoisted above it. Handlers ride a ref so the listener
   // binds once per activation without re-subscribing on every keystroke of state.
-  const keyRef = useRef({ doTx, clearDx, halt: onHaltTx, redecode: handleRedecode })
-  keyRef.current = { doTx, clearDx, halt: onHaltTx, redecode: handleRedecode }
+  //
+  // Esc's HALT rides the shared capture listener (useEscStop, operator 2026-10-01): the same
+  // onHaltTx, WSJT-X's Esc, but heard before any control on the screen can swallow the key, and
+  // only with stop authority, so an observer's Esc on the hosted page attempts no halt.
+  useEscStop(active, onHaltTx)
+  const keyRef = useRef({ doTx, clearDx, redecode: handleRedecode })
+  keyRef.current = { doTx, clearDx, redecode: handleRedecode }
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent) => {
-      // Escape is an ABORT key, not an editing key — it must halt TX even while the
-      // operator is typing in the Tx5 free-text field. It is checked BEFORE the
-      // typing guard; F4 / F6 / Alt+1–6 stay behind it.
+      // Escape is an ABORT key, not an editing key — it halts TX even while the operator is
+      // typing in the Tx5 free-text field (above). Here its default is cancelled, as it always
+      // was, BEFORE the typing guard; F4 / F6 / Alt+1–6 stay behind it.
       if (e.key === 'Escape') {
         e.preventDefault()
-        keyRef.current.halt()
         return
       }
       // F4 IS ALSO ABOVE THE GUARD (#204). WSJT-X handles it in `MainWindow::keyPressEvent`
@@ -1073,6 +1163,21 @@ export function OperateCockpit({
               onUndo={panels.undo}
               canUndo={panels.canUndo}
               onReset={panels.reset}
+              // The rail side (layout L5), where the operator already arranges this cockpit: in
+              // the header it wrapped the row at 1024×768 and took 44 px from the decode lists.
+              lead={
+                <div className="panels-menu-item">
+                  <div className="panels-menu-row">
+                    <label className="panels-menu-check">
+                      <input type="checkbox" checked={railLeft} onChange={toggleRail} aria-describedby={railNoteId} />
+                      <span>{t('operate.panels.railLeft.label')}</span>
+                    </label>
+                  </div>
+                  <span className="panels-menu-why" id={railNoteId}>
+                    {t('operate.panels.railLeft.note')}
+                  </span>
+                </div>
+              }
             />
           </>
         }
@@ -1094,7 +1199,6 @@ export function OperateCockpit({
           label: t('operate.header.power.label'),
           title: t('operate.header.power.title'),
         }}
-        txState={false}
       >
         {/* HOUND — ONE CLICK, in the cockpit header, always visible in both layouts.
             Operator ask: "so users can click it on and off without having to go into the
@@ -1301,7 +1405,7 @@ export function OperateCockpit({
           the QSO strip's; its protected controls (period, Skip Tx1, next-Ns, HOUND
           badge, rotor) merged INTO the strip below. ~42px of the reported blank gray
           space lived here. */}
-      <div className="cockpit-body" ref={bodyRef}>
+      <div className="cockpit-body">
         {/* Waterfall: a short full-width strip (not a tall column) — the spectrum
             is a glance tool; the real estate goes to the decode lists + roster. */}
         {wfState === 'popped' && (
@@ -1316,7 +1420,7 @@ export function OperateCockpit({
         )}
         {wfState === 'docked' && (
           <>
-            <section className="cockpit-waterfall panel">
+            <section className="cockpit-waterfall panel" ref={wfRef}>
               {tier === 'MSK144' ? (
                 /* MSK144 is a TIME display, not a frequency one — every signal sits at
                  * 1500 Hz and lives for milliseconds, so the waterfall shows one unmoving
@@ -1354,10 +1458,10 @@ export function OperateCockpit({
                 />
               )}
             </section>
-            <Splitter
+            <PaneSeam
               axis="y"
               varName="--cockpit-wf-h"
-              target={bodyRef}
+              strip={wfRef}
               storageKey="nexus.split.operate.waterfall"
               min={88}
               max={420}
@@ -1411,11 +1515,14 @@ export function OperateCockpit({
               active={active}
               onOpenSettings={onOpenSettings}
               targetCall={selectedCall}
-              onPointAt={(call) =>
-                pointRotatorAtCall(call)
-                  .then((bearing: number | null | undefined) =>
-                    // A browser gets no bearing back: the station resolves it.
-                    pushToast(bearing == null ? t('remote.b1.rotatorPointing', { call }) : t('operate.rotor.pointed', { call, deg: Math.round(bearing) }), 'info'),
+              // The path is forwarded, and the LP toast names it: see `rotorPointAt`, which the
+              // other cockpits share. This one keeps its own `operate.rotor.*` wording.
+              onPointAt={(call, longPath) =>
+                pointRotatorAtCall(call, longPath)
+                  .then((pointed: PointedAt | null | undefined) =>
+                    // A browser gets nothing back: the station resolves it. The toast names what
+                    // the bearing was taken to, as every point-at-call's does (`pointedTo`).
+                    pushToast(pointed == null ? t('remote.b1.rotatorPointing', { call }) : longPath ? t('shell.rotator.pointedLong', { bearing: Math.round(pointed.bearing), call, to: pointedTo(pointed) }) : t('operate.rotor.pointed', { call, deg: Math.round(pointed.bearing), to: pointedTo(pointed) }), 'info'),
                   )
                   // `{{error}}` is the backend's own refusal, passed through as a value.
                   .catch((e) =>
@@ -1444,15 +1551,16 @@ export function OperateCockpit({
         <div
           className={`cockpit-lower ${layoutMode}${control ? '' : ' remote-cockpit-lower'}`}
           data-cols={dataCols}
-          ref={layoutMode === 'classic' ? lowerClassicRef : undefined}
-          style={layoutMode === 'classic' ? classicColStyle() : undefined}
+          data-rail={railOnLeft ? 'left' : undefined}
+          ref={lowerRef}
+          style={layoutMode === 'classic' ? classicStyle(panels.layout) : rosterStyle(panels.layout)}
         >
           {layoutMode === 'roster' ? (
             <>
               {/* Roster layout (GridTracker-style): the full sortable Call Roster is
                   the centerpiece; Band Activity + Rx Frequency move to a side rail. */}
               {shown('callRoster') && (
-                <div className="cockpit-roster-main panel">
+                <div className="cockpit-roster-main panel" ref={rosterMainRef}>
                   <OperateRoster
                     {...closeProps('callRoster')}
                     paneTitle={labels.callRoster}
@@ -1484,7 +1592,7 @@ export function OperateCockpit({
                 </div>
               )}
               {sideShown && (
-                <aside className="cockpit-side">
+                <aside className="cockpit-side" ref={rosterSideRef}>
                   {recallCard}
                   {shown('bandActivity') && (
                     <div className="cockpit-decodes-side panel" ref={decodesSideRef} style={shareStyle('bandActivity')}>
@@ -1513,11 +1621,12 @@ export function OperateCockpit({
                     </div>
                   )}
                   {shown('bandActivity') && shown('rxfreq') && (
-                    <SplitterSeam
+                    <PaneSeam
                       above={decodesSideRef}
                       below={rxfreqRef}
                       varName="--pane-share"
                       onCommit={(av, bv) => panels.setShares({ bandActivity: av, rxfreq: bv })}
+                      onReset={() => panels.setShares({ bandActivity: null, rxfreq: null })}
                       label={t('operate.seam.bandActivityRxFreq.label')}
                     />
                   )}
@@ -1566,7 +1675,7 @@ export function OperateCockpit({
                   col 3. Click a call in either pane, watch the exchange line-by-line
                   in col 2, next TX visible right below. */}
               {shown('bandActivity') && (
-                <div className="cockpit-decodes panel">
+                <div className="cockpit-decodes panel" ref={decodesRef}>
                   <OperateDecodes
                     {...closeProps('bandActivity')}
                     paneTitle={labels.bandActivity}
@@ -1623,8 +1732,27 @@ export function OperateCockpit({
                       />
                     </div>
                   )}
+                  {/* THE Rx FREQUENCY / Tx1–Tx6 DIVIDER (layout L5): it sizes the Tx machine BELOW it,
+                      and paints nothing until moved, so the machine keeps its content height and
+                      Rx Frequency takes the rest (`.tx-panel[data-sized]`, styles.css). Moved, it
+                      gives Rx Frequency more room (the machine scrolls) or takes it back, never
+                      making the machine taller than its rows. It sends and stops nothing. */}
+                  {shown('rxfreq') && shown('txmsgs') && (
+                    <PaneSeam
+                      axis="y"
+                      varName="--op-tx-h"
+                      strip={txRef}
+                      after
+                      storageKey="nexus.split.operate.tx"
+                      min={TX_SPLIT_MIN}
+                      max={TX_SPLIT_MAX}
+                      defaultPct={null}
+                      label={t('operate.txmsgs.splitter.label')}
+                    />
+                  )}
                   {shown('txmsgs') && (
                     <TxPanel
+                      stripRef={txRef}
                       {...closeProps('txmsgs')}
                       paneTitle={labels.txmsgs}
                       compact
@@ -1644,25 +1772,6 @@ export function OperateCockpit({
                       qsoMacros={qsoMacros}
                     />
                   )}
-                  {/* Column seam: lets the operator tune the pair/roster balance by
-                      drag. Not a grid CHILD (that would burn a track/cell) and not
-                      inside the aside (whose overflow clips): it rides the qsocol's
-                      right edge, overlaying the grid gap, via absolute CSS. The drag
-                      paints --op-col-a/-b fr tokens on the grid container — which
-                      ONLY the three-column template consumes, so the seam renders
-                      only at data-cols='three' (at 'two' the drag would be visually
-                      dead while still rewriting the persisted shares). */}
-                  {dataCols === 'three' && (
-                    <SplitterSeam
-                      above={qsocolRef}
-                      below={classicSideRef}
-                      axis="x"
-                      columnsOn={lowerClassicRef}
-                      varName="--op-col"
-                      onCommit={(av, bv) => panels.setShares({ txmsgs: av, stations: bv })}
-                      label={t('operate.seam.qsocolStations.label')}
-                    />
-                  )}
                 </div>
               )}
               {sideShown && (
@@ -1673,6 +1782,7 @@ export function OperateCockpit({
               )}
             </>
           )}
+          {columnSeams}
         </div>
       </div>
       <SpotDialog

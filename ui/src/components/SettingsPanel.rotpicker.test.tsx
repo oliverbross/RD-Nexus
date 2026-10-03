@@ -24,6 +24,8 @@ import { SettingsPanel, ROT_FIXED_BAUD, ROTATOR_MODELS, baudForRotator } from '.
 import type { FeaturesApi } from '../useFeatures'
 import defaultSettings from './__fixtures__/defaultSettings.json'
 import rotCaps from './__fixtures__/hamlibRotatorSpeeds.json'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const api = vi.hoisted(() => {
   const spies: Record<string, ReturnType<typeof vi.fn>> = {}
@@ -266,14 +268,27 @@ describe('the picker itself', () => {
     // THE EA4TX BUG. "EA4TX ARS (az)" was model 1102 — Hamlib's PARALLEL-PORT backend — offered
     // with a serial-port box and a baud. It could not work as presented, and the brand name
     // steered ARS-USB owners (whose box speaks GS-232 over USB) away from the entry that does.
+    //
+    // The box is rotctld's `-r`, which takes a serial device or, for a backend that talks over
+    // the network, its address. So one UDP entry can work as presented: PstRotator (model 3),
+    // whose address the operator types there. The Dummy needs no port at all.
+    const offered: Record<number, string> = { 1: 'none', 3: 'udp' }
     for (const r of ROTATOR_MODELS) {
       const caps = CAPS.get(r.model)
       expect({ model: r.model, label: r.label, port: caps?.port }).toEqual({
         model: r.model,
         label: r.label,
-        port: r.model === 1 ? 'none' : 'serial', // the Dummy needs no port at all
+        port: offered[r.model] ?? 'serial',
       })
     }
+  })
+
+  it('the only curated entries that are not serial are PstRotator and the Dummy', () => {
+    // Named, so the allowance above cannot quietly admit a parallel or another network backend.
+    expect(ROTATOR_MODELS.filter((r) => CAPS.get(r.model)?.port !== 'serial').map((r) => [r.model, CAPS.get(r.model)?.port])).toEqual([
+      [3, 'udp'],
+      [1, 'none'],
+    ])
   })
 
   it('⭐ an "(az)" or "(az/el)" label is what the BACKEND declares, not what the box says', () => {
@@ -363,5 +378,130 @@ describe('the picker itself', () => {
     await openRotator(2801, 9600) // Sky-Watcher — real, and deliberately not in the curated list
     const other = screen.getByRole('spinbutton', { name: 'Hamlib rotator model number' })
     expect((other as HTMLInputElement).value).toBe('2801')
+  })
+})
+
+describe('the Yaesu G-5500 by its own name', () => {
+  // The operator's request: "You need to add Yaesu G5500 az/el rotator". Hamlib has no G-5500
+  // model, because the rotator has no computer port: it is driven through a GS-232B or GS-232A
+  // interface, or a GS-232 clone board, and the entry that works is that interface's model. So the
+  // name goes ON those entries. The setting stores one number, and a <select> shows the FIRST
+  // option carrying the saved value, so a second "G-5500" entry beside "GS-232B" would be shown in
+  // its place after a save, naming something the operator did not pick.
+  const labelOf = (model: number) => ROTATOR_MODELS.find((r) => r.model === model)?.label ?? ''
+
+  it('no two entries save the same model number', () => {
+    const models = ROTATOR_MODELS.map((r) => r.model)
+    expect(models.filter((m, i) => models.indexOf(m) !== i)).toEqual([])
+  })
+
+  it('a G-5500 owner finds it by name: on the GS-232B entry first, then the GS-232A one', () => {
+    expect(ROTATOR_MODELS.filter((r) => r.label.includes('G-5500')).map((r) => r.model)).toEqual([
+      603, 601,
+    ])
+    // The name leads, and the interface follows it, so a closed <select> too narrow for the
+    // whole label still shows both.
+    expect(labelOf(603)).toMatch(/^Yaesu G-5500 \/ G-5500DC — GS-232B interface \(az\/el\)/)
+    expect(labelOf(601)).toMatch(/^Yaesu G-5500 \/ G-5500DC — GS-232A interface \(az\/el\)/)
+    // Both stay the interface's entry for everything else that runs on it.
+    expect(labelOf(603)).toMatch(/any GS-232B/)
+    expect(labelOf(603)).toMatch(/ERC V4 in its recommended mode/)
+    expect(labelOf(601)).toMatch(/any GS-232A/)
+  })
+
+  it('a GS-232 clone board points at the generic entry', () => {
+    expect(labelOf(602)).toMatch(/^GS-232 \(generic, az\/el\) — GS-232 clone boards/)
+    expect(labelOf(602)).toMatch(/EA4TX ARS-USB, LVB, ST2/)
+  })
+
+  it.each([
+    [603, 'GS-232B'],
+    [601, 'GS-232A'],
+  ])('after a save of model %i the list still names the G-5500 and its %s', async (model, iface) => {
+    await openRotator(model, 9600)
+    const shown = rotSelect().selectedOptions[0]?.textContent ?? ''
+    expect(rotSelect().value).toBe(String(model))
+    expect(shown).toContain('Yaesu G-5500 / G-5500DC')
+    expect(shown).toContain(iface)
+  })
+
+  it('picking it saves the Hamlib model number and shows what was picked', async () => {
+    await openRotator(0, 9600)
+    fireEvent.change(rotSelect(), { target: { value: '603' } })
+    expect(rotSelect().value).toBe('603')
+    expect(rotSelect().selectedOptions[0]?.textContent).toContain('GS-232B interface')
+  })
+
+  it('picking it leaves the baud alone: GS-232B is a 1200–9600 range, not a fact', async () => {
+    for (const rate of [4800, 9600, 1200]) {
+      cleanup()
+      await openRotator(0, rate)
+      fireEvent.change(rotSelect(), { target: { value: '603' } })
+      expect(baudBox().value).toBe(String(rate))
+    }
+    expect(CAPS.get(603)).toMatchObject({ min: 1200, max: 9600, axes: 'azel', minEl: 0, maxEl: 180 })
+  })
+})
+
+describe('PstRotatorAz by name (Hamlib model 3)', () => {
+  // The operator (#362): "Add model 3 to the picker". YO3DMU's PstRotatorAz takes commands over
+  // UDP, port 12000 by default, and Hamlib's PstRotator backend (model 3) speaks that protocol, so
+  // the entry saves 3 and its port box takes an address. The bundled Hamlib 4.7.1 writes the
+  // bearing with `%f.2`, a typo for `%.2f`, so 123.4° goes out as 123.400002.2: the hint says so.
+  const labelOf = (model: number) => ROTATOR_MODELS.find((r) => r.model === model)?.label ?? ''
+  const portBox = () => screen.getByRole('textbox', { name: 'Rotator serial port' }) as HTMLInputElement
+
+  it('is offered as Hamlib model 3, by name', () => {
+    expect(ROTATOR_MODELS.filter((r) => /PstRotator/.test(r.label)).map((r) => r.model)).toEqual([3])
+    expect(labelOf(3)).toBe('PstRotatorAz / PstRotator (UDP)')
+    expect(CAPS.get(3)).toMatchObject({ mfg: 'YO3DMU', name: 'PstRotator', port: 'udp' })
+  })
+
+  it('picking it saves model 3, and the list shows what was picked', async () => {
+    await openRotator(0, 9600)
+    fireEvent.change(rotSelect(), { target: { value: '3' } })
+    expect(rotSelect().value).toBe('3')
+    expect(rotSelect().selectedOptions[0]?.textContent).toContain('PstRotatorAz')
+  })
+
+  it('after a save of model 3 the list still names PstRotatorAz, not "Other"', async () => {
+    await openRotator(3, 9600)
+    expect(rotSelect().value).toBe('3')
+    expect(rotSelect().selectedOptions[0]?.textContent).toContain('PstRotatorAz')
+    expect(screen.queryByRole('spinbutton', { name: 'Hamlib rotator model number' })).toBeNull()
+  })
+
+  it('its port box asks for the address, and its hint says where to switch UDP on and what the backend sends', async () => {
+    await openRotator(3, 9600)
+    expect(portBox().placeholder).toBe('127.0.0.1:12000')
+    const hint = screen.getByText(/^PstRotatorAz: enter 127\.0\.0\.1:12000 as the port/)
+    expect(hint.textContent).toMatch(/turn on UDP Control in its Setup/)
+    expect(hint.textContent).toMatch(/123\.400002\.2 for 123\.4°/)
+    // In place of the baud hint, which would tell a UDP program to match a line rate.
+    expect(screen.queryByText(/Match the rate your controller is set to/)).toBeNull()
+  })
+
+  it('every other model keeps its own port example and baud hint', async () => {
+    await openRotator(603, 9600)
+    expect(portBox().placeholder).not.toBe('127.0.0.1:12000')
+    expect(screen.queryByText(/^PstRotatorAz: enter/)).toBeNull()
+    expect(screen.getByText(/Match the rate your controller is set to/)).not.toBeNull()
+  })
+})
+
+describe('the rotator guide lists the picker as it is', () => {
+  // docs/rigs/rotators.md's "Curated rotator models" table says it is what the dropdown offers, and
+  // it drifted twice: the ERC's DCU-1-mode label (2026-08-29) and the G-5500's entries (2026-09-29)
+  // each changed the picker and left the guide naming entries it no longer had.
+  const guide = readFileSync(resolve(process.cwd(), '..', 'docs', 'rigs', 'rotators.md'), 'utf8')
+  const table = guide.split('## Curated rotator models')[1]?.split('\n## ')[0] ?? ''
+  const rows = [...table.matchAll(/^\| (.+?) \| (\d+) \|$/gm)].map((m) => ({ label: m[1], model: Number(m[2]) }))
+
+  it('finds the table (a renamed heading must not empty this check)', () => {
+    expect(rows.length).toBeGreaterThan(10)
+  })
+
+  it("names every entry exactly as the picker does, in the picker's order", () => {
+    expect(rows).toEqual(ROTATOR_MODELS.map((r) => ({ label: r.label, model: r.model })))
   })
 })

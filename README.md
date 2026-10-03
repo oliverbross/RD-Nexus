@@ -182,10 +182,11 @@ WSJT-X muscle memory works unchanged inside a UI built this decade.
   install. Nothing installs behind your back and nothing happens on a schedule: the button waits for
   you, and stands down while you are transmitting, tuning, in a contact or running CQ, and tells you
   which. Every update is signed and verified before it is applied.
-- **📻 Program and Memories.** Search the repeaters around any location and **star one straight from
-  the results**: it saves into Memories as a proper FM channel with the machine's shift, offset and
-  access tone, and lands on the quick-recall strip in the Phone, Operate and CW cockpits, where one
-  click or **Ctrl+1** through **Ctrl+9** tunes it. Starred repeaters remember where the machine
+- **📻 Repeaters and Memories.** Search the repeaters around any location, see them on a map, and **save
+  one straight from the results**: it goes into Memories as a proper FM channel with the machine's
+  shift, offset, access tone, town and links; star it there and it lands on the quick-recall strip in
+  the Phone, Operate and CW cockpits, where one click or **Ctrl+1** through **Ctrl+9** tunes it. Saved
+  repeaters remember where the machine
   physically is, so Memories shows distance and bearing measured from your current grid each time,
   which means the numbers follow you when you operate portable. A per-repeater **Tune** names FM
   explicitly, so the frequency, shift, offset and tone all land together on the radio you mapped for
@@ -260,7 +261,7 @@ spot goes to and which one an APRS tune goes to.
 | **WSJT-X UDP protocol** | Full outbound Decode / Status / QsoLogged / Heartbeat + inbound HaltTx, Clear, Replay, Location, Highlight — JTAlert and GridTracker see a WSJT-X. Off until you switch on **WSJT-X UDP API** in Settings ▸ Logging & Connectors ▸ Integrations & Feeds |
 | **CAT broker** | Nexus serves a rigctld-compatible TCP port so WSJT-X, N1MM+, and loggers share the radio through it |
 | **Companion mode** | Ride an upstream WSJT-X / JTDX / MSHV decode stream over UDP instead of owning the rig |
-| **N1MM+** | Native `<contactinfo>` UDP broadcast. **Broadcast every QSO** sends each logged contact, event or not, from every mode. Point OpenHamClock or GridTracker at the address and contacts plot as you log them. Off until you switch it on |
+| **N1MM+** | Native `<contactinfo>` UDP broadcast. **Broadcast every QSO** sends each logged contact, event or not, from every mode. Point a map app such as GridTracker at the address and contacts plot as you log them. Off until you switch it on |
 | **N3FJP** | Real-time Field Day and everyday ACLog QSO push over the official TCP API, with a connection Test button |
 | **APRS-IS** | Read-only network feed with a radius and watched callsigns, plus an optional receive-only iGate that contributes only what your antenna heard |
 | **DXKeeper (DXLab)** | Each logged QSO pushed to DXKeeper's TCP Network Service |
@@ -342,7 +343,7 @@ still says what a thing does *not* do, and so does every entry in the changelog.
   DXpedition end), **transmit-side iGating** (deliberately never, since it means a radio keying up
   unattended), and programming DMR / D-STAR / Fusion repeaters (they are listed with badges so you
   know they're there). Shared RepeaterBook access for every user, with no token to set up, is
-  pending RepeaterBook's approval; until then Program uses the open hearham.com directory by default
+  pending RepeaterBook's approval; until then Repeaters uses the open hearham.com directory by default
   and your own RepeaterBook token if you add one.
 
 ## Architecture
@@ -352,7 +353,7 @@ still says what a thing does *not* do, and so does every entry in the changelog.
 │ Tauri v2 desktop shell (src-tauri) + web UI (ui/, React + TS)  │
 │   cockpits: Operate · CW · Phone · RTTY · SSTV · APRS · Tempo  │
 │   boards: Needed · Spots · POTA/SOTA · Logbook · Awards ·      │
-│           Neural DX · Journey · Connect map · Satellites ·     │
+│           Neural DX · Journey · Conditions map · Satellites ·  │
 │           Memories                                             │
 ├────────────────────────────────────────────────────────────────┤
 │ Rust core (crates/)                                            │
@@ -499,6 +500,19 @@ Nexus is **free software under the [GNU GPL v3](COPYING)** (GPL-3.0-only).
   unmodified. Opus is an IETF standard (RFC 6716) available under royalty-free patent
   licences; libopus's neural extensions are not enabled (see **[NOTICE](NOTICE)** for the full
   attribution and why).
+- **[str0m](https://github.com/algesten/str0m)** (MIT OR Apache-2.0) — **Martin Algesten** and
+  contributors. The Remote stream's WebRTC transport, with DTLS on the pure-Rust
+  [dimpl](https://github.com/algesten/dimpl) and data channels on
+  [sctp-proto](https://github.com/algesten/sctp-proto); its bandwidth estimator is ported from
+  libWebRTC's GoogCC (BSD-3-Clause, © The WebRTC project authors). See **[NOTICE](NOTICE)**.
+- **[windows-capture](https://github.com/NiiightmareXD/windows-capture)** (MIT) —
+  **NiiightmareXD**. Captures the Nexus window, and only that window, for the Remote stream on
+  Windows.
+- **[yuv](https://github.com/awxkee/yuvutils-rs)** (BSD-3-Clause OR Apache-2.0) — **Radzivon
+  Bartoshyk**. Converts each captured picture for the video encoder.
+- **[libvpx](https://chromium.googlesource.com/webm/libvpx)** (BSD-3-Clause, with Google's patent
+  grant) — **The WebM Project authors**. The Remote stream's VP8 video encoder, statically linked
+  from a pinned, hash-checked source build. See **[NOTICE](NOTICE)**.
 - **[SQLite](https://sqlite.org/)** (public domain) — **D. Richard Hipp** and the SQLite
   developers. Nexus's logbook is stored in SQLite, statically linked through the
   [`rusqlite`](https://github.com/rusqlite/rusqlite) (MIT) and `libsqlite3-sys` (MIT) crates,

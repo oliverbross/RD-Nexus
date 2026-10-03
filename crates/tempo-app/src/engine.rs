@@ -17,14 +17,19 @@
 #[cfg(test)]
 mod by_id_tests;
 mod field_day_display;
+/// The journals when the file there cannot be read: kept, never written over.
+#[cfg(test)]
+mod kept_files_tests;
 mod mode_entry;
 pub mod parsec_presence;
 pub mod radio_selection;
 pub mod receivers;
 pub mod remote_logging;
+pub mod remote_mic;
 pub mod remote_radio;
 pub mod remote_selection;
 mod remote_settings;
+pub mod remote_stream;
 pub mod remote_transmit;
 // Debug builds only, like the station's parity tests: they read the debug build's counters.
 #[cfg(all(test, debug_assertions))]
@@ -1154,6 +1159,72 @@ const AB_NO_DRIVABLE_MAPPING: &str =
     "Nexus drives Main = downlink / Sub = uplink only through its own native CI-V backend, and \
      that backend has no path to this radio — so no VFO mapping carries this pass's uplink here.";
 
+/// What the CW cockpit's warning line says when [`Engine::poll_cw_one`] drops a refused send.
+/// English at the engine, like the keyer's own errors and JS8's refusals, and the same
+/// sentence shape as the log line beside it.
+const CW_REFUSED_TX_OFF: &str = "CW stopped: transmit was turned off, so what was still to go \
+     was dropped, not held for later. Send it again when you are ready.";
+const CW_REFUSED_PRIVILEGES: &str = "CW not sent: this frequency is outside your license \
+     privileges, so it was dropped, not held for later. Send it again from inside them.";
+const CW_REFUSED_CW_PRIVILEGES: &str = "CW not sent: where it would key is outside your \
+     license's CW privileges, so it was dropped.";
+/// …and when the operator LEFT the CW screen with words still to go
+/// ([`Engine::set_operating_mode_with_reset`]): dropped, not keyed from the screen they went to.
+const CW_LEFT_SECTION: &str = "CW stopped: you left the CW screen, so what was still to go was \
+     dropped. Send it again when you are ready.";
+
+/// …and what the RTTY cockpit's warning line says when [`Engine::poll_rtty_one`] drops refused
+/// overs, and when the auto-sequencer stops because one of them was its own.
+const RTTY_REFUSED_TX_OFF: &str = "RTTY stopped: transmit was turned off, so what was still \
+     queued was dropped, not held for later. Send it again when you are ready.";
+const RTTY_REFUSED_PRIVILEGES: &str = "RTTY not sent: this frequency is outside your license \
+     privileges, so what was queued was dropped, not held for later. Send it again from inside \
+     them.";
+const RTTY_AUTO_REFUSED: &str = "RTTY auto-sequencer stopped — a transmission was refused (the \
+     TX gate closed mid-QSO).";
+/// …and the auto-sequencer's own line when the operator LEFT the RTTY screen mid-QSO
+/// ([`Engine::set_operating_mode_with_reset`]): nothing was refused, the screen was left.
+const RTTY_AUTO_LEFT: &str = "RTTY auto-sequencer stopped: you left the RTTY screen mid-QSO.";
+/// …and the PSK cockpit's, when [`Engine::poll_psk_one`] drops refused overs.
+const PSK_REFUSED_TX_OFF: &str = "PSK stopped: transmit was turned off, so what was still \
+     queued was dropped, not held for later. Send it again when you are ready.";
+const PSK_REFUSED_PRIVILEGES: &str = "PSK not sent: this frequency is outside your license \
+     privileges, so what was queued was dropped, not held for later. Send it again from inside \
+     them.";
+/// …and what each one says when the operator LEFT its section with overs still typed ahead
+/// ([`Engine::set_operating_mode_with_reset`]): dropped, not held for the return.
+const RTTY_LEFT_SECTION: &str = "RTTY stopped: you left the RTTY screen, so what was still \
+     queued was dropped, not held for your return. Send it again when you are ready.";
+const PSK_LEFT_SECTION: &str = "PSK stopped: you left the PSK screen, so what was still queued \
+     was dropped, not held for your return. Send it again when you are ready.";
+/// …and the SSTV cockpit's, when [`Engine::poll_sstv_tx`] drops the picture that was waiting for
+/// the transmitter (one picture at a time, so there is never more than one).
+const SSTV_REFUSED_TX_OFF: &str = "SSTV stopped: transmit was turned off, so the picture that \
+     was waiting was dropped, not held for later. Send it again when you are ready.";
+const SSTV_REFUSED_PRIVILEGES: &str = "SSTV not sent: this frequency is outside your license \
+     privileges, so the picture that was waiting was dropped, not held for later. Send it again \
+     from inside them.";
+/// …and when the operator LEFT the Phone section, which SSTV rides, with a picture still waiting
+/// ([`Engine::set_operating_mode_with_reset`]).
+const SSTV_LEFT_SECTION: &str = "SSTV stopped: you moved to another mode's screen, so the \
+     picture that was waiting was dropped, not held for your return. Send it again when you are \
+     ready.";
+/// …and when the radio loop ends a picture already going out ([`Engine::sstv_tx_cut`]): transmit
+/// went off under it, or another stop ended its transmission. Never for SSTV's own Stop, TX Off or
+/// Stop TX, which cut it through the SSTV abort as they always did.
+const SSTV_STOPPED_TX_OFF: &str = "SSTV stopped: transmit was turned off while the picture was \
+     going out, so the rest of it was not sent. Send it again when you are ready.";
+const SSTV_STOPPED_CUT: &str = "SSTV stopped: the transmission was ended elsewhere (a tune, a \
+     radio switch or another stop) while the picture was going out, so the rest of it was not \
+     sent. Send it again when you are ready.";
+/// …and the APRS cockpit's status line, when what was queued (beacons, messages, automatic acks)
+/// is dropped: by TX Off ([`Engine::set_tx_enabled`]), or refused at [`Engine::poll_aprs_tx`].
+const APRS_REFUSED_TX_OFF: &str = "APRS stopped: transmit was turned off, so what was still \
+     queued was dropped, not held for later. Send it again when you are ready.";
+const APRS_REFUSED_PRIVILEGES: &str = "APRS not sent: this frequency is outside your license \
+     privileges, so what was queued was dropped, not held for later. Send it again from inside \
+     them.";
+
 /// Which decode pass a [`DecodeJob`] is — selects the a7 cross-cycle flag and how
 /// the result folds back in. Mirrors the three synchronous entry points exactly:
 /// [`Engine::ingest`] (Boundary), [`Engine::ingest_early`] (Early), and
@@ -1795,6 +1866,33 @@ pub const PENDING_LOG_QUEUE_CAP: usize = 64;
 /// looks up a few dozen stations; the oldest answer is dropped first.
 const CALLBOOK_NAMES_CAP: usize = 64;
 
+/// Where a callbook lookup placed a station: its locator, when the answer is one, and the
+/// position the callbook vouched for, when it did (the lookup refuses QRZ's own grid-derived and
+/// country-centre coordinates, so a position here is the station's). The rotator's
+/// point-at-call reads it rather than aiming at the country centre.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallbookFix {
+    pub grid: Option<String>,
+    pub position: Option<(f64, f64)>,
+}
+
+/// Everything the engine knows about where a station is, source by source, MOST TRUSTED FIRST —
+/// the order the rotator's point-at-call refines within. None of it asks the network: the operator
+/// typed it, the station sent it, or a lookup already answered it. See [`Engine::station_grids`].
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct StationGrids {
+    /// The grid the log form holds for the call (typed, or filled in from the callbook). A
+    /// contest exchange that carries a grid arrives here: it is the box the operator copies it to.
+    pub log_form: Option<String>,
+    /// Grids the station sent this session: its FT8/FT4/FT1/WSPR frames (the roster, which also
+    /// learns the grid of an FT exchange), then its JS8 frames (the heard list).
+    pub heard: Vec<String>,
+    /// Where a callbook lookup answered this session placed it.
+    pub callbook: Option<CallbookFix>,
+    /// The grid on its newest logged contact.
+    pub logged: Option<String>,
+}
+
 /// Seconds between two CATCH-UP uploads (see [`UploadOrigin::CatchUp`]). Live contacts
 /// are never subject to this.
 ///
@@ -2385,6 +2483,9 @@ pub struct Engine {
     js8_seen: VecDeque<(modes::Js8Speed, u64, [u8; 11])>,
     /// The activity pane, newest last, capped at 200.
     js8_activity: VecDeque<crate::dto::Js8ActivityRow>,
+    /// JS8Call's band activity as its free-spot test reads it: audio offset (whole Hz) → when a
+    /// frame was last decoded there. See `js8_file_band_activity`.
+    js8_band_activity: std::collections::BTreeMap<i32, u64>,
     /// The last refused JS8 verb's reason (surfaced as `Js8State.last_error`).
     js8_last_error: Option<String>,
     /// `<config dir>/js8_station.json` — the inbox/heard journal (`set_js8_journal_path`).
@@ -2483,6 +2584,24 @@ pub struct Engine {
     remote_settings_path: Option<std::path::PathBuf>,
     remote_selection_host_ready: bool,
     remote_transmit: Option<crate::remote_control::transmit::TransmitPermit>,
+    /// A streamed session's transmit presence, and its held PTT: see `engine/remote_stream.rs`.
+    remote_presence: Option<crate::remote_control::transmit::TransmitPermit>,
+    remote_ptt_hold: Option<crate::remote_control::ptt_hold::PttHold>,
+    /// The streamed operator's microphone over, and what it needs: see `engine/remote_mic.rs`.
+    mic: crate::mic::MicLatch,
+    mic_feed: Option<crate::mic::MicFeed>,
+    /// The presence permit the over armed under: G5 is "presence, for THIS over".
+    mic_presence: Option<crate::remote_control::transmit::TransmitPermit>,
+    /// One-shot microphone abort: the loop flushes the output ring + unkeys, then clears it.
+    mic_abort: bool,
+    /// Why the next drop of the over happens, when a caller knows better than "a stop".
+    mic_end: Option<crate::mic::MicEnded>,
+    /// Why the last over ended, for the page, until the next arm.
+    mic_ended: Option<crate::mic::MicEnded>,
+    /// The no-power warning's evidence for the current over (display only): the rig reported
+    /// power out, or reported ~0 while the operator's voice was arriving.
+    mic_rf_seen: bool,
+    mic_zero_seen: bool,
     /// The transponder the operator selected for the tracked bird, plus their
     /// position inside its passband and what was last written to the radio.
     /// `None` = no satellite tuning in force, which is every terrestrial path.
@@ -2720,13 +2839,16 @@ pub struct Engine {
     /// is, every later knob move is the operator's exactly as before.
     rig_dial_seen: bool,
     /// CW transmit queue (CAT keyer path): expanded CW text the radio loop drains and
-    /// keys via `rig.send_morse`. Operator-initiated; gated by `tx_enabled` (Monitor).
+    /// keys via `rig.send_morse`. Operator-initiated; gated by `tx_enabled` (Monitor) and the
+    /// privileges, and a word they refuse is dropped, never held (`poll_cw_one`).
     cw_queue: VecDeque<String>,
     /// Recent EXPANDED CW transmissions (macros resolved) — a TX echo the cockpit shows
     /// so the operator sees exactly what went out. Capped; cleared with the RX transcript.
     cw_sent: VecDeque<String>,
-    /// A CW-keyer failure to surface (e.g. the rig rejected CAT send_morse), else None.
-    /// Set by the radio loop; cleared when the operator switches keyer back-end.
+    /// A CW-keyer failure to surface (e.g. the rig rejected CAT send_morse), or why the last
+    /// CW send was refused and dropped (`poll_cw_one`), else None. Set by the radio loop after
+    /// every word it hands a keyer, so a word that keys clears a refusal; cleared too when the
+    /// operator switches keyer back-end.
     cw_keyer_error: Option<String>,
     /// Worked-station QRZ info for the `{HISNAME}`/`{HISSTATE}` CW-macro tokens, pushed by the
     /// frontend on a callbook lookup and keyed to the contact (`cw_peer_call`) so a stale
@@ -2740,6 +2862,14 @@ pub struct Engine {
     /// contact carries the NAME the operator already saw on the callsign card — never a new
     /// network call from the logging path.
     callbook_names: VecDeque<(String, String)>,
+    /// Where those same lookups placed each station, `(CALL, fix)`, newest last, bounded by
+    /// [`CALLBOOK_NAMES_CAP`]: the rotator's point-at-call aims at it instead of the country
+    /// centre, and never makes a lookup of its own. See [`CallbookFix`].
+    callbook_fixes: VecDeque<(String, CallbookFix)>,
+    /// The grid the log form holds for the call it is logging, `(CALL, grid)`: typed by the
+    /// operator, or filled in from the callbook. Pushed by the frontend and keyed to the call,
+    /// like `cw_peer_call`, so a form left on another station never aims the beam.
+    log_form_grid: Option<(String, String)>,
     /// One-shot: the operator hit Abort — the radio loop calls `rig.stop_morse` and
     /// clears the queue, then resets this.
     cw_abort: bool,
@@ -2938,8 +3068,9 @@ pub struct Engine {
     /// the foreign-key surface is exactly what it was before the latch was restored.
     broker_context_hold: bool,
     /// Phone voice-keyer: pending 12 kHz mono samples to transmit. The radio loop drains
-    /// this (gated on `tx_enabled`), keys PTT, plays it, and drops PTT when it's out — the
-    /// same path the soundcard CW keyer uses. Set by `send_voice`.
+    /// this (gated on `tx_enabled` + privileges; a message they refuse is dropped there, never
+    /// held), keys PTT, plays it, and drops PTT when it's out — the same path the soundcard CW
+    /// keyer uses. Set by `send_voice`.
     voice_tx: Option<Vec<f32>>,
     /// One-shot voice-keyer abort: the loop flushes the output ring + unkeys, then clears it.
     voice_abort: bool,
@@ -3071,8 +3202,10 @@ pub struct Engine {
     /// and ITA2-filtered). Filled ONLY by [`Engine::rtty_send_text`] — an explicit
     /// operator send — never on arm/launch. The radio loop keys ONE message at a
     /// time via [`Engine::poll_rtty_one`] (gated on tx_enabled + privileges +
-    /// the Rtty operating mode + not tuning), pacing on the real bit-stream
-    /// duration; Stop TX / halt clears this queue so the rest never keys.
+    /// the Rtty operating mode + not tuning; an over the first two refuse is
+    /// dropped there, never held), pacing on the real bit-stream duration;
+    /// Stop TX / halt clears this queue so the rest never keys, and so does
+    /// leaving the RTTY section.
     rtty_queue: VecDeque<String>,
     /// One-shot: abort the RTTY transmission in progress (the loop stops the FSK
     /// keying thread / flushes the AFSK audio ring and unkeys PTT).
@@ -3112,7 +3245,9 @@ pub struct Engine {
     /// [`Engine::rtty_state`]. No TX gate, queue or abort reads it, so nothing here can
     /// key, hold or unkey anything.
     rtty_tx_over: Option<RttyTxOver>,
-    /// An RTTY keyer failure to surface (FSK port wouldn't open / PTT refused).
+    /// An RTTY keyer failure to surface (FSK port wouldn't open / PTT refused), or why
+    /// refused overs were dropped (`poll_rtty_one`). The radio loop rewrites it for every
+    /// over it keys, so an over that keys clears a refusal.
     rtty_keyer_error: Option<String>,
     /// The RTTY auto-sequencer, present ONLY while the operator has flipped Auto
     /// on (`None` = the manual-only behavior). Driven by the RX feed (in
@@ -3173,7 +3308,9 @@ pub struct Engine {
     /// FIFO of PSK31 messages to transmit (operator-initiated, varicode-
     /// filtered). Filled ONLY by [`Engine::psk_send_text`]; the radio loop
     /// keys one at a time via [`Engine::poll_psk_one`] (gated on tx_enabled +
-    /// privileges + the Keyboard section + not-tuning). Stop/halt clears it.
+    /// privileges + the Keyboard section + not-tuning; a message the first two
+    /// refuse is dropped there, never held). Stop/halt clears it, and so does
+    /// leaving the PSK section.
     psk_queue: VecDeque<String>,
     /// One-shot: abort PSK TX now (the radio loop flushes the audio ring and
     /// unkeys on its next tick). Mirrors `rtty_abort`.
@@ -3194,7 +3331,8 @@ pub struct Engine {
     /// actually in flight; the cockpit's TX indicator). Mirrors `rtty_sending`.
     psk_sending: bool,
     /// The last TX failure to surface in the cockpit (PTT refused, the
-    /// ceiling's why-did-it-unkey note). Mirrors `rtty_keyer_error`.
+    /// ceiling's why-did-it-unkey note, or why refused overs were dropped,
+    /// `poll_psk_one`). Mirrors `rtty_keyer_error`.
     psk_keyer_error: Option<String>,
     /// APRS (AFSK-1200 / AX.25) RX decoder arm state + HOW it was armed (session-only, never
     /// persisted). See [`AprsArm`] — the distinction gates the auto-ack, so it is TX-safety state.
@@ -3211,8 +3349,13 @@ pub struct Engine {
     /// when something decodes: "nothing arrived" is the reading that matters most). Reset on arm.
     aprs_health: AprsHealth,
     /// Pre-rendered APRS TX audio (12 kHz) — beacons, messages, acks. The radio loop keys ONE at a
-    /// time via [`Engine::poll_aprs_tx`]; Stop TX / halt clears it.
+    /// time via [`Engine::poll_aprs_tx`]; Stop TX / halt clears it, and TX Off or a refusal at the
+    /// poll drops it with a notice ([`Self::aprs_tx_notice`]).
     aprs_tx_queue: VecDeque<Vec<f32>>,
+    /// Why what was queued above was last DROPPED instead of sent (TX Off, or a refusal at
+    /// [`Engine::poll_aprs_tx`]): the APRS cockpit's status line. Cleared when the next frame
+    /// keys. `None` = nothing dropped since.
+    aprs_tx_notice: Option<String>,
     /// Rolling APRS message line-number (001..999) for outgoing messages, so the recipient can ack.
     aprs_msg_seq: u16,
     /// Per-STATION state keyed by callsign-SSID — what the map and the station list read. Distinct
@@ -3317,6 +3460,11 @@ pub struct Engine {
     /// In-flight SSTV TX progress `(played_ms, total_ms)`, stamped by the radio loop.
     /// `None` = no image queued or sending.
     sstv_tx_progress: Option<(f64, f64)>,
+    /// Why the last picture that waited for the transmitter was DROPPED instead of sent (see
+    /// [`Engine::poll_sstv_tx`]), or why the radio loop cut short the one going out
+    /// ([`Engine::sstv_tx_cut`]): the SSTV cockpit's warning line. Cleared when the next picture
+    /// keys. `None` = nothing to say since.
+    sstv_tx_notice: Option<String>,
     /// Parsec presence mode — the state machine the watcher's verdicts drive, and the last
     /// stop it made. See `engine/parsec_presence.rs`.
     parsec: parsec_presence::ParsecPresence,
@@ -4327,6 +4475,8 @@ pub enum TxOwner {
     Tune,
     /// A held mic key — the operator's, or a CAT-broker client's.
     ManualPtt,
+    /// A streamed Remote operator's microphone over, armed or keyed (`engine/remote_mic.rs`).
+    Mic,
     /// The voice keyer is playing a message.
     Voice,
     /// CW is sending (queue non-empty).
@@ -4356,6 +4506,7 @@ impl TxOwner {
             TxOwner::Slot => "Another transmission is in flight — stop it first",
             TxOwner::Tune => "Tune carrier is up — stop tuning first",
             TxOwner::ManualPtt => "Mic PTT is held — release it first",
+            TxOwner::Mic => "The Remote microphone is transmitting — stop it first",
             TxOwner::Voice => "A voice message is transmitting — stop it first",
             TxOwner::Cw => "CW is sending — stop it first",
             TxOwner::Rtty => "RTTY is transmitting — stop it first",
@@ -4678,11 +4829,15 @@ impl Engine {
             hb_interval_min: 0,
             cq_interval_min: 0,
             idle_watchdog_min: 0,
+            callsign_aging_min: 0,
             groups: Vec::new(),
             info: String::new(),
             status: String::new(),
             allcall_reply_interval_ms: 15 * 60 * 1000,
-            reply_delay_ms: 17_000,
+            autoreply_confirmation: true,
+            autoreply_allow: Vec::new(),
+            autoreply_deny: Vec::new(),
+            hb_ack_deny: Vec::new(),
         };
         Self {
             app,
@@ -4777,6 +4932,7 @@ impl Engine {
             js8_hb_on: false,
             js8_seen: VecDeque::new(),
             js8_activity: VecDeque::new(),
+            js8_band_activity: std::collections::BTreeMap::new(),
             js8_last_error: None,
             js8_journal_path: None,
             js8_rng: (tempo_core::timing::now_unix_ms() as u32) | 1,
@@ -4805,6 +4961,16 @@ impl Engine {
             remote_settings_path: None,
             remote_selection_host_ready: false,
             remote_transmit: None,
+            remote_presence: None,
+            remote_ptt_hold: None,
+            mic: crate::mic::MicLatch::default(),
+            mic_feed: None,
+            mic_presence: None,
+            mic_abort: false,
+            mic_end: None,
+            mic_ended: None,
+            mic_rf_seen: false,
+            mic_zero_seen: false,
             sat_tune: None,
             sat_last_worked: None,
             sat_dial_owner: None,
@@ -4852,6 +5018,8 @@ impl Engine {
             cw_peer_name: String::new(),
             cw_peer_state: String::new(),
             callbook_names: VecDeque::new(),
+            callbook_fixes: VecDeque::new(),
+            log_form_grid: None,
             cw_abort: false,
             manual_ptt: false,
             rf_power: None,
@@ -4983,6 +5151,7 @@ impl Engine {
             aprs_heard: Vec::new(),
             aprs_health: AprsHealth::default(),
             aprs_tx_queue: VecDeque::new(),
+            aprs_tx_notice: None,
             aprs_msg_seq: 0,
             aprs_fm: false,
             fm_channel: false,
@@ -5000,6 +5169,7 @@ impl Engine {
             sstv_sending: false,
             sstv_tx_mode: None,
             sstv_tx_progress: None,
+            sstv_tx_notice: None,
             parsec: parsec_presence::ParsecPresence::default(),
         }
     }
@@ -7299,14 +7469,26 @@ impl Engine {
         self.tx_gate_gen = self.tx_gate_gen.wrapping_add(1);
         self.remote_actuation.revoke();
         // …and it ends RTTY's continuous-TX latch. Leaving the section is what
-        // stops RTTY today — `poll_rtty_one` simply stops being called, so the
-        // queue is held and nothing keys. A LATCHED transmitter is already keyed,
-        // so "stop being polled" is not enough: it has to be dropped and unkeyed.
+        // stops RTTY today — what was queued is dropped just below, and
+        // `poll_rtty_one` hands out nothing outside the RTTY section. A LATCHED
+        // transmitter is already keyed, so that is not enough for it: it has to be
+        // dropped and unkeyed.
         // The per-tick predicate in `poll_rtty_stream` catches this too; this is
         // the explicit half, so the kill does not depend on a tick arriving.
         self.drop_rtty_latch();
         // …and PSK's, for the identical reason.
         self.drop_psk_latch();
+        // ⛔ …and LEAVING RTTY, PSK OR CW DROPS WHAT WAS TYPED AHEAD, and leaving Phone an SSTV
+        // picture still waiting (operator, 2026-09-30: "Drop it when you leave"; for CW, "Same
+        // leave rule"; for SSTV, "Drop it on leave"): the section's queue is cleared, the log
+        // says so once, and its ⚠ line tells the operator on their return, so nothing keys when
+        // they come back. Bound HERE, to the act of leaving: every section change (the nav, a spot
+        // click that opens another cockpit, an SSTV channel pick, the Remote) passes through this
+        // method, and a section re-asserting itself (a view entry) leaves nothing. The over in
+        // flight is left as a section change has always left it: nothing here arms an abort for a
+        // one-shot over (the latches above cut only a LATCHED stream), so it finishes where TX
+        // stays armed, and the loop's TX-off cut ends it where the disarm below lowers the latch.
+        self.drop_queued_overs_on_leaving(om);
         // The other half of the context pair (see the tier line): which section the operator is
         // in decides what every transmit, CAT and audio line beneath it means. Logged only when
         // it CHANGES — this method is re-asserted on every view entry, and a line per re-assert
@@ -7441,10 +7623,10 @@ impl Engine {
             //
             // ⚠️ NOT through `set_tx_enabled(false)`, and that is not a shortcut skipped. That
             // path carries TX-OFF's semantics — it clears the CW, RTTY and PSK queues and arms
-            // their aborts — and a section change is not an operator pressing TX Off. A manual
-            // mode's queued over is HELD across a section change and keys when the operator
-            // returns to it; `rtty_and_ft8_sequencers_never_key_together` pins exactly that,
-            // and it went red when this was first written the blunt way. So: lower the latch,
+            // their aborts — and a section change is not an operator pressing TX Off: nothing
+            // here arms an abort. The over in flight is the loop's: with the latch down, its
+            // TX-off cut ends a non-slot over (a manual mode's). Nothing queued is held either:
+            // RTTY's, PSK's and CW's went as the section was left (above). So: lower the latch,
             // bump the gate generation (an over planned while armed must not commit), and
             // nothing else. One bit changes, and it is the operator's.
             if self.tx_enabled {
@@ -7453,6 +7635,69 @@ impl Engine {
             self.tx_enabled = false;
             self.tx_gate_gen = self.tx_gate_gen.wrapping_add(1);
             self.remote_actuation.revoke();
+        }
+    }
+
+    /// What leaving RTTY, PSK or CW does to what that section still has queued, and leaving Phone
+    /// to an SSTV picture still waiting, from the one place a section changes
+    /// ([`Self::set_operating_mode_with_reset`]): dropped with a notice, never keyed on the return
+    /// or from the screen the operator went to. `to` is the section being entered. An RTTY auto
+    /// QSO ends with the screen, with a line of its own ([`RTTY_AUTO_LEFT`]; nothing was refused,
+    /// so the refusal line would mislead): left running, its next over would be queued while the
+    /// operator is away and key on the return.
+    fn drop_queued_overs_on_leaving(&mut self, to: crate::settings::OperatingMode) {
+        use crate::settings::OperatingMode;
+        let from = self.settings.operating_mode;
+        if from == OperatingMode::Rtty && to != OperatingMode::Rtty {
+            if !self.rtty_queue.is_empty() {
+                tempo_core::applog::info(
+                    "tx",
+                    "RTTY not keyed: the RTTY section was left (dropped)",
+                );
+                self.rtty_queue.clear();
+                self.rtty_keyer_error = Some(RTTY_LEFT_SECTION.to_string());
+            }
+            let mid_qso = self
+                .rtty_seq
+                .as_ref()
+                .is_some_and(|seq| seq.state() != tempo_core::rtty::SeqState::Idle);
+            if mid_qso {
+                tempo_core::applog::info("tx", "RTTY auto QSO ended: the RTTY section was left");
+                if let Some(seq) = self.rtty_seq.as_mut() {
+                    seq.abort();
+                }
+                self.rtty_auto_over = false;
+                self.rtty_keyer_error = Some(RTTY_AUTO_LEFT.to_string());
+            }
+        }
+        if from == OperatingMode::Keyboard
+            && to != OperatingMode::Keyboard
+            && !self.psk_queue.is_empty()
+        {
+            tempo_core::applog::info("tx", "PSK not keyed: the PSK section was left (dropped)");
+            self.psk_queue.clear();
+            self.psk_keyer_error = Some(PSK_LEFT_SECTION.to_string());
+        }
+        // …and CW (the operator, 2026-09-30: "Same leave rule for CW"). The loop hands the keyer
+        // ONE word at a time, so this drops every word not yet handed over; the word already in
+        // the keyer finishes, as it always has (nothing here arms `cw_abort`), and that one word
+        // is the smallest boundary the keyers allow. Before this, the rest of a macro kept keying
+        // from Phone, RTTY or PSK, whose armed latch let `poll_cw_one` hand it out. Only a move
+        // OUT of CW counts: the CW ID after an FT 73 is queued, and keyed, from Digital by design.
+        if from == OperatingMode::Cw && to != OperatingMode::Cw && !self.cw_queue.is_empty() {
+            tempo_core::applog::info("tx", "CW not keyed: the CW section was left (dropped)");
+            self.cw_queue.clear();
+            self.cw_keyer_error = Some(CW_LEFT_SECTION.to_string());
+        }
+        // …and SSTV, which rides Phone (the operator, 2026-09-30: "Drop it on leave"). Only a
+        // picture still WAITING for the loop is the rule's: one the loop has taken is on the air,
+        // and leaving does to it what it always did (nothing here arms `sstv_abort`).
+        if from == OperatingMode::Phone && to != OperatingMode::Phone && self.sstv_tx.is_some() {
+            tempo_core::applog::info("tx", "SSTV not keyed: the Phone section was left (dropped)");
+            self.sstv_tx = None;
+            self.sstv_tx_mode = None;
+            self.sstv_tx_progress = None;
+            self.sstv_tx_notice = Some(SSTV_LEFT_SECTION.to_string());
         }
     }
 
@@ -8494,6 +8739,90 @@ impl Engine {
             .map(|(_, name)| name.clone())
     }
 
+    /// Remember where a callbook lookup placed `call`, replacing an earlier answer for the same
+    /// call — the location twin of [`Self::note_callbook_name`], bounded the same way. An answer
+    /// with neither a locator nor a position is ignored, so it cannot wipe one already known.
+    pub fn note_callbook_fix(&mut self, call: &str, fix: CallbookFix) {
+        let call = tempo_core::message::unhash_call(call.trim()).to_ascii_uppercase();
+        let grid = fix
+            .grid
+            .map(|g| g.trim().to_string())
+            .filter(|g| !g.is_empty());
+        if call.is_empty() || (grid.is_none() && fix.position.is_none()) {
+            return;
+        }
+        self.callbook_fixes.retain(|(c, _)| *c != call);
+        if self.callbook_fixes.len() >= CALLBOOK_NAMES_CAP {
+            self.callbook_fixes.pop_front();
+        }
+        let fix = CallbookFix {
+            grid,
+            position: fix.position,
+        };
+        self.callbook_fixes.push_back((call, fix));
+    }
+
+    /// Where a lookup answered this session placed exactly this call, if one did. Exact call,
+    /// as for the name: `W1AW/P` is not where `W1AW`'s callbook entry says.
+    fn callbook_fix(&self, call: &str) -> Option<&CallbookFix> {
+        let call = tempo_core::message::unhash_call(call.trim()).to_ascii_uppercase();
+        self.callbook_fixes
+            .iter()
+            .rev()
+            .find(|(c, _)| *c == call)
+            .map(|(_, fix)| fix)
+    }
+
+    /// Record the grid the log form holds for `call`. A blank grid forgets it, but only for the
+    /// same call: a form that moved on to another station has nothing to say about this one.
+    pub fn set_log_form_grid(&mut self, call: &str, grid: &str) {
+        let call = tempo_core::message::unhash_call(call.trim()).to_ascii_uppercase();
+        let grid = grid.trim();
+        if call.is_empty() {
+            return;
+        }
+        if grid.is_empty() {
+            if self.log_form_grid.as_ref().is_some_and(|(c, _)| *c == call) {
+                self.log_form_grid = None;
+            }
+            return;
+        }
+        self.log_form_grid = Some((call, grid.to_string()));
+    }
+
+    /// The grid the log form holds for exactly this call, if it holds one.
+    fn log_form_grid(&self, call: &str) -> Option<&str> {
+        let call = tempo_core::message::unhash_call(call.trim()).to_ascii_uppercase();
+        self.log_form_grid
+            .as_ref()
+            .filter(|(c, _)| *c == call)
+            .map(|(_, g)| g.as_str())
+    }
+
+    /// Where the engine knows `call`'s station to be, source by source ([`StationGrids`]).
+    pub fn station_grids(&self, call: &str) -> StationGrids {
+        let call = tempo_core::message::unhash_call(call.trim()).to_ascii_uppercase();
+        let mut heard: Vec<String> = self
+            .roster_grid(&call)
+            .map(str::to_string)
+            .into_iter()
+            .collect();
+        if let Some(g) = self
+            .js8_heard()
+            .iter()
+            .find(|h| h.call.eq_ignore_ascii_case(&call))
+            .and_then(|h| h.grid.clone())
+        {
+            heard.push(g);
+        }
+        StationGrids {
+            log_form: self.log_form_grid(&call).map(str::to_string),
+            heard,
+            callbook: self.callbook_fix(&call).cloned(),
+            logged: self.logged_grid(&call),
+        }
+    }
+
     /// Expand a CW macro WITHOUT queuing it — the cockpit's reply preview.
     pub fn preview_cw(&self, text: &str) -> String {
         self.expand_cw(text)
@@ -8537,7 +8866,8 @@ impl Engine {
         self.cw_sent.iter().cloned().collect()
     }
 
-    /// A CW-keyer failure to surface in the cockpit (rig rejected CAT keying), else None.
+    /// A CW-keyer failure to surface in the cockpit (rig rejected CAT keying), or why the last
+    /// CW send was dropped, else None.
     pub fn cw_keyer_error(&self) -> Option<String> {
         self.cw_keyer_error.clone()
     }
@@ -8600,29 +8930,44 @@ impl Engine {
     }
 
     /// Pop the next queued CW WORD for the radio loop to key, or None if the queue is empty
-    /// or TX is disabled (Monitor / outside privileges — the queue is then held, so a stray
-    /// macro never keys unexpectedly). One word per call so the loop paces the send and Stop
-    /// TX (which clears the queue) can drop the remainder before it reaches the rig.
+    /// or the send is refused. One word per call so the loop paces the send and Stop TX (which
+    /// clears the queue) can drop the remainder before it reaches the rig.
+    ///
+    /// ⛔ A REFUSED SEND IS DROPPED, NEVER HELD (the operator, 2026-09-30). TX off (leaving the CW
+    /// section drops the queue itself, in [`Self::set_operating_mode_with_reset`], so this is the
+    /// backstop for a latch lowered any other way), a dial outside the licence's privileges, or a
+    /// CW emission outside its CW privileges (below): every word still queued is cleared, and the
+    /// log and the CW cockpit's warning line ([`Self::cw_keyer_error`]) say why. Held, they keyed
+    /// the moment TX was allowed again (TX back on, a tune back into the privileges), at a time
+    /// the operator did not choose. A send made once TX is allowed keys as it always did.
     ///
     /// ⭐ AND AS CW, WHERE THE KEYER PUTS IT ([`Self::tx_allowed_as`]): the carrier at the dial,
     /// and on the soundcard keyer the tone a pitch from it on the side the transmitting VFO is
     /// commanded. In the CW section that is the gate above, so nothing there moves. The CW ID
     /// after an FT 73 is keyed from the DIGITAL section, whose gate judged FT8's carrier one TX
-    /// offset from the dial, not the CW. A word only this refuses is DROPPED, not held: a parting
-    /// ID must go out after its 73 or not at all, never at some later moment when it happens to
-    /// be allowed.
+    /// offset from the dial, not the CW: a parting ID goes out after its 73 or not at all, never
+    /// at some later moment when it happens to be allowed.
     pub fn poll_cw_one(&mut self) -> Option<String> {
-        if !self.tx_enabled || !self.tx_allowed() {
-            return None;
-        }
-        if !self.tx_allowed_as(crate::settings::OperatingMode::Cw) {
+        let refused = if !self.tx_enabled {
+            Some(("transmit is off", CW_REFUSED_TX_OFF))
+        } else if !self.tx_allowed() {
+            Some((
+                "the dial is outside the licence's privileges",
+                CW_REFUSED_PRIVILEGES,
+            ))
+        } else if !self.tx_allowed_as(crate::settings::OperatingMode::Cw) {
+            Some((
+                "where it would go is outside the licence's CW privileges",
+                CW_REFUSED_CW_PRIVILEGES,
+            ))
+        } else {
+            None
+        };
+        if let Some((why, notice)) = refused {
             if !self.cw_queue.is_empty() {
-                tempo_core::applog::info(
-                    "tx",
-                    "CW not keyed: where it would go is outside the licence's CW privileges \
-                     (dropped)",
-                );
+                tempo_core::applog::info("tx", &format!("CW not keyed: {why} (dropped)"));
                 self.cw_queue.clear();
+                self.cw_keyer_error = Some(notice.to_string());
             }
             return None;
         }
@@ -8979,6 +9324,13 @@ impl Engine {
             .get(call)
             .and_then(|h| h.grid.as_deref())
     }
+
+    /// The grid this station's newest logged contact carries, if that row has one — the log's
+    /// half of [`Self::dx_grid_resolved`], for a caller outside a QSO (the rotator's
+    /// point-at-call). A lookup keyed on the call, never a guess.
+    fn logged_grid(&self, call: &str) -> Option<String> {
+        self.station.newest_logged_grid(call)
+    }
     /// Adopt the rig's reported mic gain (radio-loop poll). Observed-only.
     pub fn observe_rig_mic_gain(&mut self, frac: f32) {
         if frac.is_finite() {
@@ -9281,6 +9633,7 @@ impl Engine {
         if po_w.is_some() {
             self.rig_tx_po_w = po_w;
         }
+        self.observe_mic_power(po_w);
         if comp_db.is_some() {
             self.rig_tx_comp_db = comp_db;
         }
@@ -9668,22 +10021,68 @@ impl Engine {
 
     // ----- Phone voice keyer — play recorded WAVs + record, via the radio loop -----
 
-    /// Queue 12 kHz mono samples (a decoded voice-keyer WAV) for transmission. Ignored
-    /// while TX is disabled (Monitor), so a stray F-key never keys unexpectedly. Replaces
-    /// any still-pending message (one voice over at a time).
-    pub fn send_voice(&mut self, samples: Vec<f32>) {
-        if self.tx_enabled && self.tx_allowed() && !samples.is_empty() {
+    /// Queue 12 kHz mono samples (a decoded voice-keyer WAV) for transmission. REFUSED while
+    /// TX is disabled (Monitor) or the dial is outside the licence's privileges, so a stray
+    /// F-key never keys unexpectedly: nothing is queued, the log says why, and so does the
+    /// `Err`, which the keyer's toast shows. It used to be ignored without a word. Replaces any
+    /// still-pending message (one voice over at a time).
+    pub fn send_voice(&mut self, samples: Vec<f32>) -> Result<(), String> {
+        // A streamed operator's microphone over owns the transmitter from its arm: a canned
+        // message queued under it would be appended to the output ring behind their voice, and
+        // their live audio would then reach the air late (the microphone's M3 and M4).
+        if self.mic.active() {
+            tempo_core::applog::info(
+                "tx",
+                "voice-keyer over refused: the Remote microphone is transmitting",
+            );
+            return Err(TxOwner::Mic.busy_reason());
+        }
+        if !self.tx_enabled {
+            tempo_core::applog::info("tx", "voice-keyer message refused: transmit is off");
+            return Err(
+                "TX is off — enable TX first (Stop TX / the watchdog disarmed it)".to_string(),
+            );
+        }
+        if !self.tx_allowed() {
+            tempo_core::applog::info(
+                "tx",
+                "voice-keyer message refused: the dial is outside the licence's privileges",
+            );
+            return Err(
+                "TX locked — this frequency is outside your license privileges".to_string(),
+            );
+        }
+        if !samples.is_empty() {
             tempo_core::applog::info(
                 "tx",
                 &format!("voice-keyer over queued: {} samples", samples.len()),
             );
             self.voice_tx = Some(samples);
         }
+        Ok(())
     }
 
     /// Take the pending voice samples for the radio loop to play (gated on Monitor + privileges).
+    ///
+    /// ⛔ A message REFUSED here is DROPPED, never held (operator, 2026-09-30: the rule CW, RTTY
+    /// and PSK follow): TX went off, or the dial left the privileges, after it was queued. Held,
+    /// it played the moment TX was allowed again. The log says why; the keyer has no warning
+    /// line to carry it, its toasts being the answer to the send itself.
     pub fn poll_voice(&mut self) -> Option<Vec<f32>> {
-        if !self.tx_enabled || !self.tx_allowed() {
+        self.voice_tx.as_ref()?;
+        let refused = if !self.tx_enabled {
+            Some("transmit is off")
+        } else if !self.tx_allowed() {
+            Some("the dial is outside the licence's privileges")
+        } else {
+            None
+        };
+        if let Some(why) = refused {
+            tempo_core::applog::info(
+                "tx",
+                &format!("voice-keyer message not played: {why} (dropped)"),
+            );
+            self.voice_tx = None;
             return None;
         }
         self.voice_tx.take()
@@ -9947,6 +10346,11 @@ impl Engine {
         let Some(path) = &self.station.pending_msgs_path else {
             return;
         };
+        // A journal this run could not read and could not move aside holds messages waiting to
+        // send: it is neither written over nor removed (`restore_pending_msgs`).
+        if tempo_core::keep_aside::refuses(path) {
+            return;
+        }
         let items = self.app.export_pending();
         if items.is_empty() {
             self.station.journals.remove(path);
@@ -9979,6 +10383,29 @@ impl Engine {
         );
     }
 
+    /// Restore the journaled queue at launch, from the path the shell set
+    /// ([`Self::set_pending_msgs_path`]); call it where [`Self::load_pending_msgs`] is called. A
+    /// queue this build cannot read — torn, or from a newer build with a value this one cannot
+    /// hold — keeps messages waiting to send, so it is kept aside ([`tempo_core::keep_aside`])
+    /// and the screen says where, rather than starting empty and letting the next queue change
+    /// write over it.
+    pub fn restore_pending_msgs(&mut self, now_unix: i64) {
+        let Some(path) = self.station.pending_msgs_path.clone() else {
+            return;
+        };
+        let items = tempo_core::keep_aside::read_or_keep("pendingMsgs", &path, now_unix, |text| {
+            serde_json::from_str::<Vec<PendingMsgJournal>>(text).map_err(|e| e.to_string())
+        });
+        if let Some(items) = items {
+            self.app.restore_pending(
+                items
+                    .into_iter()
+                    .map(PendingMsgJournal::into_pending)
+                    .collect(),
+            );
+        }
+    }
+
     /// Journal (or clear) the QSO held by the prompt-to-log popup.
     ///
     /// Written the MOMENT the hold changes, not at exit: a finished contact — exchange
@@ -9994,6 +10421,11 @@ impl Engine {
         let Some(path) = &self.station.pending_qso_path else {
             return;
         };
+        // A journal this run could not read and could not move aside holds contacts: it is
+        // neither written over nor removed (the screen says so — `restore_pending_qso_journal`).
+        if tempo_core::keep_aside::refuses(path) {
+            return;
+        }
         if self.pending_logs.is_empty() {
             let _ = std::fs::remove_file(path);
             return;
@@ -10112,8 +10544,16 @@ impl Engine {
     /// copy of a contest contact on disk, so an OPERATOR's contest logging still waits for it
     /// before it answers — after the lock is released ([`Self::journal_mark`]).
     pub fn persist_fd_log(&self) {
-        let (Some(path), Some(text)) = (&self.station.fd_log_path, self.field_day_log_adif())
-        else {
+        let Some(path) = &self.station.fd_log_path else {
+            return;
+        };
+        // A journal this run could not read and could not move aside holds the event's earlier
+        // contacts: it is never written over (`restore_fd_journal`, which carries the live log
+        // across a rebuild instead).
+        if tempo_core::keep_aside::refuses(path) {
+            return;
+        }
+        let Some(text) = self.field_day_log_adif() else {
             return;
         };
         self.station.journals.replace(
@@ -11750,7 +12190,7 @@ impl Engine {
 
     /// Broadcast a logged QSO as an N1MM `<contactinfo>` datagram — the STANDING
     /// output, on for every logged contact rather than only during a Field Day
-    /// event. Live map/dashboard consumers (OpenHamClock, GridTracker) plot each
+    /// event. Live map/dashboard consumers (GridTracker and similar) plot each
     /// contact from it as it is logged.
     ///
     /// Deliberately here, beside `push_to_hrd`, and NOT on the shell's upload
@@ -11966,6 +12406,15 @@ Pick the one you operate from on the Contesting tab in Settings.",
         // One flush closes it for every future "I moved" action without that action
         // having to know it exists. A no-op outside Field Day, and when no journal path
         // is set.
+        //
+        // A journal kept in place (it could not be read, nor moved aside) is never written, so
+        // the flush cannot carry the live log's rows across; they cross in memory instead.
+        let carried = self
+            .station
+            .fd_log_path
+            .as_deref()
+            .filter(|path| tempo_core::keep_aside::refuses(path))
+            .and_then(|_| self.field_day_log_adif());
         self.persist_fd_log();
         let band = self.settings.band.clone();
         let next_mode = match spec {
@@ -12034,9 +12483,12 @@ Pick the one you operate from on the Contesting tab in Settings.",
                 // The flush at the top of this call handed the journal to its thread; read it
                 // back once it is on disk. The wait is the one the write used to make here.
                 self.station.journals.settle();
-                station.log.merge_adif(
-                    &std::fs::read_to_string(path).unwrap_or_default(),
+                restore_fd_journal(
+                    &mut station.log,
+                    path,
                     now_unix_secs().saturating_sub(4 * 86_400),
+                    carried.as_deref(),
+                    now_unix_secs() as i64,
                 );
             }
             // ⚠️ A RESTART MUST NOT SHORTEN THE SESSION. The session above starts at
@@ -12911,6 +13363,12 @@ Pick the one you operate from on the Contesting tab in Settings.",
     /// message, NOT the raw wire chunk frames. Ring-capped. (poll_tx skips own-TX for
     /// free-text frames so they don't double / show "A13DE KD9TAW".)
     fn record_own_tx(&mut self, text: String) {
+        self.record_own_tx_at(text, self.tx_offset_hz);
+    }
+
+    /// [`Self::record_own_tx`] for an over that keyed away from the TX offset (a JS8
+    /// heartbeat's sub-band slot): the row sits where the over actually went.
+    fn record_own_tx_at(&mut self, text: String, freq_hz: f32) {
         const OWN_TX_RING: usize = 30;
         // Diagnostic trace. An operator reported (2026-08-18) their own calls not appearing in
         // the Rx-Frequency pane on one band and appearing after a QSY — an intermittent nobody
@@ -12921,14 +13379,11 @@ Pick the one you operate from on the Contesting tab in Settings.",
         // names the wiper.
         tempo_core::applog::info(
             "tx",
-            &format!(
-                "over recorded: {:?} at {} Hz",
-                text, self.tx_offset_hz as i32
-            ),
+            &format!("over recorded: {:?} at {} Hz", text, freq_hz as i32),
         );
         self.own_tx.push_back(OwnTx {
             text,
-            freq_hz: self.tx_offset_hz,
+            freq_hz,
             when_unix: now_unix_secs(),
             band: self.settings.band.clone(),
         });
@@ -13101,8 +13556,10 @@ Pick the one you operate from on the Contesting tab in Settings.",
         // command takes any member of `Tier::ALL`, which now includes `"JS8"` — so the
         // companion/UDP path, the rig-share broker, or any later UI change reaches the tier
         // without that verb. Seeding at the transition closes the class instead of one door.
+        // A trip that stood when the tier was left ends here too, and the station gets back the
+        // autoreply and relay it turned off, as the dock shows them (`js8_restart_idle_clock`).
         if tier == Tier::Js8 {
-            self.js8_station.mark_active(now_unix_secs() * 1000);
+            self.js8_restart_idle_clock(now_unix_secs() * 1000);
         }
         // ⭐ ANY TIER SWITCH WHILE AN OVER IS IN FLIGHT STANDS TRANSMIT DOWN.
         //
@@ -13465,6 +13922,9 @@ Pick the one you operate from on the Contesting tab in Settings.",
         // TX re-enables — else re-arming TX re-keys the radio with nobody holding it.
         self.manual_ptt = false;
         self.broker_ptt = None;
+        // …and a streamed operator's microphone over: dropped, its feed closed, and the abort
+        // armed so the loop flushes and unkeys (M10: halt_tx is still the universal stop).
+        self.drop_mic_latch();
         // A pending snappy-TX request dies with the halt — otherwise the loop
         // consumes it against a disabled TX and a later re-arm has lost it.
         self.immediate_tx = false;
@@ -13852,13 +14312,30 @@ Pick the one you operate from on the Contesting tab in Settings.",
             self.psk_queue.clear();
             self.psk_abort = true;
             self.drop_psk_latch();
+            // The microphone over joins RTTY and SSTV (the audio design's M10): it is latched,
+            // with no end of its own, so TX Off ends it in flight rather than letting it run.
+            self.drop_mic_latch();
             // Same for SSTV: a disarm aborts the image in flight and drops the job.
             self.sstv_tx = None;
             self.sstv_abort = true;
             self.sstv_tx_mode = None;
             self.sstv_tx_progress = None;
+            // …and what APRS still has queued (beacons, messages, automatic acks), which this
+            // used to leave HELD, to key the moment TX came back (the operator, 2026-09-30: "a
+            // refused picture or beacon is dropped with a notice, never sent later"). APRS has no
+            // abort to arm: a frame on the air is the loop's, and its TX-off cut unkeys it.
+            if !self.aprs_tx_queue.is_empty() {
+                tempo_core::applog::info("tx", "APRS not keyed: transmit is off (dropped)");
+                self.aprs_tx_queue.clear();
+                self.aprs_tx_notice = Some(APRS_REFUSED_TX_OFF.to_string());
+            }
             self.tx_queue.clear();
             self.broadcast_queue.clear();
+            // …and JS8's queue, which this used to leave HELD, to key the moment TX came back,
+            // the rest of a message already going out included (the operator, 2026-09-30: "a
+            // refused JS8 queue is dropped with a notice, never sent later"). JS8Call's TX
+            // button drops it too (mainwindow.cpp:2855-2861).
+            self.js8_tx_off();
             // `transmitting` is deliberately NOT stamped false: the over in flight
             // is still leaving the antenna, and `tx_owner()` must keep reporting
             // Slot while it drains (no other keying source may grab the rig).
@@ -16617,16 +17094,52 @@ Pick the one you operate from on the Contesting tab in Settings.",
         }
     }
 
-    /// Pop the next queued APRS beacon audio for the radio loop to key, or `None` while any TX gate
-    /// is down (Monitor off / outside privileges / anything else owning the transmitter) — the
-    /// queue is then HELD, so a beacon never keys unexpectedly. Ownership comes from the ONE
-    /// arbiter ([`Engine::tx_owner`]): the four-flag copy that used to live here knew nothing of
+    /// Pop the next queued APRS frame's audio (a beacon, a message, an automatic ack) for the radio
+    /// loop to key, or `None`.
+    ///
+    /// ⛔ A REFUSED FRAME IS DROPPED, NEVER HELD (the operator, 2026-09-30: "a refused picture or
+    /// beacon is dropped with a notice, never sent later"). With TX off, or the dial outside the
+    /// licence's privileges, everything still queued is cleared: the log says why once, and the
+    /// APRS cockpit's status line ([`Self::aprs_tx_notice`]) says so. Held, it keyed the moment
+    /// TX was allowed again, at a time the operator did not choose. TX Off itself drops the queue
+    /// ([`Self::set_tx_enabled`]), so the TX-off arm here is the backstop for a latch lowered any
+    /// other way (a watchdog trip, leaving a manual mode for Digital).
+    ///
+    /// HELD while anything else owns the transmitter: that is a wait for the rig, not a refusal,
+    /// and the frame keys when it is free. Ownership comes from the ONE arbiter
+    /// ([`Engine::tx_owner`]): the four-flag copy that used to live here knew nothing of
     /// mic/broker PTT, the voice keyer, CW, RTTY or SSTV.
     pub fn poll_aprs_tx(&mut self) -> Option<Vec<f32>> {
-        if !self.tx_enabled || !self.tx_allowed() || self.tx_owner().is_some() {
+        if self.aprs_tx_queue.is_empty() {
             return None;
         }
+        let refused = if !self.tx_enabled {
+            Some(("transmit is off", APRS_REFUSED_TX_OFF))
+        } else if !self.tx_allowed() {
+            Some((
+                "the dial is outside the licence's privileges",
+                APRS_REFUSED_PRIVILEGES,
+            ))
+        } else {
+            None
+        };
+        if let Some((why, notice)) = refused {
+            tempo_core::applog::info("tx", &format!("APRS not keyed: {why} (dropped)"));
+            self.aprs_tx_queue.clear();
+            self.aprs_tx_notice = Some(notice.to_string());
+            return None;
+        }
+        if self.tx_owner().is_some() {
+            return None;
+        }
+        self.aprs_tx_notice = None;
         self.aprs_tx_queue.pop_front()
+    }
+
+    /// Why what was queued for APRS was last dropped instead of sent, for the APRS cockpit's status
+    /// line; `None` once a frame keys.
+    pub fn aprs_tx_notice(&self) -> Option<&str> {
+        self.aprs_tx_notice.as_deref()
     }
 
     /// Who owns the transmitter right now, if anyone — THE single answer to the
@@ -16650,6 +17163,10 @@ Pick the one you operate from on the Contesting tab in Settings.",
             Some(TxOwner::Tune)
         } else if self.manual_ptt || self.broker_ptt.is_some() {
             Some(TxOwner::ManualPtt)
+        } else if self.mic.active() {
+            // From the arm, before any audio: an armed over owns the transmitter the way a
+            // latched RTTY stream does from its first tick, so nothing else can key under it.
+            Some(TxOwner::Mic)
         } else if self.voice_tx.is_some() {
             Some(TxOwner::Voice)
         } else if !self.cw_queue.is_empty() {
@@ -17079,19 +17596,40 @@ Pick the one you operate from on the Contesting tab in Settings.",
         self.drop_psk_latch();
     }
 
-    /// Pop the next queued PSK MESSAGE for the radio loop to key, or `None`
-    /// while any TX gate is down (the queue is then HELD — nothing keys
-    /// unexpectedly). One message per call; the loop paces on the real
-    /// rendered duration. The wall-clock TX watchdog trips BEFORE handing a
-    /// message out, exactly as [`Self::poll_rtty_one`] does.
+    /// Pop the next queued PSK MESSAGE for the radio loop to key, or `None`.
+    /// A refused over is DROPPED, never held, exactly as [`Self::poll_rtty_one`]
+    /// drops one (operator, 2026-09-30): with TX off, or with this section's
+    /// emission outside the licence's privileges at the dial, the queue is
+    /// cleared, the log says why once and the cockpit's warning line says so.
+    /// HELD while a tune carrier is up; leaving the PSK section drops the queue
+    /// ([`Self::set_operating_mode_with_reset`]), and the section check here is the
+    /// backstop. One message per call; the loop paces on the real rendered
+    /// duration. The wall-clock
+    /// TX watchdog trips BEFORE handing a message out, exactly as
+    /// [`Self::poll_rtty_one`] does.
     pub fn poll_psk_one(&mut self) -> Option<String> {
         use crate::settings::OperatingMode;
-        if !self.tx_enabled
-            || !self.tx_allowed()
-            || self.tuning
-            || self.settings.operating_mode != OperatingMode::Keyboard
-            || self.psk_queue.is_empty()
-        {
+        if self.psk_queue.is_empty() {
+            return None;
+        }
+        let in_section = self.settings.operating_mode == OperatingMode::Keyboard;
+        let refused = if !self.tx_enabled {
+            Some(("transmit is off", PSK_REFUSED_TX_OFF))
+        } else if in_section && !self.tx_allowed() {
+            Some((
+                "the dial is outside the licence's privileges",
+                PSK_REFUSED_PRIVILEGES,
+            ))
+        } else {
+            None
+        };
+        if let Some((why, notice)) = refused {
+            tempo_core::applog::info("tx", &format!("PSK not keyed: {why} (dropped)"));
+            self.psk_queue.clear();
+            self.psk_keyer_error = Some(notice.to_string());
+            return None;
+        }
+        if self.tuning || !in_section {
             return None;
         }
         let limit_secs = self.settings.tx_watchdog_min as u64 * 60;
@@ -17414,23 +17952,54 @@ Pick the one you operate from on the Contesting tab in Settings.",
         self.drop_rtty_latch();
     }
 
-    /// Pop the next queued RTTY MESSAGE for the radio loop to key, or `None` while
-    /// any TX gate is down (Monitor off / outside privileges / not the RTTY section /
-    /// a tune carrier up — the queue is then HELD, so nothing keys unexpectedly; the
-    /// FT8/FT1 sequencer's `poll_tx` is gated off for non-Digital the same way, so
-    /// the two can never key together). One message per call: the loop paces on the
+    /// Pop the next queued RTTY MESSAGE for the radio loop to key, or `None`.
+    ///
+    /// ⛔ A REFUSED OVER IS DROPPED, NEVER HELD (operator, 2026-09-30: "Same drop rule", as
+    /// for CW). With TX off, or with this section's emission outside the licence's privileges
+    /// at the dial, everything queued is dropped, the log says why once, and the cockpit's
+    /// warning line ([`RttyRxState::keyer_error`]) says so. Held, it keyed the moment TX came
+    /// back or the dial was tuned back in. An auto-sequencer over among it ends the auto
+    /// session, as a refused enqueue does ([`Self::apply_rtty_action`]): otherwise the empty
+    /// queue reads as its over sent. `tx_allowed` judges the CURRENT section's emission, so
+    /// it speaks for RTTY only while RTTY owns the rig.
+    ///
+    /// HELD while a tune carrier is up. Another section never has an RTTY queue to hold:
+    /// leaving RTTY drops it ([`Self::set_operating_mode_with_reset`]). The section check here
+    /// stays as the backstop that keeps RTTY and the FT8/FT1 sequencer apart (`poll_tx` is
+    /// gated off for non-Digital the same way). One message per call: the loop paces on the
     /// real bit-stream duration, so a Stop between messages drops the remainder
     /// before it reaches the rig. The wall-clock TX watchdog applies here exactly as
     /// it does to the FT8 slot — past the ceiling it trips BEFORE handing the
     /// message out: TX disarms, the queue drops, and the abort unkeys.
     pub fn poll_rtty_one(&mut self) -> Option<String> {
         use crate::settings::OperatingMode;
-        if !self.tx_enabled
-            || !self.tx_allowed()
-            || self.tuning
-            || self.settings.operating_mode != OperatingMode::Rtty
-            || self.rtty_queue.is_empty()
-        {
+        if self.rtty_queue.is_empty() {
+            return None;
+        }
+        let in_section = self.settings.operating_mode == OperatingMode::Rtty;
+        let refused = if !self.tx_enabled {
+            Some(("transmit is off", RTTY_REFUSED_TX_OFF))
+        } else if in_section && !self.tx_allowed() {
+            Some((
+                "the dial is outside the licence's privileges",
+                RTTY_REFUSED_PRIVILEGES,
+            ))
+        } else {
+            None
+        };
+        if let Some((why, notice)) = refused {
+            tempo_core::applog::info("tx", &format!("RTTY not keyed: {why} (dropped)"));
+            self.rtty_queue.clear();
+            self.rtty_keyer_error = Some(notice.to_string());
+            if std::mem::take(&mut self.rtty_auto_over) {
+                if let Some(seq) = self.rtty_seq.as_mut() {
+                    seq.abort();
+                }
+                self.rtty_keyer_error = Some(RTTY_AUTO_REFUSED.to_string());
+            }
+            return None;
+        }
+        if self.tuning || !in_section {
             return None;
         }
         // Wall-clock watchdog (WSJT-X semantics): timed from the last operator
@@ -17827,9 +18396,9 @@ Pick the one you operate from on the Contesting tab in Settings.",
         // mode, with the gate-for-gate table in its doc. Every gate
         // `rtty_tx_gate` checks before a send is re-checked before every chunk,
         // because a latch outlives the moment it was granted and the gates do
-        // not. `poll_rtty_one`'s equivalent gate merely HOLDS the queue; holding
-        // is not an option for a keyed transmitter, so each of these DROPS THE
-        // LATCH and unkeys.
+        // not. `poll_rtty_one`'s equivalent gate HOLDS the queue while a tune
+        // owns the rig (leaving the section drops it); holding is not an option
+        // for a keyed transmitter, so each of these DROPS THE LATCH and unkeys.
         //
         // What stays here is only what is RTTY's: which engine field answers
         // each gate, and what each drop means to this mode's transmitter.
@@ -18136,11 +18705,7 @@ contact yourself."
                 if self.rtty_enqueue(&text, false).is_ok() {
                     self.rtty_auto_over = true;
                 } else {
-                    self.set_rtty_keyer_error(Some(
-                        "RTTY auto-sequencer stopped — a transmission was refused (the TX gate \
-                         closed mid-QSO)."
-                            .to_string(),
-                    ));
+                    self.set_rtty_keyer_error(Some(RTTY_AUTO_REFUSED.to_string()));
                     if let Some(seq) = self.rtty_seq.as_mut() {
                         seq.abort();
                     }
@@ -18684,23 +19249,80 @@ contact yourself."
         Ok(())
     }
 
-    /// Take the queued SSTV image for the radio loop to stream, or `None` while any TX gate
-    /// is down (Monitor off / outside privileges / not Phone / tuning) — the job is then
-    /// HELD (not dropped), so nothing keys unexpectedly, mirroring `poll_rtty_one`'s
-    /// hold-don't-drop. No wall-clock watchdog check here: the over's length is bounded UP
+    /// Take the queued SSTV image for the radio loop to stream, or `None`.
+    ///
+    /// ⛔ A PICTURE REFUSED WHILE IT WAITS IS DROPPED, NEVER HELD (the operator, 2026-09-30: "a
+    /// refused picture or beacon is dropped with a notice, never sent later"). A picture waits
+    /// here from [`Self::sstv_send`] until the loop is idle: another over or its PTT tail, a held
+    /// mic, a radio handoff. If in that time TX went off, or the dial left the licence's Phone
+    /// privileges, the picture is dropped: the log says why once, and the SSTV cockpit's warning
+    /// line ([`Self::sstv_tx_notice`]) says so. Held, it keyed the moment TX was allowed again, at
+    /// a time the operator did not choose. TX Off itself already drops it (`set_tx_enabled`), so
+    /// the TX-off arm here is the backstop for a latch lowered any other way.
+    ///
+    /// HELD, as before, while a tune carrier is up. Outside the Phone section there is none to
+    /// hold: leaving Phone drops a waiting picture ([`Self::set_operating_mode_with_reset`]), and
+    /// the section check here stays as the backstop; `tx_allowed` judges the current section's
+    /// emission, so it speaks for SSTV only in Phone. A picture already going out is the loop's,
+    /// and nothing here touches it.
+    ///
+    /// No wall-clock watchdog check here: the over's length is bounded UP
     /// FRONT by `sstv_send`'s budget, and the loop unkeys unconditionally at the precomputed
     /// `tx_until_ms`, so the watchdog never needs to bite mid-image.
     pub fn poll_sstv_tx(&mut self) -> Option<SstvTxJob> {
         use crate::settings::OperatingMode;
-        if !self.tx_enabled
-            || !self.tx_allowed()
-            || self.tuning
-            || self.settings.operating_mode != OperatingMode::Phone
-            || self.sstv_tx.is_none()
-        {
+        self.sstv_tx.as_ref()?; // nothing waiting, nothing to judge
+        let in_section = self.settings.operating_mode == OperatingMode::Phone;
+        let refused = if !self.tx_enabled {
+            Some(("transmit is off", SSTV_REFUSED_TX_OFF))
+        } else if in_section && !self.tx_allowed() {
+            Some((
+                "the dial is outside the licence's privileges",
+                SSTV_REFUSED_PRIVILEGES,
+            ))
+        } else {
+            None
+        };
+        if let Some((why, notice)) = refused {
+            tempo_core::applog::info("tx", &format!("SSTV not keyed: {why} (dropped)"));
+            self.sstv_tx = None;
+            self.sstv_tx_mode = None;
+            self.sstv_tx_progress = None;
+            self.sstv_tx_notice = Some(notice.to_string());
             return None;
         }
+        if self.tuning || !in_section {
+            return None;
+        }
+        self.sstv_tx_notice = None;
         self.sstv_tx.take()
+    }
+
+    /// Why the last picture that waited for the transmitter was dropped instead of sent, or why
+    /// the one going out was cut short ([`Self::sstv_tx_cut`]), for the SSTV cockpit's warning
+    /// line; `None` once a picture keys.
+    pub fn sstv_tx_notice(&self) -> Option<&str> {
+        self.sstv_tx_notice.as_deref()
+    }
+
+    /// The radio loop ended the picture on the air before its end, and not through the SSTV
+    /// abort (loop-only): transmit went off under it (`tx_off`: leaving Phone lowers the latch
+    /// without arming the abort), or another stop ended the transmission it keyed (a tune, a
+    /// radio switch, another cockpit's Stop). The picture is left as [`Self::sstv_stop`] leaves
+    /// it — nothing queued, no mode, no progress, not sending — and the SSTV cockpit's warning
+    /// line says why ([`Self::sstv_tx_notice`]), until the next picture keys.
+    pub fn sstv_tx_cut(&mut self, tx_off: bool) {
+        let (why, notice) = if tx_off {
+            ("transmit went off under it", SSTV_STOPPED_TX_OFF)
+        } else {
+            ("its transmission was ended elsewhere", SSTV_STOPPED_CUT)
+        };
+        tempo_core::applog::info("tx", &format!("SSTV picture stopped before its end: {why}"));
+        self.sstv_tx = None;
+        self.sstv_sending = false;
+        self.sstv_tx_mode = None;
+        self.sstv_tx_progress = None;
+        self.sstv_tx_notice = Some(notice.to_string());
     }
 
     /// Stop SSTV now: drop the queued image and abort the over in progress — the radio loop
@@ -20047,6 +20669,16 @@ contact yourself."
         s.radio.tuning = self.tuning;
         // The arbiter's own answer, not a flag pair for the UI to re-derive — see the field doc.
         s.radio.tx_busy_reason = self.tx_owner().map(TxOwner::busy_reason);
+        // What the Phone cockpit's PTT and the header's ON AIR sign show of a streamed microphone
+        // over; display only. `Armed` only while that over owns the transmitter: anything the
+        // arbiter names before it (an FT over, the tune carrier, a key at the shack) is on the air.
+        s.radio.stream_mic = if self.mic.keyed() {
+            Some(crate::dto::StreamMic::Keyed)
+        } else if self.mic.active() && self.tx_owner() == Some(TxOwner::Mic) {
+            Some(crate::dto::StreamMic::Armed)
+        } else {
+            None
+        };
         s.radio.rig_keyed = self.rig_keyed;
         // HRD link: Some(true) delivered, Some(false) HRD unreachable (contacts queued),
         // None nothing sent yet. Only meaningful when HRD forwarding is on.
@@ -20604,6 +21236,10 @@ contact yourself."
         s.log_tick = self.station.log_tick();
         s.log_store_problem = self.station.store_problem.clone();
         s.log_save_trouble = self.station.store.save_trouble();
+        s.kept_files = tempo_core::keep_aside::kept()
+            .into_iter()
+            .map(Into::into)
+            .collect();
         s.parsec_presence = self.parsec_presence_dto();
         s.pending_log = self.pending_log().cloned().map(Into::into);
         s.pending_qso_log_key = self.pending_qso_log_key();
@@ -24175,6 +24811,8 @@ pub fn sync_shared_log(engine: &std::sync::Mutex<Engine>) -> bool {
     for _ in 0..crate::station::PLANS {
         let job = {
             let mut eng = engine_lock(engine);
+            // The changes the store turned back first: each owes the index a build.
+            eng.station.store.take_in_conflicts();
             took |= eng.station.take_in_foreign_stamps();
             match eng.station.shared_log_job(files) {
                 Some(job) => job,
@@ -24203,6 +24841,51 @@ pub fn sync_shared_log(engine: &std::sync::Mutex<Engine>) -> bool {
 pub fn log_plan(engine: &std::sync::Mutex<Engine>) -> crate::station::LogPlan {
     sync_shared_log(engine);
     engine_lock(engine).station_mut().log_plan()
+}
+
+/// Restore the Field Day journal at `path` into the fresh contest log `log` (rows from before
+/// `min_when_unix` self-expire). A journal this build cannot read in full, whether cut off
+/// mid-record, a record with no call, bytes that are not UTF-8, or a file it cannot open, is
+/// kept aside ([`tempo_core::keep_aside`]) once the rows it could read are in: the next contact
+/// rewrites the journal from the log, which would drop the rest for good.
+///
+/// A journal kept in place is not read again; `carried`, the live log's own rows, crosses the
+/// rebuild instead (see `set_mode_with_decoder`).
+fn restore_fd_journal(
+    log: &mut tempo_core::fieldday::FieldDayLog,
+    path: &std::path::Path,
+    min_when_unix: u64,
+    carried: Option<&str>,
+    now_unix: i64,
+) {
+    if tempo_core::keep_aside::refuses(path) {
+        if let Some(rows) = carried {
+            log.merge_adif(rows, min_when_unix);
+        }
+        return;
+    }
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            tempo_core::keep_aside::keep_aside("fieldDay", path, now_unix, &e.to_string());
+            return;
+        }
+    };
+    // Lossy on purpose, as the logbook's own load: the ADIF structure is ASCII, so every record
+    // survives a bad byte, and the file itself is kept below.
+    let text = String::from_utf8_lossy(&bytes);
+    let merged = log.merge_adif(&text, min_when_unix);
+    let why = if matches!(text, std::borrow::Cow::Owned(_)) {
+        Some("it is not UTF-8".to_string())
+    } else if merged.unreadable > 0 {
+        Some(format!("{} record(s) could not be read", merged.unreadable))
+    } else {
+        None
+    };
+    if let Some(why) = why {
+        tempo_core::keep_aside::keep_aside("fieldDay", path, now_unix, &why);
+    }
 }
 
 /// Current wall-clock time as Unix seconds (UTC), 0 before the epoch.
@@ -25899,13 +26582,152 @@ mod tests {
                 "no FT8 keying while the Keyboard section owns the rig"
             );
         }
-        // And vice versa: the PSK queue is HELD while Digital owns the rig.
-        e.psk_send_text("cq test").unwrap();
+        // And vice versa: nothing PSK keys while Digital owns the rig, even with TX armed there
+        // (FT8's own TX On). Leaving PSK drops what was typed ahead, so the over goes into the
+        // queue directly: the stand-in for any path that could queue one outside the section.
         e.set_operating_mode("digital", false);
+        e.set_tx_enabled(true);
+        e.psk_queue.push_back("cq test".into());
         assert_eq!(
             e.poll_psk_one(),
             None,
             "no PSK keying while Digital owns the rig"
+        );
+    }
+
+    /// ⛔ LEAVING THE PSK SECTION DROPS WHAT WAS TYPED AHEAD (the operator, 2026-09-30: "Drop it
+    /// when you leave"), as leaving RTTY does, wherever the operator goes. Phone, CW and RTTY
+    /// keep TX armed, so the overs were held, and the return keyed them. The over already keying
+    /// is not cut, and PSK re-asserting its own section drops nothing.
+    #[test]
+    fn a_psk_over_typed_ahead_is_dropped_when_the_psk_section_is_left() {
+        for to in ["phone", "cw", "rtty", "digital"] {
+            let mut e = Engine::new("W9XYZ", "EN61", 0);
+            e.set_operating_mode("keyboard", false);
+            e.psk_send_text("cq cq").unwrap();
+            e.psk_send_text("de w9xyz").unwrap();
+            assert_eq!(
+                e.poll_psk_one().as_deref(),
+                Some("cq cq"),
+                "{to}: control, the first over keys"
+            );
+            e.set_operating_mode("keyboard", false); // the view re-asserting its own section
+            assert!(
+                !e.psk_queue.is_empty(),
+                "{to}: re-entering PSK dropped the queue"
+            );
+            e.set_operating_mode(to, false);
+            assert!(!e.take_psk_abort(), "{to}: leaving cut the over in flight");
+            e.set_operating_mode("keyboard", false);
+            assert_eq!(
+                e.poll_psk_one(),
+                None,
+                "{to}: what was typed ahead keyed on the return"
+            );
+            assert_eq!(
+                e.psk_state().keyer_error.as_deref(),
+                Some(PSK_LEFT_SECTION),
+                "{to}: the PSK cockpit is told"
+            );
+            e.psk_send_text("73").unwrap();
+            assert_eq!(
+                e.poll_psk_one().as_deref(),
+                Some("73"),
+                "{to}: a send made on the return keys as before"
+            );
+        }
+    }
+
+    /// ⛔ A REFUSED PSK OVER IS DROPPED, NEVER HELD (the operator, 2026-09-30: "Same drop rule"),
+    /// as a refused RTTY over is. The refusal at the poll is the backstop for a latch lowered with
+    /// overs still queued. No path does that any more (TX Off clears the queue itself, and leaving
+    /// the section drops it), so the test lowers the latch directly.
+    #[test]
+    fn a_psk_over_refused_with_tx_off_is_dropped_and_does_not_key_when_tx_comes_back() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_operating_mode("keyboard", false); // arms TX, as a manual mode does
+        e.psk_send_text("cq cq").unwrap();
+        e.psk_send_text("de w9xyz").unwrap(); // typed ahead, behind the first
+        assert_eq!(
+            e.poll_psk_one().as_deref(),
+            Some("cq cq"),
+            "control: the first over keys"
+        );
+        e.tx_enabled = false; // the latch lowered, the queue left as it is
+        assert_eq!(e.poll_psk_one(), None, "nothing keys with TX off");
+        e.set_tx_enabled(true);
+        assert_eq!(
+            e.poll_psk_one(),
+            None,
+            "nothing refused keys when TX comes back"
+        );
+        assert_eq!(
+            e.psk_state().keyer_error.as_deref(),
+            Some(PSK_REFUSED_TX_OFF),
+            "the PSK cockpit says the rest was dropped"
+        );
+        e.psk_send_text("73").unwrap();
+        assert_eq!(
+            e.poll_psk_one().as_deref(),
+            Some("73"),
+            "a send made once TX is on keys as before"
+        );
+    }
+
+    /// …and outside the licence's privileges, then a same-band tune back in. One notice per
+    /// refusal, not one per poll.
+    #[test]
+    fn a_psk_over_refused_outside_privileges_is_dropped_and_does_not_key_after_a_tune_in() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("keyboard", false);
+        e.set_frequency(14.070, "20m", "USB");
+        assert!(
+            e.tx_allowed(),
+            "precondition: 14.070 is inside a General's data"
+        );
+        e.psk_send_text("cq cq").unwrap();
+        e.psk_send_text("de w9xyz").unwrap();
+        assert_eq!(
+            e.poll_psk_one().as_deref(),
+            Some("cq cq"),
+            "control: the first over keys"
+        );
+        e.set_frequency(14.020, "20m", "USB");
+        assert!(
+            !e.tx_allowed(),
+            "precondition: 14.020 is Extra-only, outside a General's privileges"
+        );
+        assert_eq!(e.poll_psk_one(), None, "nothing keys outside privileges");
+        e.set_frequency(14.070, "20m", "USB"); // a same-band tune back in
+        assert_eq!(
+            e.poll_psk_one(),
+            None,
+            "nothing refused keys after the tune in"
+        );
+        assert_eq!(
+            e.psk_state().keyer_error.as_deref(),
+            Some(PSK_REFUSED_PRIVILEGES),
+            "the PSK cockpit says it was dropped"
+        );
+        // Cleared (as the loop does once an over keys), the notice is not raised again by
+        // polls that find nothing queued, however long a refusal lasts.
+        e.set_psk_keyer_error(None);
+        e.set_frequency(14.020, "20m", "USB");
+        for _ in 0..3 {
+            assert_eq!(e.poll_psk_one(), None);
+        }
+        assert_eq!(
+            e.psk_state().keyer_error,
+            None,
+            "polls with nothing queued raise nothing"
+        );
+        e.set_frequency(14.070, "20m", "USB");
+        e.psk_send_text("73").unwrap();
+        assert_eq!(
+            e.poll_psk_one().as_deref(),
+            Some("73"),
+            "a send made inside the privileges keys as before"
         );
     }
 
@@ -25922,17 +26744,228 @@ mod tests {
                 "no FT8 keying while RTTY owns the rig"
             );
         }
-        // And vice versa: the RTTY queue is HELD while Digital owns the rig.
-        e.rtty_send_text("CQ TEST").unwrap();
+        // And vice versa: nothing RTTY keys while Digital owns the rig, even with TX armed there
+        // (FT8's own TX On). Leaving RTTY drops what was typed ahead, so the over goes into the
+        // queue directly: the stand-in for any path that could queue one outside the section.
         e.set_operating_mode("digital", false);
+        e.set_tx_enabled(true);
+        e.rtty_queue.push_back("CQ TEST".into());
         assert_eq!(
             e.poll_rtty_one(),
             None,
             "no RTTY keying while Digital owns the rig"
         );
-        // Back in the RTTY section the held message keys normally.
+    }
+
+    /// ⛔ LEAVING THE RTTY SECTION DROPS WHAT WAS TYPED AHEAD (the operator, 2026-09-30: "Drop
+    /// it when you leave"), wherever the operator goes. Phone, CW and PSK keep TX armed, so the
+    /// overs were held, and the return keyed them; Digital lowered TX, and the return re-armed
+    /// it. The over already keying is not cut (a section change arms no abort), and RTTY
+    /// re-asserting its own section drops nothing.
+    #[test]
+    fn an_rtty_over_typed_ahead_is_dropped_when_the_rtty_section_is_left() {
+        for to in ["phone", "cw", "keyboard", "digital"] {
+            let mut e = Engine::new("W9XYZ", "EN61", 0);
+            e.set_operating_mode("rtty", false);
+            e.rtty_send_text("CQ CQ").unwrap();
+            e.rtty_send_text("DE W9XYZ").unwrap();
+            assert_eq!(
+                e.poll_rtty_one().as_deref(),
+                Some("CQ CQ"),
+                "{to}: control, the first over keys"
+            );
+            e.set_operating_mode("rtty", false); // the view re-asserting its own section
+            assert!(
+                !e.rtty_queue.is_empty(),
+                "{to}: re-entering RTTY dropped the queue"
+            );
+            e.set_operating_mode(to, false);
+            assert!(!e.take_rtty_abort(), "{to}: leaving cut the over in flight");
+            e.set_operating_mode("rtty", false);
+            assert_eq!(
+                e.poll_rtty_one(),
+                None,
+                "{to}: what was typed ahead keyed on the return"
+            );
+            assert_eq!(
+                e.rtty_state().keyer_error.as_deref(),
+                Some(RTTY_LEFT_SECTION),
+                "{to}: the RTTY cockpit is told"
+            );
+            e.rtty_send_text("73").unwrap();
+            assert_eq!(
+                e.poll_rtty_one().as_deref(),
+                Some("73"),
+                "{to}: a send made on the return keys as before"
+            );
+        }
+    }
+
+    /// …and an auto-sequencer QSO ends with the RTTY screen, with a line of its own (the
+    /// operator, 2026-09-30: "RTTY auto-sequencer stopped: you left the RTTY screen mid-QSO."):
+    /// nothing was refused, so the refusal line would mislead. Queued or already on the air, its
+    /// over would otherwise be followed by the next one it queues while the operator is away,
+    /// held until the return and keyed then.
+    #[test]
+    fn leaving_the_rtty_section_ends_an_auto_qso() {
+        for queued in [true, false] {
+            let mut e = Engine::new("W9XYZ", "EN61", 0);
+            e.set_operating_mode("rtty", false);
+            e.set_rtty_auto(true).unwrap();
+            e.rtty_auto_cq().unwrap();
+            if !queued {
+                assert!(e.poll_rtty_one().is_some(), "control: the CQ keys");
+                e.set_rtty_sending(true); // …and is on the air
+            }
+            assert_eq!(e.rtty_state().seq_state, "calling_cq", "precondition");
+            e.set_operating_mode("phone", false);
+            assert_eq!(
+                e.rtty_state().seq_state,
+                "idle",
+                "queued {queued}: the auto QSO outlived the RTTY screen"
+            );
+            assert_eq!(
+                e.rtty_state().keyer_error.as_deref(),
+                Some(RTTY_AUTO_LEFT),
+                "queued {queued}: the RTTY cockpit says why"
+            );
+            e.set_rtty_sending(false);
+            e.set_operating_mode("rtty", false);
+            e.rtty_auto_service();
+            assert_eq!(
+                e.poll_rtty_one(),
+                None,
+                "queued {queued}: something keyed on the return"
+            );
+        }
+    }
+
+    /// ⛔ A REFUSED RTTY OVER IS DROPPED, NEVER HELD (the operator, 2026-09-30: "Same drop rule"),
+    /// as a refused CW send is. The refusal at the poll is the backstop for a latch lowered with
+    /// overs still queued. No path does that any more (TX Off clears the queue itself, and leaving
+    /// the section drops it: `an_rtty_over_typed_ahead_is_dropped_when_the_rtty_section_is_left`),
+    /// so the test lowers the latch directly.
+    #[test]
+    fn an_rtty_over_refused_with_tx_off_is_dropped_and_does_not_key_when_tx_comes_back() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_operating_mode("rtty", false); // arms TX, as a manual mode does
+        e.rtty_send_text("CQ CQ").unwrap();
+        e.rtty_send_text("DE W9XYZ").unwrap(); // typed ahead, behind the first
+        assert_eq!(
+            e.poll_rtty_one().as_deref(),
+            Some("CQ CQ"),
+            "control: the first over keys"
+        );
+        e.tx_enabled = false; // the latch lowered, the queue left as it is
+        assert_eq!(e.poll_rtty_one(), None, "nothing keys with TX off");
+        e.set_tx_enabled(true);
+        assert_eq!(
+            e.poll_rtty_one(),
+            None,
+            "nothing refused keys when TX comes back"
+        );
+        assert_eq!(
+            e.rtty_state().keyer_error.as_deref(),
+            Some(RTTY_REFUSED_TX_OFF),
+            "the RTTY cockpit says the rest was dropped"
+        );
+        e.rtty_send_text("73").unwrap();
+        assert_eq!(
+            e.poll_rtty_one().as_deref(),
+            Some("73"),
+            "a send made once TX is on keys as before"
+        );
+    }
+
+    /// …and outside the licence's privileges: an over queued inside them, then a dial moved
+    /// out of them on the same band, was held and keyed after a tune back in. One notice per
+    /// refusal, not one per poll.
+    #[test]
+    fn an_rtty_over_refused_outside_privileges_is_dropped_and_does_not_key_after_a_tune_in() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("general");
         e.set_operating_mode("rtty", false);
-        assert_eq!(e.poll_rtty_one(), Some("CQ TEST".to_string()));
+        e.set_frequency(14.080, "20m", "LSB");
+        assert!(
+            e.tx_allowed(),
+            "precondition: 14.080 is inside a General's data"
+        );
+        e.rtty_send_text("CQ CQ").unwrap();
+        e.rtty_send_text("DE W9XYZ").unwrap();
+        assert_eq!(
+            e.poll_rtty_one().as_deref(),
+            Some("CQ CQ"),
+            "control: the first over keys"
+        );
+        e.set_frequency(14.020, "20m", "LSB");
+        assert!(
+            !e.tx_allowed(),
+            "precondition: 14.020 is Extra-only, outside a General's privileges"
+        );
+        assert_eq!(e.poll_rtty_one(), None, "nothing keys outside privileges");
+        e.set_frequency(14.080, "20m", "LSB"); // a same-band tune back in
+        assert_eq!(
+            e.poll_rtty_one(),
+            None,
+            "nothing refused keys after the tune in"
+        );
+        assert_eq!(
+            e.rtty_state().keyer_error.as_deref(),
+            Some(RTTY_REFUSED_PRIVILEGES),
+            "the RTTY cockpit says it was dropped"
+        );
+        // Cleared (as the loop does once an over keys), the notice is not raised again by
+        // polls that find nothing queued, however long a refusal lasts.
+        e.set_rtty_keyer_error(None);
+        e.set_frequency(14.020, "20m", "LSB");
+        for _ in 0..3 {
+            assert_eq!(e.poll_rtty_one(), None);
+        }
+        assert_eq!(
+            e.rtty_state().keyer_error,
+            None,
+            "polls with nothing queued raise nothing"
+        );
+        e.set_frequency(14.080, "20m", "LSB");
+        e.rtty_send_text("73").unwrap();
+        assert_eq!(
+            e.poll_rtty_one().as_deref(),
+            Some("73"),
+            "a send made inside the privileges keys as before"
+        );
+    }
+
+    /// The auto-sequencer's over dropped at the poll ENDS the auto session, as a refused enqueue
+    /// already does. Otherwise the empty queue reads as the over sent (`rtty_auto_service`), and
+    /// the sequencer carries on against a gate that refused it. (Leaving the section ends it
+    /// earlier, as it goes: `leaving_the_rtty_section_ends_an_auto_qso`. A dial moved out of the
+    /// privileges is the refusal that still reaches the poll.)
+    #[test]
+    fn a_dropped_rtty_auto_sequencer_over_ends_the_auto_session() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("rtty", false);
+        e.set_frequency(14.080, "20m", "LSB");
+        e.set_rtty_auto(true).unwrap();
+        e.rtty_auto_cq().unwrap();
+        assert_eq!(e.rtty_state().seq_state, "calling_cq", "precondition");
+        e.set_frequency(14.020, "20m", "LSB"); // out of a General's privileges, the CQ queued
+        e.rtty_auto_service();
+        assert_eq!(e.poll_rtty_one(), None, "the CQ does not key");
+        e.rtty_auto_service();
+        assert_eq!(
+            e.rtty_state().seq_state,
+            "idle",
+            "the auto session ends with its dropped over"
+        );
+        assert_eq!(
+            e.rtty_state().keyer_error.as_deref(),
+            Some(RTTY_AUTO_REFUSED),
+            "and the cockpit says why"
+        );
+        e.set_frequency(14.080, "20m", "LSB");
+        e.rtty_auto_service();
+        assert_eq!(e.poll_rtty_one(), None, "nothing keys after the tune in");
     }
 
     #[test]
@@ -26598,13 +27631,13 @@ mod tests {
         let mut e = Engine::new("W9XYZ", "EN61", 0);
         e.set_tx_enabled(true); // TX is disarmed by default (WSJT-X Enable-Tx) — arm it
                                 // Queue a voice message → the loop drains it once.
-        e.send_voice(vec![0.1, 0.2, 0.3]);
+        e.send_voice(vec![0.1, 0.2, 0.3]).unwrap();
         assert_eq!(e.poll_voice(), Some(vec![0.1, 0.2, 0.3]));
         assert!(e.poll_voice().is_none(), "drained");
 
-        // Gated by Monitor: with TX disabled nothing is queued/played.
+        // Gated by Monitor: with TX disabled nothing is queued/played, and the send says why.
         e.set_tx_enabled(false);
-        e.send_voice(vec![0.5]);
+        assert!(e.send_voice(vec![0.5]).unwrap_err().contains("TX is off"));
         assert!(
             e.poll_voice().is_none(),
             "no voice played while TX is disabled"
@@ -26612,7 +27645,7 @@ mod tests {
         e.set_tx_enabled(true);
 
         // Abort drops the pending message + raises the one-shot flag.
-        e.send_voice(vec![0.9; 100]);
+        e.send_voice(vec![0.9; 100]).unwrap();
         e.stop_voice();
         assert!(e.take_voice_abort());
         assert!(!e.take_voice_abort(), "abort is one-shot");
@@ -26636,6 +27669,92 @@ mod tests {
         );
         assert!(!e.is_recording());
         assert!(e.stop_recording().is_empty(), "buffer taken/reset");
+    }
+
+    /// ⛔ A REFUSED VOICE-KEYER MESSAGE IS DROPPED, NEVER HELD (the operator, 2026-09-30: "Same
+    /// drop rule"). A message queued while TX was allowed waits for the radio loop to take it.
+    /// If TX goes off first (leaving the Phone section for FT8 lowers the latch and keeps it),
+    /// or the dial moves outside the privileges, it was HELD, and it played the moment TX was
+    /// allowed again.
+    #[test]
+    fn a_voice_message_refused_before_it_plays_is_dropped_not_played_later() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("phone", false); // arms TX
+        e.set_frequency(14.250, "20m", "USB");
+        e.send_voice(vec![0.5; 100]).unwrap();
+        e.set_operating_mode("digital", false); // before the loop takes it
+        assert_eq!(e.poll_voice(), None, "nothing plays with TX off");
+        e.set_operating_mode("phone", false);
+        assert!(
+            e.tx_enabled() && e.tx_allowed(),
+            "precondition: TX is allowed again"
+        );
+        assert_eq!(
+            e.poll_voice(),
+            None,
+            "nothing refused plays when TX comes back"
+        );
+        // …and outside the privileges, then a same-band tune back in.
+        e.send_voice(vec![0.5; 100]).unwrap();
+        e.set_frequency(14.200, "20m", "USB");
+        assert!(
+            !e.tx_allowed(),
+            "precondition: 14.200 is Extra-only phone, outside a General's privileges"
+        );
+        assert_eq!(e.poll_voice(), None, "nothing plays outside privileges");
+        e.set_frequency(14.250, "20m", "USB");
+        assert_eq!(
+            e.poll_voice(),
+            None,
+            "nothing refused plays after the tune in"
+        );
+        e.send_voice(vec![0.5; 100]).unwrap();
+        assert_eq!(
+            e.poll_voice(),
+            Some(vec![0.5; 100]),
+            "a message sent once TX is allowed plays as before"
+        );
+    }
+
+    /// …and a send made while TX is off or outside the privileges, which was ignored without
+    /// a word, is refused with the reason the keyer's toast shows. Nothing is queued, so
+    /// nothing plays when TX is allowed again.
+    #[test]
+    fn a_voice_message_refused_at_send_says_why_and_queues_nothing() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("phone", false);
+        e.set_frequency(14.200, "20m", "USB");
+        let err = e
+            .send_voice(vec![0.5; 100])
+            .expect_err("a send outside the privileges is refused");
+        assert!(
+            err.contains("outside your license privileges"),
+            "the refusal says why: {err}"
+        );
+        e.set_frequency(14.250, "20m", "USB");
+        assert_eq!(
+            e.poll_voice(),
+            None,
+            "nothing refused plays after the tune in"
+        );
+        e.set_tx_enabled(false);
+        let err = e
+            .send_voice(vec![0.5; 100])
+            .expect_err("a send with TX off is refused");
+        assert!(err.contains("TX is off"), "the refusal says why: {err}");
+        e.set_tx_enabled(true);
+        assert_eq!(
+            e.poll_voice(),
+            None,
+            "nothing refused plays when TX comes back"
+        );
+        e.send_voice(vec![0.5; 100]).unwrap();
+        assert!(
+            e.poll_voice().is_some(),
+            "a send made once TX is allowed plays"
+        );
     }
 
     #[test]
@@ -27521,7 +28640,7 @@ mod tests {
         let mut e = phone_armed_engine();
 
         // A queued voice-keyer message → refused.
-        e.send_voice(vec![0.1; 100]);
+        e.send_voice(vec![0.1; 100]).unwrap();
         assert!(e
             .sstv_send(sstv_img_samples(), "PD-120".into())
             .unwrap_err()
@@ -27661,7 +28780,7 @@ mod tests {
         assert!(err.contains("PTT"), "got: {err}");
         e.set_ptt(false);
 
-        e.send_voice(vec![0.1; 100]);
+        e.send_voice(vec![0.1; 100]).unwrap();
         assert!(
             e.atu_tune().is_err(),
             "a queued voice message must refuse an ATU tune-up"
@@ -27895,8 +29014,9 @@ mod tests {
 
     #[test]
     fn poll_sstv_tx_holds_the_job_while_a_gate_is_down() {
-        // A queued image is HELD (not dropped) when a gate rung drops, so it can't
-        // silently vanish — and can't key while the gate is down either.
+        // A queued image is HELD (not dropped) while a tune carrier is up, so it can't
+        // silently vanish — and can't key while the tune is up either. A picture refused
+        // with TX off or outside the privileges is dropped instead (the two tests below).
         let mut e = phone_armed_engine();
         e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
         e.set_tune(true); // tune carrier up → poll holds
@@ -27904,6 +29024,179 @@ mod tests {
         assert!(e.sstv_sending(), "the job is still queued, not dropped");
         e.set_tune(false);
         assert!(e.poll_sstv_tx().is_some(), "released once the gate clears");
+    }
+
+    /// ⛔ A PICTURE REFUSED WHILE IT WAITS IS DROPPED, NEVER HELD (the operator, 2026-09-30: "a
+    /// refused picture or beacon is dropped with a notice, never sent later"). The dial leaves
+    /// the licence's Phone privileges while the picture waits for the transmitter, then comes
+    /// back. Held, the picture keyed on the tune back in.
+    #[test]
+    fn an_sstv_picture_refused_outside_privileges_is_dropped_and_does_not_key_after_a_tune_in() {
+        let mut e = phone_armed_engine();
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        e.set_frequency(14.050, "20m", "USB");
+        assert!(
+            !e.tx_allowed(),
+            "precondition: 14.050 is outside Extra's phone privileges"
+        );
+        assert!(e.poll_sstv_tx().is_none(), "nothing keys outside them");
+        e.set_frequency(14.290, "20m", "USB");
+        assert!(e.tx_allowed(), "precondition: back inside them");
+        assert!(
+            e.poll_sstv_tx().is_none(),
+            "the refused picture keyed after the tune in"
+        );
+        assert!(!e.sstv_sending(), "the cockpit's TX indicator is down");
+        assert_eq!(e.sstv_tx_mode(), None, "…and its mode label went with it");
+        assert_eq!(
+            e.sstv_tx_notice(),
+            Some(SSTV_REFUSED_PRIVILEGES),
+            "the SSTV cockpit is told"
+        );
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        assert!(
+            e.poll_sstv_tx().is_some(),
+            "a picture sent inside the privileges keys as before"
+        );
+        assert_eq!(
+            e.sstv_tx_notice(),
+            None,
+            "…and the picture that keys clears the notice"
+        );
+    }
+
+    /// …and with TX off. TX Off itself drops the picture (`set_tx_enabled`), so this is the
+    /// backstop: the latch lowered another way, as a watchdog trip does.
+    #[test]
+    fn an_sstv_picture_refused_with_tx_off_is_dropped_and_does_not_key_when_tx_comes_back() {
+        let mut e = phone_armed_engine();
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        e.tx_enabled = false; // not TX Off: the latch lowered another way
+        assert!(e.poll_sstv_tx().is_none(), "nothing keys with TX off");
+        e.set_tx_enabled(true);
+        assert!(
+            e.poll_sstv_tx().is_none(),
+            "the refused picture keyed when TX came back"
+        );
+        assert!(!e.sstv_sending(), "the cockpit's TX indicator is down");
+        assert_eq!(
+            e.sstv_tx_notice(),
+            Some(SSTV_REFUSED_TX_OFF),
+            "the SSTV cockpit is told"
+        );
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        assert!(
+            e.poll_sstv_tx().is_some(),
+            "a picture sent once TX is on keys as before"
+        );
+        assert_eq!(
+            e.sstv_tx_notice(),
+            None,
+            "…and the picture that keys clears the notice"
+        );
+    }
+
+    /// ⛔ LEAVING PHONE DROPS AN SSTV PICTURE STILL WAITING (the operator, 2026-09-30: "Drop it on
+    /// leave"). SSTV rides Phone, and a picture waits for the loop after Send. Left for CW, RTTY
+    /// or PSK, which keep TX armed, the poll's section check held it and it keyed on the return to
+    /// Phone; left for FT8, which lowers TX, it waited for the poll's TX-off drop.
+    #[test]
+    fn a_waiting_sstv_picture_is_dropped_when_the_phone_section_is_left() {
+        for to in ["cw", "rtty", "keyboard", "digital"] {
+            let mut e = phone_armed_engine();
+            e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+            e.set_operating_mode("phone", false); // a view re-asserting its own section
+            assert!(
+                e.sstv_sending(),
+                "{to}: re-entering Phone dropped the picture"
+            );
+            e.set_operating_mode(to, false);
+            assert!(
+                !e.sstv_sending(),
+                "{to}: the waiting picture outlived the Phone screen"
+            );
+            assert!(
+                !e.sstv_abort,
+                "{to}: leaving aborted a picture that was not on the air"
+            );
+            assert_eq!(
+                e.sstv_tx_notice(),
+                Some(SSTV_LEFT_SECTION),
+                "{to}: the SSTV cockpit is told"
+            );
+            e.set_operating_mode("phone", false);
+            assert!(
+                e.poll_sstv_tx().is_none(),
+                "{to}: the picture keyed on the return"
+            );
+            e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+            assert!(
+                e.poll_sstv_tx().is_some(),
+                "{to}: a picture sent on the return keys as before"
+            );
+        }
+    }
+
+    /// …and a picture the loop has already taken is on the air: not the rule's. Leaving drops
+    /// nothing, arms no abort and says nothing, as a section change always did.
+    #[test]
+    fn an_sstv_picture_on_the_air_is_not_the_leave_rules() {
+        let mut e = phone_armed_engine();
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        assert!(e.poll_sstv_tx().is_some(), "control: the loop takes it");
+        e.set_sstv_sending(true);
+        e.set_operating_mode("cw", false);
+        assert!(!e.sstv_abort, "leaving aborted the picture on the air");
+        assert_eq!(
+            e.sstv_tx_mode(),
+            Some("PD-120"),
+            "leaving took the picture's label off its progress"
+        );
+        assert_eq!(
+            e.sstv_tx_notice(),
+            None,
+            "leaving said a picture on the air was dropped"
+        );
+    }
+
+    /// ⛔ A picture the radio loop cut short on the air is left as Stop leaves it, and the SSTV
+    /// cockpit is told why, in words that tell the latch going down under it from another stop
+    /// ending its transmission (N57, 2026-09-30). The reason stands until the next picture keys,
+    /// as a drop's does.
+    #[test]
+    fn a_picture_the_loop_cut_short_is_left_as_stop_leaves_it_and_says_why() {
+        let mut e = phone_armed_engine();
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        // The radio loop takes the picture, keys it and stamps it on the air, as it does.
+        assert!(e.poll_sstv_tx().is_some());
+        e.set_sstv_sending(true);
+        e.set_sstv_tx_progress(36_000.0, 120_000.0);
+        assert_eq!(e.sstv_tx_notice(), None, "nothing to say while it goes out");
+
+        e.sstv_tx_cut(true);
+        assert!(!e.sstv_sending(), "not sending");
+        assert_eq!(e.sstv_tx_mode(), None, "no mode");
+        assert_eq!(e.sstv_tx_progress(), None, "no progress");
+        assert_eq!(e.sstv_tx_notice(), Some(SSTV_STOPPED_TX_OFF));
+        assert!(
+            !e.take_sstv_abort(),
+            "the loop is already cutting: no abort is left for it to take a second time"
+        );
+        e.sstv_tx_cut(false);
+        assert_eq!(
+            e.sstv_tx_notice(),
+            Some(SSTV_STOPPED_CUT),
+            "another stop is named as one"
+        );
+
+        // The next picture that keys clears it.
+        e.sstv_send(sstv_img_samples(), "PD-120".into()).unwrap();
+        assert!(e.poll_sstv_tx().is_some(), "a new picture keys as before");
+        assert_eq!(
+            e.sstv_tx_notice(),
+            None,
+            "…and the picture that keys clears the reason"
+        );
     }
 
     #[test]
@@ -29711,6 +31004,90 @@ mod tests {
         );
     }
 
+    /// A WORK FROM A SPOT BOARD — or from Connect's Spots and POTA/SOTA boxes, which are those
+    /// boards and make the same call (ui/src/App.connectBoards.test.tsx) — is `work_spot`. Into a
+    /// band the licence does not cover it still QSYs, because listening is legal anywhere; what it
+    /// must never do is make transmitting there possible. Every transmit path refuses, as
+    /// `tx_lockout_blocks_all_paths_outside_license_privileges` requires of a dial set any other
+    /// way — and with the manual latch armed, as entering CW or Phone arms it, or the refusals would
+    /// be the latch's and prove nothing about the licence.
+    #[test]
+    fn work_spot_outside_the_licence_moves_the_dial_and_every_transmit_path_refuses() {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("technician");
+        // A 20 m CW spot: a Technician has no 20 m privileges at all.
+        e.work_spot("cw", 14.025, "20m");
+        assert!(
+            (e.settings().dial_mhz - 14.025).abs() < 1e-9,
+            "the Work QSYs: listening is legal anywhere, got {}",
+            e.settings().dial_mhz
+        );
+        assert!(
+            e.tx_enabled(),
+            "entering CW arms the manual latch, so the refusals below are the licence's"
+        );
+        assert!(!e.tx_allowed(), "a Technician has no 20 m");
+        e.send_cw("CQ TEST");
+        assert_eq!(e.poll_cw_one(), None, "CW refused outside the licence");
+        e.set_tune(true);
+        assert!(!e.tuning(), "Tune refused outside the licence");
+        // A phone spot on the same band: the microphone is refused too.
+        e.work_spot("phone", 14.25, "20m");
+        assert!(e.tx_enabled() && !e.tx_allowed());
+        e.set_ptt(true);
+        assert!(!e.manual_ptt(), "PTT refused outside the licence");
+        e.set_ptt(false);
+        // CONTROL — the same Work into the licence (a Technician's 40 m CW, 7.030) opens the gate,
+        // so each refusal above was the licence's and not the fixture's. The band change drops what
+        // was queued while refused (`halt_tx_for_context_change`); a fresh send keys.
+        e.work_spot("cw", 7.030, "40m");
+        assert!(e.tx_allowed(), "Technician CW on 40 m is allowed");
+        assert_eq!(
+            e.poll_cw_one(),
+            None,
+            "the band change dropped the refused send"
+        );
+        e.send_cw("CQ TEST");
+        assert_eq!(
+            e.poll_cw_one().as_deref(),
+            Some("CQ"),
+            "inside the licence a CW send keys"
+        );
+    }
+
+    /// …and inside the licence a Work still keys NOTHING. It tunes and sets the section's mode, and
+    /// for CW and Phone arms the manual latch as entering that section always does; but no over is
+    /// queued, no PTT is held, no carrier is keyed and no FT period is planned — the operator's own
+    /// key, macro or Call does that, afterwards. A Digital Work arms nothing at all: the FT latch is
+    /// the operator's (Monitor, Call CQ, a double-click). This is what "a Work from a Connect box
+    /// keys nothing" rests on, the box's Work being this very call.
+    #[test]
+    fn work_spot_keys_nothing() {
+        for (mode, mhz, band) in [
+            ("cw", 14.030, "20m"),
+            ("phone", 14.25, "20m"),
+            ("digital", 14.074, "20m"),
+        ] {
+            let mut e = Engine::new("KD9TAW", "EN52", 0);
+            e.set_license_class("extra");
+            e.work_spot(mode, mhz, band);
+            assert!(
+                e.tx_allowed(),
+                "{mode}: the fixture must sit inside the licence, or this proves nothing"
+            );
+            assert_eq!(e.poll_cw_one(), None, "{mode}: a Work queued CW");
+            assert!(!e.manual_ptt(), "{mode}: a Work keyed PTT");
+            assert!(!e.tuning(), "{mode}: a Work keyed a tune carrier");
+            assert!(
+                e.poll_tx(0).is_empty() && e.poll_tx(1).is_empty(),
+                "{mode}: a Work planned an FT over"
+            );
+            if mode == "digital" {
+                assert!(!e.tx_enabled(), "digital: a Work armed the FT latch");
+            }
+        }
+    }
+
     #[test]
     fn working_a_station_moves_rx_to_its_audio_freq() {
         // Double-click-to-work with the decode's audio freq → RX moves onto it, and TX
@@ -30377,6 +31754,43 @@ mod tests {
         bundle.wanted_calls = vec!["VP8*".into()];
         e.apply_restored_settings(bundle);
         assert_eq!(e.settings().wanted_calls, vec!["VP8*".to_string()]);
+    }
+
+    /// ⚠️ **A FORM SAVE'S TUNE IS THE TUNE**, which is why no surface may save a copy of the
+    /// settings it has been holding (`ui/src/settings/patch.ts`). The dial, band and sideband are
+    /// not one-writer fields like those above: Settings ▸ Station's frequency control is saved
+    /// through the form, so a payload about the radio being operated is adopted as its tune, and
+    /// the radio loop pushes a dial that differs from the rig's (`service.rs`, `dial !=
+    /// last_dial`). A copy read before a knob QSY and saved after it put the rig back where it
+    /// was; the Contest view's scoring chips, the CW macro-set switch and the Settings form's own
+    /// Save all did that. The UI now saves a surface's own fields over a fresh read, and this pins
+    /// the half of the contract that makes a stale copy a retune.
+    #[test]
+    fn a_form_save_carrying_an_older_tune_takes_the_station_back_to_it() {
+        let mut e = Engine::new("KD9TAW", "EN52", 0);
+        e.observe_rig_freq(14_025_000);
+        // A surface's copy, read while the rig was on 20 m.
+        let held = e.settings().clone();
+        // The operator turns the knob to 40 m, and the loop reads it back.
+        e.observe_rig_freq(7_030_000);
+        assert_eq!(
+            (e.settings().dial_hz(), e.settings().band.as_str()),
+            (7_030_000, "40m"),
+            "premise: the engine follows the knob"
+        );
+
+        // A save built on the settings as they are now keeps the knob's tune.
+        let fresh = e.settings().clone();
+        e.apply_settings(fresh);
+        assert_eq!(e.settings().dial_hz(), 7_030_000);
+
+        // The copy from before the knob moved, saved now: its tune is adopted, and it is the
+        // dial the radio loop reads next.
+        e.apply_settings(held);
+        assert_eq!(
+            (e.settings().dial_hz(), e.settings().band.as_str()),
+            (14_025_000, "20m")
+        );
     }
 
     /// The watch list is the DESKTOP's, sent whole (operator 2026-09-24: "watched counts as
@@ -31432,6 +32846,166 @@ mod tests {
         assert!(
             !e.take_slot_tx_abort(),
             "the fresh CW send supersedes the pending halt — the macro must not be phantom-cut"
+        );
+    }
+
+    /// ⛔ A REFUSED CW SEND IS DROPPED, NEVER HELD (the operator, 2026-09-30: "Drop it, with a
+    /// notice"). TX off with words still queued used to hold them, and they keyed the moment TX
+    /// came back, at a time nobody chose. The refusal at the poll is the backstop now: leaving the
+    /// CW section mid-macro drops the rest itself
+    /// (`a_cw_macro_typed_ahead_is_dropped_when_the_cw_section_is_left`), so the test lowers the
+    /// latch directly.
+    #[test]
+    fn a_cw_send_refused_with_tx_off_is_dropped_and_does_not_key_when_tx_comes_back() {
+        let mut e = Engine::new("KD9TAW", "EN52", 0);
+        e.set_license_class("extra");
+        e.set_operating_mode("cw", false);
+        e.set_frequency(7.03, "40m", "CW");
+        e.send_cw("TEST DE KD9TAW");
+        assert_eq!(
+            e.poll_cw_one().as_deref(),
+            Some("TEST"),
+            "control: the macro keys"
+        );
+        e.tx_enabled = false; // not TX Off: the latch lowered another way, the queue kept
+        assert_eq!(e.poll_cw_one(), None, "nothing keys with TX off");
+        e.set_tx_enabled(true);
+        assert!(e.tx_enabled(), "precondition: TX is on again");
+        assert_eq!(
+            e.poll_cw_one(),
+            None,
+            "nothing refused keys when TX comes back"
+        );
+        assert_eq!(
+            e.cw_keyer_error().as_deref(),
+            Some(CW_REFUSED_TX_OFF),
+            "the CW cockpit says the rest was dropped"
+        );
+        e.send_cw("73");
+        assert_eq!(
+            e.poll_cw_one().as_deref(),
+            Some("73"),
+            "a send made once TX is on keys as before"
+        );
+    }
+
+    /// ⛔ LEAVING THE CW SCREEN DROPS WHAT WAS STILL TO GO (the operator, 2026-09-30: "Same leave
+    /// rule for CW"). A macro keys its first word, and the CW section is left while the rest
+    /// waits: for Phone by the nav (its re-home to the phone segment) and without it, for RTTY,
+    /// PSK and FT8. Phone, RTTY and PSK keep TX armed, so the rest keyed from the screen the
+    /// operator went to; Phone without the re-home dropped it under the privileges notice; FT8
+    /// lowers TX, and the poll dropped it under the TX-off one. The word already handed to the
+    /// keyer is not the engine's to cut: nothing arms `cw_abort`.
+    #[test]
+    fn a_cw_macro_typed_ahead_is_dropped_when_the_cw_section_is_left() {
+        for (to, follow) in [
+            ("phone", true),
+            ("phone", false),
+            ("rtty", false),
+            ("keyboard", false),
+            ("digital", false),
+        ] {
+            let mut e = Engine::new("KD9TAW", "EN52", 0);
+            e.set_license_class("extra");
+            e.set_operating_mode("cw", false);
+            e.set_frequency(14.03, "20m", "CW");
+            e.send_cw("CQ CQ DE KD9TAW K");
+            assert_eq!(
+                e.poll_cw_one().as_deref(),
+                Some("CQ"),
+                "{to}: control, the first word keys"
+            );
+            e.set_operating_mode("cw", false); // a view re-asserting its own section
+            assert!(
+                !e.cw_queue.is_empty(),
+                "{to}: re-entering CW dropped the queue"
+            );
+            e.set_operating_mode(to, follow);
+            assert_eq!(
+                e.poll_cw_one(),
+                None,
+                "{to} (re-home {follow}): the rest keyed from the other screen"
+            );
+            assert!(!e.cw_abort, "{to}: leaving cut the word in flight");
+            assert_eq!(
+                e.cw_keyer_error().as_deref(),
+                Some(CW_LEFT_SECTION),
+                "{to} (re-home {follow}): the CW cockpit is told the screen was left"
+            );
+            e.set_operating_mode("cw", false);
+            assert_eq!(
+                e.poll_cw_one(),
+                None,
+                "{to}: what was still to go keyed on the return"
+            );
+            e.send_cw("73");
+            assert_eq!(
+                e.poll_cw_one().as_deref(),
+                Some("73"),
+                "{to}: a send made on the return keys as before"
+            );
+        }
+    }
+
+    /// …and outside the licence's privileges: a send from a dial the licence may not key was
+    /// held, and keyed as soon as the operator tuned into the privileges on the same band.
+    #[test]
+    fn a_cw_send_refused_outside_privileges_is_dropped_and_does_not_key_after_a_tune_in() {
+        let mut e = Engine::new("KD9TAW", "EN52", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("cw", false);
+        e.set_frequency(7.020, "40m", "CW");
+        assert!(
+            !e.tx_allowed(),
+            "precondition: 7.020 is Extra-only CW, outside a General's privileges"
+        );
+        e.send_cw("TEST");
+        assert_eq!(e.poll_cw_one(), None, "nothing keys outside privileges");
+        e.set_frequency(7.030, "40m", "CW"); // a same-band tune into the privileges
+        assert!(e.tx_allowed(), "precondition: 7.030 is inside them");
+        assert_eq!(
+            e.poll_cw_one(),
+            None,
+            "nothing refused keys after the tune in"
+        );
+        assert_eq!(
+            e.cw_keyer_error().as_deref(),
+            Some(CW_REFUSED_PRIVILEGES),
+            "the CW cockpit says it was dropped"
+        );
+        e.send_cw("TEST");
+        assert_eq!(
+            e.poll_cw_one().as_deref(),
+            Some("TEST"),
+            "a send made inside the privileges keys as before"
+        );
+    }
+
+    /// One refusal, one notice: it is raised when words are dropped, not on every poll after
+    /// (the loop polls every tick), and raised again by the next refusal.
+    #[test]
+    fn a_cw_refusal_raises_its_notice_once_per_refusal() {
+        let mut e = Engine::new("KD9TAW", "EN52", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("cw", false);
+        e.set_frequency(7.020, "40m", "CW");
+        e.send_cw("TEST");
+        let _ = e.poll_cw_one();
+        assert!(e.cw_keyer_error().is_some(), "the refusal is noticed");
+        e.set_cw_keyer_error(None); // as the loop does once a word keys
+        for _ in 0..3 {
+            let _ = e.poll_cw_one();
+        }
+        assert_eq!(
+            e.cw_keyer_error(),
+            None,
+            "polls with nothing queued raise nothing"
+        );
+        e.send_cw("TEST");
+        let _ = e.poll_cw_one();
+        assert!(
+            e.cw_keyer_error().is_some(),
+            "the next refusal is noticed again"
         );
     }
 
@@ -35246,6 +36820,64 @@ mod tests {
         assert_eq!(e.qso_record("N0CALL".into(), None, None).name, None);
     }
 
+    /// The rotator's point-at-call aims at the station, not its country (a tester's report,
+    /// 2026-09-29): every place the engine already knows it to be, source by source, most
+    /// trusted first, and keyed to the exact call.
+    #[test]
+    fn station_grids_gathers_what_the_engine_knows_for_exactly_that_call() {
+        let mut e = Engine::new("K2DEF", "FN31", 0);
+        assert_eq!(
+            e.station_grids("EC1DD"),
+            StationGrids::default(),
+            "nothing known yet"
+        );
+
+        e.set_log_form_grid("ec1dd", " IN52TK ");
+        e.ingest_decodes_for_test(&[dec_snr("CQ EC1DD IN52", -6)], 1);
+        e.note_callbook_fix(
+            "EC1DD",
+            CallbookFix {
+                grid: Some("IN52TK".into()),
+                position: Some((42.44, -8.37)),
+            },
+        );
+        let mut rec = e.qso_record("EC1DD".into(), None, None);
+        rec.grid = Some("IN52".into());
+        e.log_qso(rec);
+
+        assert_eq!(
+            e.station_grids("ec1dd"),
+            StationGrids {
+                log_form: Some("IN52TK".into()),
+                heard: vec!["IN52".into()],
+                callbook: Some(CallbookFix {
+                    grid: Some("IN52TK".into()),
+                    position: Some((42.44, -8.37)),
+                }),
+                logged: Some("IN52".into()),
+            }
+        );
+        // Another station's answers are not this one's.
+        assert_eq!(e.station_grids("EC1DE"), StationGrids::default());
+
+        // A blank grid in the form forgets it, but only for its own call: a form that moved
+        // on to another station says nothing about this one.
+        e.set_log_form_grid("EA1XYZ", "");
+        assert_eq!(e.station_grids("EC1DD").log_form.as_deref(), Some("IN52TK"));
+        e.set_log_form_grid("EC1DD", "");
+        assert_eq!(e.station_grids("EC1DD").log_form, None);
+
+        // A callbook answer with no location cannot wipe the one already known.
+        e.note_callbook_fix(
+            "EC1DD",
+            CallbookFix {
+                grid: Some("  ".into()),
+                position: None,
+            },
+        );
+        assert!(e.station_grids("EC1DD").callbook.is_some());
+    }
+
     /// Sibling of the NewState defect, same class: a QSO that logs with a BLANK grid can never
     /// teach `worked_grids` anything, so NewGrid keeps firing for a grid already worked. The
     /// session roster covers a station heard this session; this covers one worked on a previous
@@ -37837,7 +39469,7 @@ mod tests {
         );
     }
 
-    /// What a map consumer (OpenHamClock / GridTracker) actually needs off an
+    /// What a map consumer (GridTracker and similar) actually needs off an
     /// ORDINARY QSO: who, where, which band/frequency, which mode, when.
     #[test]
     fn an_ordinary_qso_broadcasts_the_fields_a_map_plots_from() {
@@ -38688,6 +40320,61 @@ mod tests {
         // …and the score says it leaves nothing out, which is what lets the Cabrillo
         // carry a CLAIMED-SCORE at all.
         assert_eq!(fd.score_note_key, "");
+    }
+
+    /// ⭐ **The New York QSO Party on the operator's screen and in the file they submit** —
+    /// the strip's own command, the snapshot's score and boards, and the dialog's export.
+    ///
+    /// nyqp.org's 2026 rules (v1.1 2026-09-25): *"The first valid New York county logged
+    /// will count as the multiplier for New York"* — so one county is two multipliers on
+    /// screen and the county grid is still drawn once; *"(DX counts as QSO points but not
+    /// multipliers.)"*; and *"For fixed stations in New York, use your NYQP-approved
+    /// three-letter county abbreviation"* heads the file.
+    #[test]
+    fn the_new_york_partys_score_boards_and_file_reach_the_operator() {
+        let mut e = Engine::new("W2XYZ", "FN32", 0);
+        {
+            let mut s = e.settings().clone();
+            s.fd_active = true;
+            s.fd_event = "nyqp".into();
+            s.contest_qth_state = "NY".into();
+            s.contest_qth_county = "ALB".into();
+            e.apply_settings(s);
+        }
+        e.set_mode("fieldday-run").unwrap();
+        let ex = |q: &str| {
+            vec![
+                ("RST".to_string(), "599".to_string()),
+                ("QTH".to_string(), q.to_string()),
+            ]
+        };
+        assert!(e
+            .contest_log_manual("K2AAA", &ex("SUF"), "CW", None)
+            .unwrap());
+        let fd = e.snapshot().field_day.expect("the contest workspace is up");
+        assert_eq!(fd.mult_count, Some(2), "Suffolk, and New York with it");
+        assert!(e
+            .contest_log_manual("W1AAA", &ex("CT"), "CW", None)
+            .unwrap());
+        assert!(e
+            .contest_log_manual("DL1AAA", &ex("DX"), "CW", None)
+            .unwrap());
+        let fd = e.snapshot().field_day.expect("still in the contest");
+        assert_eq!(fd.qso_count, 3);
+        assert_eq!(fd.points, 6, "three CW contacts, the DX one among them");
+        assert_eq!(fd.mult_count, Some(3), "SUF, New York and CT; DX is none");
+        assert_eq!(fd.total_score, 18);
+        assert_eq!(fd.score_note_key, "");
+        assert_eq!(
+            fd.boards.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(),
+            ["county", "mult"],
+            "the county grid once, and the states and provinces"
+        );
+        let cab = e.export_log("cabrillo").expect("one entry");
+        assert!(cab.contains("CONTEST: NY-QSO-PARTY\n"), "{cab}");
+        assert!(cab.contains("LOCATION: ALB\n"), "{cab}");
+        assert!(cab.contains("CLAIMED-SCORE: 18\n"), "{cab}");
+        assert!(cab.contains(" W2XYZ 599 ALB DL1AAA 599 DX\n"), "{cab}");
     }
 
     /// ⚠️ **A NAMED BEHAVIOUR CHANGE, pinned here rather than discovered.** A section
@@ -44194,6 +45881,7 @@ mod tests {
             rigctld_port: p.rigctld_port,
             icom_native_cat: p.icom_native_cat,
             icom_data_mode: p.icom_data_mode,
+            tx_audio_source: p.tx_audio_source.clone(),
             data_modes_plain_ssb: p.data_modes_plain_ssb,
             sstv_hold_data_submode: p.sstv_hold_data_submode,
             audio_in: p.audio_in.clone(),
@@ -44805,7 +46493,8 @@ mod tests {
     /// Booking happens at PLAN time (the beacon / QSO precedent): one own-TX row in the
     /// Rx-Frequency feed, one `mine` row in the JS8 activity ring, and — when ALL.TXT is on —
     /// exactly one `Tx` line stamped with the PERIOD START the caller hands in (alltxt.rs:
-    /// never round the wall clock), mode JS8, SNR/DT zero, audio = our TX offset.
+    /// never round the wall clock), mode JS8, SNR/DT zero, audio = the offset the caller
+    /// hands in (the TX offset here).
     #[test]
     fn js8_note_tx_done_books_one_row_and_one_all_txt_line() {
         let mut e = Engine::new("KD9TAW", "EN52", 0);
@@ -44813,7 +46502,11 @@ mod tests {
         e.settings.write_all_txt = true;
         e.set_tx_offset(1500.0);
         let period_start_ms = js8_slot_now() * 15_000;
-        e.js8_note_tx_done("KD9TAW: @HB HEARTBEAT EN52", period_start_ms);
+        e.js8_note_tx_done(
+            "KD9TAW: @HB HEARTBEAT EN52",
+            period_start_ms,
+            e.tx_offset_hz(),
+        );
         let lines = e.take_all_txt_pending();
         assert_eq!(lines.len(), 1, "one Tx line: {lines:?}");
         assert!(
@@ -44839,7 +46532,11 @@ mod tests {
         assert_eq!(st.activity.last().map(|r| r.at_ms), Some(period_start_ms));
         // ALL.TXT off: still the rows, no line.
         e.settings.write_all_txt = false;
-        e.js8_note_tx_done("KD9TAW: @ALLCALL CQ CQ CQ EN52", period_start_ms + 15_000);
+        e.js8_note_tx_done(
+            "KD9TAW: @ALLCALL CQ CQ CQ EN52",
+            period_start_ms + 15_000,
+            e.tx_offset_hz(),
+        );
         assert!(e.take_all_txt_pending().is_empty());
         assert_eq!(
             e.snapshot()
@@ -45016,11 +46713,11 @@ mod tests {
         assert!(waves[0].len() < 15 * 12_000, "bounded by its period");
     }
 
-    /// B5's config builder is the ONE settings → station seam; B7 depends on two of its
-    /// numbers: the idle-watchdog floor of 5 minutes (JS8Call's minimum; 0 stays "off") and
-    /// the autoreply countdown of one period + 2 s.
+    /// B5's config builder is the ONE settings → station seam; B7 depends on its idle-watchdog
+    /// floor of 5 minutes (JS8Call's minimum; 0 stays "off"). (The autoreply countdown it also
+    /// built is gone: a reply keys in the next period, as JS8Call's does.)
     #[test]
-    fn js8_station_config_applies_the_idle_floor_and_the_reply_countdown() {
+    fn js8_station_config_applies_the_idle_floor() {
         let mut s = Settings {
             mycall: "KD9TAW".to_string(),
             js8_speed: modes::Js8Speed::Slow.index(),
@@ -45029,7 +46726,6 @@ mod tests {
         };
         let cfg = Engine::js8_station_config(&s);
         assert_eq!(cfg.idle_watchdog_min, 5, "floor 5");
-        assert_eq!(cfg.reply_delay_ms, 30_000 + 2_000, "one Slow period + 2 s");
         assert_eq!(cfg.allcall_reply_interval_ms, 15 * 60 * 1000);
         s.js8_idle_watchdog_min = 0;
         assert_eq!(
@@ -45043,41 +46739,49 @@ mod tests {
     /// G3 default — would key on launch. At launch the latch is down; a query still gets a
     /// visible countdown ("would have replied"), never a frame; the expired countdown is
     /// CANCELLED, so arming TX later cannot fire a stale reply.
+    ///
+    /// Both ways a reply waits: asking for the operator's Yes (JS8Call's default, which says No
+    /// by itself after 89 s) and, with the confirmation off, counting down to go by itself.
     #[test]
     fn js8_autoreply_never_keys_at_launch() {
-        let mut e = Engine::with_settings(Settings {
-            mycall: "KD9TAW".to_string(),
-            mygrid: "EN52".to_string(),
-            js8_autoreply: true, // the G3 default, spelled out
-            js8_relay: true,
-            ..Settings::default()
-        });
-        e.js8_enter();
-        assert!(!e.tx_enabled(), "launch is listen-only");
-        let s0 = js8_slot_now();
-        e.js8_ingest(&[js8_snr_query_from("W1AW")], s0);
-        let st = e.js8_state();
-        assert!(
-            st.pending_reply.is_some(),
-            "the station still computes the reply (shown, not sent)"
-        );
-        assert!(!st.armed.autoreply, "…and reports it as NOT armed");
-        for s in s0..s0 + 4 {
-            assert!(e.poll_tx(s).is_empty(), "nothing keys on slot {s}");
-        }
-        assert!(!e.tx_enabled());
-        // The countdown expires while the latch is down → cancelled, never carried.
-        e.js8_tick(tempo_core::timing::now_unix_ms() as u64 + 120_000);
-        assert!(
-            e.js8_state().pending_reply.is_none(),
-            "an expired unarmed reply is cancelled"
-        );
-        e.set_tx_enabled(true);
-        for s in s0 + 4..s0 + 8 {
+        for asks in [true, false] {
+            let mut e = Engine::with_settings(Settings {
+                mycall: "KD9TAW".to_string(),
+                mygrid: "EN52".to_string(),
+                js8_autoreply: true, // the G3 default, spelled out
+                js8_relay: true,
+                js8_autoreply_confirmation: asks,
+                ..Settings::default()
+            });
+            e.js8_enter();
+            assert!(!e.tx_enabled(), "launch is listen-only");
+            let s0 = js8_slot_now();
+            e.js8_ingest(&[js8_snr_query_from("W1AW")], s0);
+            let st = e.js8_state();
             assert!(
-                e.poll_tx(s).is_empty(),
-                "arming later must not fire the stale reply"
+                st.pending_reply.is_some() || !st.queue.is_empty(),
+                "the station still computes the reply (shown, not sent; asks: {asks})"
             );
+            assert!(!st.armed.autoreply, "…and reports it as NOT armed");
+            for s in s0..s0 + 4 {
+                assert!(e.poll_tx(s).is_empty(), "nothing keys on slot {s}");
+            }
+            assert!(!e.tx_enabled());
+            // With the latch down the queued reply is dropped, and the question is No by
+            // itself: never carried.
+            e.js8_tick(tempo_core::timing::now_unix_ms() as u64 + 120_000);
+            let st = e.js8_state();
+            assert!(
+                st.pending_reply.is_none() && st.queue.is_empty(),
+                "an unarmed reply is gone, never carried (asks: {asks})"
+            );
+            e.set_tx_enabled(true);
+            for s in s0 + 4..s0 + 8 {
+                assert!(
+                    e.poll_tx(s).is_empty(),
+                    "arming later must not fire the stale reply (asks: {asks})"
+                );
+            }
         }
     }
 
@@ -45126,10 +46830,12 @@ mod tests {
         );
     }
 
-    /// Both acts: EXACTLY ONE reply, after the countdown (one period + 2 s), never a second.
+    /// Both acts: EXACTLY ONE reply, in the next period, never a second. The confirmation off,
+    /// so it goes by itself; `both_acts_and_a_yes_yield_exactly_one_reply` is the asking path.
     #[test]
-    fn both_acts_present_yield_exactly_one_reply_after_the_countdown() {
+    fn both_acts_present_yield_exactly_one_reply_in_the_next_period() {
         let mut e = Engine::new("KD9TAW", "EN52", 0);
+        e.settings.js8_autoreply_confirmation = false;
         e.js8_enter();
         e.set_tx_enabled(true); // act 1 (session)
         assert!(
@@ -45138,16 +46844,19 @@ mod tests {
         );
         let s0 = js8_slot_now();
         e.js8_ingest(&[js8_snr_query_from("W1AW")], s0);
-        let pending = e.js8_state().pending_reply.expect("a countdown is shown");
-        assert!(pending.display.contains("W1AW SNR"), "{}", pending.display);
+        let queued = e
+            .js8_state()
+            .queue
+            .first()
+            .cloned()
+            .expect("the reply is queued, shown");
+        assert!(queued.display.contains("W1AW SNR"), "{}", queued.display);
         assert!(e.js8_state().armed.autoreply);
-        let keyed: Vec<u64> = (s0..s0 + 6).filter(|&s| !e.poll_tx(s).is_empty()).collect();
-        assert_eq!(keyed.len(), 1, "exactly one reply: keyed on {keyed:?}");
-        assert!(
-            keyed[0] >= s0 + 2,
-            "…and only after the countdown (keyed on {})",
-            keyed[0]
-        );
+        // The radio loop plans each period at its boundary; the next one is s0 + 1.
+        let keyed: Vec<u64> = (s0 + 1..s0 + 7)
+            .filter(|&s| !e.poll_tx(s).is_empty())
+            .collect();
+        assert_eq!(keyed, [s0 + 1], "exactly one reply, in the next period");
         assert!(e.js8_state().pending_reply.is_none());
         assert!(e
             .snapshot()
@@ -45156,16 +46865,53 @@ mod tests {
             .any(|d| d.mine && d.message.contains("W1AW SNR")));
     }
 
-    /// Cancel is the operator's veto on the countdown.
+    /// Both acts, at JS8Call's default (the reply asks first): nothing keys until the operator's
+    /// Yes, and then EXACTLY ONE reply, never a second.
     #[test]
-    fn js8_cancel_stops_a_pending_reply() {
+    fn both_acts_and_a_yes_yield_exactly_one_reply() {
+        let mut e = Engine::new("KD9TAW", "EN52", 0);
+        e.js8_enter();
+        e.set_tx_enabled(true); // act 1 (session)
+        assert!(e.settings.js8_autoreply && e.settings.js8_autoreply_confirmation);
+        let s0 = js8_slot_now();
+        e.js8_ingest(&[js8_snr_query_from("W1AW")], s0);
+        let p = e.js8_state().pending_reply.expect("the reply asks");
+        assert!(p.display.contains("W1AW SNR"), "{}", p.display);
+        for s in s0..s0 + 4 {
+            assert!(
+                e.poll_tx(s).is_empty(),
+                "nothing keys before the Yes (slot {s})"
+            );
+        }
+        e.js8_answer_reply(true, p.display, p.fires_at_ms)
+            .expect("Yes");
+        let keyed: Vec<u64> = (s0 + 4..s0 + 10)
+            .filter(|&s| !e.poll_tx(s).is_empty())
+            .collect();
+        assert_eq!(
+            keyed,
+            [s0 + 4],
+            "exactly one reply, the period after the Yes"
+        );
+        assert!(e
+            .snapshot()
+            .recent_decodes
+            .iter()
+            .any(|d| d.mine && d.message.contains("W1AW SNR")));
+    }
+
+    /// No is the operator's veto on an automatic reply (it replaced the countdown's Cancel):
+    /// the reply it names never keys.
+    #[test]
+    fn a_no_stops_a_pending_reply() {
         let mut e = Engine::new("KD9TAW", "EN52", 0);
         e.js8_enter();
         e.set_tx_enabled(true);
         let s0 = js8_slot_now();
         e.js8_ingest(&[js8_snr_query_from("W1AW")], s0);
-        assert!(e.js8_state().pending_reply.is_some());
-        e.js8_cancel();
+        let p = e.js8_state().pending_reply.expect("the reply asks");
+        e.js8_answer_reply(false, p.display, p.fires_at_ms)
+            .expect("No");
         assert!(e.js8_state().pending_reply.is_none());
         for s in s0..s0 + 6 {
             assert!(e.poll_tx(s).is_empty());
@@ -45309,12 +47055,14 @@ mod tests {
         e.js8_enter();
         e.set_tx_enabled(true);
         e.js8_arm(Js8Switch::Hb, true).expect("HB on");
+        // The query first: no reply is made while a message is going out (JS8Call's box
+        // holds it, mainwindow.cpp:9364), and this wants one waiting beside the queue.
+        e.js8_ingest(&[js8_snr_query_from("W1AW")], js8_slot_now());
         e.js8_send(
             None,
             "A LONG ENOUGH MESSAGE TO NEED SEVERAL FRAMES AT NORMAL SPEED".to_string(),
         )
         .expect("queues");
-        e.js8_ingest(&[js8_snr_query_from("W1AW")], js8_slot_now());
         let st = e.js8_state();
         assert!(
             st.hb_on && !st.queue.is_empty() && st.pending_reply.is_some(),
@@ -46338,6 +48086,133 @@ mod tests {
             "expected a TX-off refusal, got: {err}"
         );
         assert!(e.poll_aprs_tx().is_none(), "nothing queued");
+    }
+
+    /// A General in Phone (TX armed on entry) on the APRS channel: where a beacon keys.
+    fn aprs_tx_engine() -> Engine {
+        let mut e = Engine::new("W9XYZ", "EN61", 0);
+        e.set_license_class("general");
+        e.set_operating_mode("phone", false);
+        e.aprs_tune(144.390).unwrap();
+        assert!(e.tx_enabled(), "precondition: TX is armed on 144.390");
+        assert!(
+            e.tx_allowed(),
+            "precondition: 144.390 is inside a General's privileges"
+        );
+        e
+    }
+
+    fn queue_aprs_beacon(e: &mut Engine) {
+        e.aprs_beacon(41.9, -87.6, '/', '>', "test", &[]).unwrap();
+    }
+
+    /// ⛔ WHAT APRS HAS QUEUED IS DROPPED BY TX OFF, NEVER HELD (the operator, 2026-09-30: "a
+    /// refused picture or beacon is dropped with a notice, never sent later"). TX Off used to
+    /// leave the queue alone, and what was in it keyed the moment TX came back on.
+    #[test]
+    fn tx_off_drops_what_aprs_has_queued_and_it_does_not_key_when_tx_comes_back() {
+        let mut e = aprs_tx_engine();
+        queue_aprs_beacon(&mut e);
+        e.aprs_send_message("N0CALL", "hello").unwrap();
+        e.set_tx_enabled(false);
+        e.set_tx_enabled(true);
+        assert!(
+            e.poll_aprs_tx().is_none(),
+            "what was queued before TX Off keyed when TX came back"
+        );
+        assert_eq!(
+            e.aprs_tx_notice(),
+            Some(APRS_REFUSED_TX_OFF),
+            "the APRS cockpit is told"
+        );
+        queue_aprs_beacon(&mut e);
+        assert!(
+            e.poll_aprs_tx().is_some(),
+            "a beacon sent once TX is on keys as before"
+        );
+        assert_eq!(
+            e.aprs_tx_notice(),
+            None,
+            "…and the frame that keys clears the notice"
+        );
+    }
+
+    /// …and the latch lowered any other way (a watchdog trip, leaving a manual mode for Digital):
+    /// the poll drops what is queued, as TX Off does.
+    #[test]
+    fn an_aprs_frame_refused_with_tx_off_is_dropped_and_does_not_key_when_tx_comes_back() {
+        let mut e = aprs_tx_engine();
+        queue_aprs_beacon(&mut e);
+        e.tx_enabled = false; // not TX Off: the latch lowered another way
+        assert!(e.poll_aprs_tx().is_none(), "nothing keys with TX off");
+        e.set_tx_enabled(true);
+        assert!(
+            e.poll_aprs_tx().is_none(),
+            "the refused beacon keyed when TX came back"
+        );
+        assert_eq!(
+            e.aprs_tx_notice(),
+            Some(APRS_REFUSED_TX_OFF),
+            "the APRS cockpit is told"
+        );
+        queue_aprs_beacon(&mut e);
+        assert!(
+            e.poll_aprs_tx().is_some(),
+            "a beacon sent once TX is on keys as before"
+        );
+    }
+
+    /// …and outside the licence's privileges: the dial moves into the 2 m CW-only segment while a
+    /// beacon waits, then back. Held, it keyed on the tune back in.
+    #[test]
+    fn an_aprs_frame_refused_outside_privileges_is_dropped_and_does_not_key_after_a_tune_in() {
+        let mut e = aprs_tx_engine();
+        queue_aprs_beacon(&mut e);
+        e.set_frequency(144.050, "2m", "FM");
+        assert!(
+            !e.tx_allowed(),
+            "precondition: 144.050 is the 2 m CW-only segment"
+        );
+        assert!(e.poll_aprs_tx().is_none(), "nothing keys outside them");
+        e.set_frequency(144.390, "2m", "FM");
+        assert!(e.tx_allowed(), "precondition: back inside them");
+        assert!(
+            e.poll_aprs_tx().is_none(),
+            "the refused beacon keyed after the tune in"
+        );
+        assert_eq!(
+            e.aprs_tx_notice(),
+            Some(APRS_REFUSED_PRIVILEGES),
+            "the APRS cockpit is told"
+        );
+        queue_aprs_beacon(&mut e);
+        assert!(
+            e.poll_aprs_tx().is_some(),
+            "a beacon sent inside the privileges keys as before"
+        );
+        assert_eq!(
+            e.aprs_tx_notice(),
+            None,
+            "…and the frame that keys clears the notice"
+        );
+    }
+
+    /// …but a frame waiting for the TRANSMITTER is not refused: it keys when the rig is free.
+    #[test]
+    fn an_aprs_frame_waiting_for_the_transmitter_is_held_not_dropped() {
+        let mut e = aprs_tx_engine();
+        queue_aprs_beacon(&mut e);
+        e.set_tune(true);
+        assert!(
+            e.poll_aprs_tx().is_none(),
+            "nothing keys over a tune carrier"
+        );
+        assert_eq!(e.aprs_tx_notice(), None, "a wait is not a refusal");
+        e.set_tune(false);
+        assert!(
+            e.poll_aprs_tx().is_some(),
+            "the beacon keys once the tune ends"
+        );
     }
 
     /// ⭐ THE BEACON SSID FOLLOWS THE CALLSIGN UNTIL THE OPERATOR SAYS OTHERWISE.
@@ -54920,6 +56795,40 @@ mod digital_side_licence_tests {
         }
     }
 
+    /// ⛔ …AND THE CW SCREEN'S LEAVE RULE NEVER TOUCHES IT (the operator: "Leave it as is"). The
+    /// rule drops what CW had queued when the CW section is LEFT; the ID is queued, and keyed,
+    /// from Digital, so it keys there as before on both keyers, across the section re-assert an
+    /// FT8/FT4 sub-mode click makes on its way through `set_operating_mode_with_reset`.
+    #[test]
+    fn the_cw_id_after_an_ft_73_still_keys_from_digital() {
+        for sc in Soundcard::CW {
+            let mut e = ft_station(sc, LicenseClass::Extra, 14.074, "USB", 1_500.0, 600.0);
+            e.settings.cw_id_after_73 = true;
+            e.call_station("W9XYZ");
+            e.ingest_decodes_for_test(&[super::tests::dec_snr("K2DEF W9XYZ -10", -7)], 1);
+            e.ingest_decodes_for_test(&[super::tests::dec_snr("K2DEF W9XYZ RR73", -7)], 3);
+            assert!(
+                !e.poll_tx(4).is_empty(),
+                "precondition: the closing 73 transmits"
+            );
+            assert!(e.take_pending_cw_id(), "precondition: the CW ID is armed");
+            // What the radio loop does with it once the over has played out.
+            let mycall = e.settings.mycall.clone();
+            e.send_cw(&mycall);
+            e.set_operating_mode("digital", false);
+            assert_eq!(
+                e.poll_cw_one().as_deref(),
+                Some("K2DEF"),
+                "{sc:?}: the CW ID did not key from Digital"
+            );
+            assert_eq!(
+                e.cw_keyer_error(),
+                None,
+                "{sc:?}: and nothing says it was dropped"
+            );
+        }
+    }
+
     /// One CW ID, keyed from the Digital section.
     struct CwIdVerdict {
         /// A word came off `poll_cw_one`.
@@ -55017,9 +56926,9 @@ mod digital_side_licence_tests {
     }
 
     /// Every CW ID keys exactly when FT8's verdict AND its own CW emission allow it, states only
-    /// the soundcard keyer's tone refuses included. One the FT8 verdict refuses is held, as any
-    /// refused CW word always was; one only its CW emission refuses is dropped, so it can never
-    /// key at a later, unrelated moment.
+    /// the soundcard keyer's tone refuses included. A refused ID is dropped whichever verdict
+    /// refused it (the operator, 2026-09-30: no refused CW word is held), so it can never key
+    /// at a later, unrelated moment.
     #[test]
     fn the_cw_id_is_judged_as_ft8_and_as_cw_at_every_cw_edge() {
         let v = cw_id_verdicts();
@@ -55034,16 +56943,16 @@ mod digital_side_licence_tests {
             wrong.len(),
             &wrong[..wrong.len().min(20)]
         );
-        let mishandled: Vec<&str> = v
+        let held: Vec<&str> = v
             .iter()
-            .filter(|r| r.ft == r.held)
+            .filter(|r| r.held)
             .map(|r| r.case.as_str())
             .collect();
         assert!(
-            mishandled.is_empty(),
-            "{} refusals held or dropped the wrong way: {:#?}",
-            mishandled.len(),
-            &mishandled[..mishandled.len().min(20)]
+            held.is_empty(),
+            "{} refused IDs were held instead of dropped: {:#?}",
+            held.len(),
+            &held[..held.len().min(20)]
         );
         let keyed = v.iter().filter(|r| r.got).count();
         let by_the_tone_alone = v.iter().filter(|r| r.ft && r.carrier && !r.cw).count();
@@ -55056,8 +56965,8 @@ mod digital_side_licence_tests {
     }
 
     /// In the CW section nothing about keying moves: a word keys exactly when the CW gate allows
-    /// it, and a refused word is held as it always was — at every CW edge, class and pitch, on
-    /// both keyers.
+    /// it, and a refused word is dropped, never held (the operator, 2026-09-30), at every CW
+    /// edge, class and pitch, on both keyers.
     #[test]
     fn in_the_cw_section_a_word_keys_exactly_when_the_gate_allows_it() {
         let mut wrong = Vec::new();
@@ -55082,7 +56991,7 @@ mod digital_side_licence_tests {
                             let held = !e.cw_queue.is_empty();
                             e.cw_queue.clear();
                             keyed += usize::from(got);
-                            if got != gate || held == gate {
+                            if got != gate || held {
                                 wrong.push(format!(
                                     "{sc:?} {class:?} dial {dial:.4} pitch {pitch}: gate {gate}, \
                                      keyed {got}, held {held}"

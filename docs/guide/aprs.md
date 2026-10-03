@@ -156,7 +156,8 @@ with any sensor the station does not carry simply omitted rather than shown as a
 zero; and a **Raw packet** disclosure holding the TNC2 monitor line verbatim.
 Two links close it out: **QRZ** and **aprs.fi** — the latter just opens that
 station's page in your browser, nothing is sent to it. `Esc` closes the card and
-hands focus back where it came from.
+hands focus back where it came from; as everywhere on this screen, the same press
+also stops transmit.
 
 ## Safety — why transmit works the way it does
 
@@ -176,7 +177,9 @@ key: the **Send beacon** button, the **Send message** button, and an automatic
 ack. All three pass the same gate first — TX enabled, the frequency inside your
 license privileges, and nothing else already owning the transmitter (a slot over,
 a tune carrier, a held mic, the voice keyer, CW, RTTY or SSTV). A refusal names
-its reason rather than failing quietly.
+its reason rather than failing quietly. So does a drop: what was queued and had
+not keyed yet when transmit went off, or when the dial left your privileges, is
+dropped rather than sent later, and the status line says why.
 
 **The automatic ack — the only thing here that can key with nobody asking —
 needs two independent operator acts.** You must have armed Monitor *yourself*
@@ -383,13 +386,13 @@ anything**, and nothing was uploaded to make this picture — the figures are a 
 
 ## Honest limits
 
-- **This screen has no stop control, and one is not hiding on the top bar.**
-  APRS hides the app-wide TX cluster, and its own **TX Off** is an *arm* latch,
-  not a kill: it holds the queue, so a beacon you have queued but that has not
-  keyed yet will not go out, but nothing on this screen cuts a burst already
-  keying. The burst is short — one packet at 1200 baud — and PTT drops on its own
-  when it plays out. Practically, decide before you press Send; there is no
-  taking it back mid-air from here.
+- **TX Off is this screen's one stop control, and the top bar has none here.**
+  APRS hides the app-wide TX cluster; its own **TX Off** stops a burst already
+  keying (PTT drops, and the rest of the packet is not sent) and drops the
+  queue, so a beacon you have queued but that has not keyed yet will not go out,
+  then or when TX comes back on. The burst is short — one packet at 1200 baud —
+  so it is usually over before you can reach the button: decide before you
+  press Send.
 - **The send gate does not check the dial.** A beacon or a message is refused when TX is off,
   when the dial is outside your licence privileges, or when something else holds the
   transmitter — and that is the whole list. It is not checked against the APRS channel or
@@ -440,7 +443,7 @@ anything**, and nothing was uploaded to make this picture — the figures are a 
 ## Related guides
 
 - [Phone (SSB)](phone.md) — the FM side of the same radio, repeaters and CTCSS
-- [Connect — map + propagation](connect.md) — the full map, with everything this
+- [Conditions — map + propagation](connect.md) — the full map, with everything this
   one deliberately leaves off
 - [Settings reference](settings-reference.md) — the Radio tab's Rig & CAT and
   Audio fieldsets, and the Features toggles this section depends on

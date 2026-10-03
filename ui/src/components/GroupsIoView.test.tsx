@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GroupsIoStatus } from '../api'
+import { ConfirmHost } from '../confirm'
 import { GroupsIoView } from './GroupsIoView'
 
 const api = vi.hoisted(() => ({
@@ -68,6 +69,15 @@ describe('GroupsIoView', () => {
     expect(screen.getByText('API key required for live sync')).toBeTruthy()
   })
 
+  it('shows a retryable load error instead of claiming credentials are missing', async () => {
+    api.getStatus.mockRejectedValueOnce(new Error('native bridge unavailable')).mockResolvedValue(status(true))
+    render(<GroupsIoView onOpenSettings={() => {}} />)
+    expect((await screen.findAllByText('Groups.io could not be loaded')).length).toBe(2)
+    expect(screen.queryByText('API key required for live sync')).toBeNull()
+    fireEvent.click(screen.getByText('Retry'))
+    expect(await screen.findByText('Nexus Users')).toBeTruthy()
+  })
+
   it('wires pagination and incoming attachments without losing cached state', async () => {
     const next = status(true)
     api.getStatus.mockResolvedValue(next)
@@ -112,13 +122,13 @@ describe('GroupsIoView', () => {
     api.getStatus.mockResolvedValueOnce(initial).mockResolvedValue(uncertain)
     api.saveDraft.mockResolvedValue(initial)
     api.sendDraft.mockRejectedValue('delivery unknown')
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    render(<GroupsIoView onOpenSettings={() => {}} />)
+    render(<><GroupsIoView onOpenSettings={() => {}} /><ConfirmHost /></>)
     await screen.findByText('Nexus Users')
     fireEvent.click(screen.getByText('New topic'))
     fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Possibly sent' } })
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Body' } })
     fireEvent.click(screen.getByText('Review & send now'))
+    fireEvent.click(await screen.findByText('Confirm'))
     await waitFor(() => expect(api.getStatus).toHaveBeenCalledTimes(2))
     fireEvent.click(screen.getByText('Drafts & outbox'))
     expect(await screen.findByText('Mark delivered')).toBeTruthy()

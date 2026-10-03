@@ -38,7 +38,11 @@ export function Dialog({
     <RD.Root open={open && available} onOpenChange={onOpenChange}>
       <RD.Portal>
         <RD.Overlay className="ui-dialog-overlay" />
-        <RD.Content className={className ? `ui-dialog ${className}` : 'ui-dialog'} onCloseAutoFocus={onCloseAutoFocus}>
+        <RD.Content
+          className={className ? `ui-dialog ${className}` : 'ui-dialog'}
+          onCloseAutoFocus={onCloseAutoFocus}
+          {...(description ? {} : { 'aria-describedby': undefined })}
+        >
           {/* The portal lands on document.body — OUTSIDE `.app`'s zoom:var(--ui-zoom) —
               so dialog content rendered at 1/zoom of the app (1.54x too large at
               auto-65; 0.57x at pinned 175, inverting the accessibility setting).

@@ -11,8 +11,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppSnapshot, BandChannel, KeyboardMacroProfile, RttyState, Settings } from '../types'
 import { CockpitHeader } from './CockpitHeader'
+import { CockpitTxStrip } from './CockpitTxStrip'
 import { CockpitPaneFrame } from './panes/CockpitPaneFrame'
+import { PaneSeam } from './PaneSeam'
+import { WATERFALL_SPLIT_MAX, WATERFALL_SPLIT_MIN } from '../features/paneSeam'
 import { LogEntry } from './LogEntry'
+import { RotorStrip } from './RotorStrip'
+import { rotorPointAt } from './rotorPointAt'
 import { RttyMacroButton, RttyMacroEditor, RttyMacroSetSwitch, isEmptyRttySlot } from './RttyMacroEditor'
 import { PanelsMenu } from './PanelsMenu'
 import { panelHost } from '../features/panelHost'
@@ -61,6 +66,7 @@ import { IS_MAC, FN_KEY_HINT } from '../platform'
 import { usePinnedScroll } from '../usePinnedScroll'
 import { t } from '../i18n'
 import { useStationCapability, useStationControl, useStationData } from '../stationAccess'
+import { useEscStop } from '../useEscStop'
 import { RemoteRecallEntry } from '../remote-web/RemoteRecall'
 
 interface Props {
@@ -96,6 +102,9 @@ interface Props {
   macros?: Settings['macros'] | null
   /** The engine saved the macro sets: here is the `macros` it now holds, for the mirror. */
   onMacrosSaved?: (macros: Settings['macros']) => void
+  /** Open Settings at a section id: the rotor strip's "configured but not answering" chip
+   *  opens the Rotator section through it, as it does in the Phone, CW and FT cockpits. */
+  onOpenSettings?: (target: string) => void
 }
 
 /** This cockpit's INVARIANT vocabulary — the words that are the mode's own technical
@@ -116,6 +125,9 @@ const TX_IDLE = 'TX'
  *  glyph and the CR that travels with it as nothing. */
 const LINE_BREAK = '↵'
 const CQ = 'CQ'
+/** The grow a share of 1 stands for in the transcript | log strip pair (layout L6): the mean of
+ *  their stock weights, 1 and 1.5. */
+const STREAM_LOG_SPLIT = 1.25
 
 /** Display labels for the RTTY removable panels (the ⊞ Panels menu). Resolved when the
  *  menu is BUILT — a module constant would freeze the first locale loaded. */
@@ -290,9 +302,9 @@ function knownCode(domain: string | undefined, value: string): boolean {
  * host (like Operate) so the decoded stream keeps accumulating while the
  * operator is on another section.
  */
-export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSetTxEnabled, theme = 'dark', wheelSensitivity, onOpenLogbook, panels, macros, onMacrosSaved }: Props) {
+export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSetTxEnabled, theme = 'dark', wheelSensitivity, onOpenLogbook, panels, macros, onMacrosSaved, onOpenSettings }: Props) {
   const frequencyControl = useStationCapability('frequency')
-  const control = useStationControl(), receiverControl = useStationCapability('decoder')
+  const control = useStationControl(), receiverControl = useStationCapability('decoder'), rotatorControl = useStationCapability('rotator')
   const dataAvailable = useStationData()
   // Panels (Phase 3): the waterfall, the header, the auto-seq strip, the macros and the compose
   // bar are pinned; only the decoded-text stream is removable, filling the space between them.
@@ -304,6 +316,20 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
   const shown = (id: RttyPanelId) => (host ? host.shown(id) : true)
   // The pane's own ✕ — the SAME setPanelState the ⊞ tick makes (panelHost.closeProps).
   const closeProps = (id: RttyPanelId) => (host ? host.closeProps(id) : {})
+  // THE DIVIDER BETWEEN THE TRANSCRIPT AND THE LOG STRIP (layout L6): the two fill frames share
+  // the shell's height, and the operator moves the boundary. A pair only while both render (the
+  // log strip with a snapshot, the transcript while ticked) and there is a record to keep the split
+  // in; then each carries the operator's share and its floor follows it (CockpitPaneFrame `split`),
+  // so the divider still moves them on a window too short for both floors. The transcript weighs 1
+  // and the log 1.5, so the divider paints grows of share × 1.25 and the pair keeps its stock total.
+  // Only the TRANSCRIPT's share is stored: the log strip has no id in RTTY's vocabulary (it is not
+  // ⊞-removable), and a divider's pair always sums to 2, so the log's share is the rest.
+  const streamFrameRef = useRef<HTMLElement>(null)
+  const logFrameRef = useRef<HTMLElement>(null)
+  // The waterfall strip, for the divider under it (its height).
+  const wfRef = useRef<HTMLDivElement>(null)
+  const streamLogPair = panels != null && snap != null && shown('stream')
+  const streamShare = streamLogPair ? panels?.layout.share.stream : undefined
   // Live decoder state — polled at 2 Hz while this is the visible view. The
   // backend ring keeps decoding while we're hidden; the first tick on
   // re-activation catches the display up.
@@ -736,14 +762,20 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
     closeEditor,
     sendMacro,
   }
+  // Esc's stop (and the editor's exception) rides the shared capture listener (useEscStop,
+  // operator 2026-10-01), so no control on the screen can swallow it; this listener still cancels
+  // the key's default, as it always did.
+  useEscStop(control && active, () => {
+    const k = keys.current
+    if (k.editorOpen && !k.live) k.closeEditor()
+    else stop()
+  })
   useEffect(() => {
     if (!control || !active) return
     const onKey = (e: KeyboardEvent) => {
       const k = keys.current
       if (e.key === 'Escape') {
         e.preventDefault()
-        if (k.editorOpen && !k.live) k.closeEditor()
-        else stop()
         return
       }
       if (!/^F[1-8]$/.test(e.key) || e.altKey || e.ctrlKey || e.metaKey) return
@@ -788,9 +820,6 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
         <CockpitHeader
           snap={snap}
           onSnap={onSnap}
-          txActiveLabel="▲ RTTY"
-          onStopTx={stop}
-          onSetTxEnabled={control ? onSetTxEnabled : undefined}
           power={{
             value: control ? power : dataAvailable && snap.radio.rfPower != null ? Math.round(snap.radio.rfPower * 100) : null,
             unit: '%',
@@ -808,16 +837,6 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
               powerDrag.current = false
             },
           }}
-          // TUNE — the steady carrier you set power and load the antenna against. It is a
-          // stop control (it stops the carrier it started) and is on this cockpit's
-          // stop-line census and its sweep; MAX_TUNE_MS bounds it regardless.
-          onTune={(on) => { if (control) void setTune(on).then((s) => onSnap?.(s)) }}
-          // The RIG's own ATU, rendered by the header only when the rig reports a tuner.
-          onAtuTune={() =>
-            control && void atuTune()
-              .then((s) => onSnap?.(s))
-              .catch((e) => pushToast(String(e), 'error'))
-          }
           modeIndicator={
             <>
               <span className="cw-mode-badge" title={t('rtty.header.mode.title')}>
@@ -877,23 +896,35 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
               />
             ) : undefined
           }
-        />
+        >
+          {/* THE ROTOR STRIP, where CW carries it: the header's own control cluster. Its ■ stops
+              the ROTATOR, never a transmission, so it is on no stop-line census. `active`, because
+              this cockpit stays mounted behind every other screen and a hidden strip must not poll
+              the rotator. → CALL points at the dock's Call box, settled: the log strip's call. */}
+          {control || rotatorControl ? <RotorStrip
+            active={active}
+            onOpenSettings={onOpenSettings}
+            targetCall={settledHisCall || null}
+            onPointAt={rotorPointAt(control)}
+          /> : <span className="dim" role="status" aria-label={t('remote.rotatorUnavailable')} title={t('remote.rotatorUnavailable')}>{t('rotor.strip.aria')} —</span>}
+        </CockpitHeader>
       )}
 
       {/* THE BAND WATERFALL, ⊞-hideable since 2026-08-16. A shell child whose render is gated,
-          which leaves RTTY's census (header, waterfall, keyer-error banner, ONE pane frame, TX
-          dock) intact — one kind is conditional, as `stream` already was. `.rtty-cockpit
-          .waterfall-wrap` is `flex: 0 0 auto` with a 22%-of-viewport height, so hiding it hands
-          that height straight to `.rtty-cockpit > .pane-frame`, the shell's only grower: the
-          transcript gets taller, nothing is stranded, and there is no seam to clean up (this is
-          the one scope in the tree with no Splitter).
+          which leaves RTTY's census (header, waterfall, keyer-error banner, the pane frames, TX
+          dock) intact — one kind is conditional, as `stream` already was. Its divider (layout
+          L6) sits under it and sets its height (`--rtty-wf-h`, stored per surface), the scope
+          dividers' kind; hiding the strip takes the divider with it and hands the height to the
+          pane frames below, the shell's growers, and the stored height stays for its return.
 
           It hosts no stop control — the cursors and click-to-net are the decoder's tuning aid,
-          and net() moves the DECODER, not the rig's key. Stop TX and the TX-enable latch stay in
-          the header, the Esc/Stop macro and the sequencer's Abort in the dock (THE STOP LINE).
+          and net() moves the DECODER, not the rig's key. Stop TX and the TX-enable latch are in
+          the TX strip below it, the Esc/Stop macro and the sequencer's Abort in the dock (THE STOP LINE).
           With this and `stream` both unticked the cockpit still holds all four. */}
       {rtty && shown('scope') && (
+        <>
         <Waterfall
+          stripRef={wfRef}
           {...closeProps('scope')}
           paneTitle={rttyPanelLabels().scope}
           theme={theme}
@@ -920,6 +951,38 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
           hint={receiverControl ? t('rtty.waterfall.hint') : t('remote.keyboardFollowsStation')}
           onTune={receiverControl ? (hz) => void rttyNet(hz).then(setRtty).catch(() => {}) : undefined}
         />
+        <PaneSeam
+          axis="y"
+          varName="--rtty-wf-h"
+          strip={wfRef}
+          storageKey="nexus.split.rtty.waterfall"
+          min={WATERFALL_SPLIT_MIN}
+          max={WATERFALL_SPLIT_MAX}
+          defaultPct={25}
+          label={t('rtty.waterfall.splitter.label')}
+        />
+        </>
+      )}
+
+      {/* THE TX STRIP — FT's cluster under the waterfall (2026-10-01): the TX-enable
+          latch, Tune, the rig's ATU and Stop TX, sticky so they never leave the window. A shell
+          child with no ⊞ id, so hiding the waterfall leaves it directly under the header.
+          TUNE is a stop control (it stops the carrier it started) and is on this cockpit's
+          stop-line census and its sweep; MAX_TUNE_MS bounds it regardless. The latch is a STOP
+          here (set_tx_enabled(false) arms rtty_abort). */}
+      {snap && (
+        <CockpitTxStrip
+          radio={snap.radio}
+          onSnap={onSnap}
+          onStopTx={stop}
+          onSetTxEnabled={control ? onSetTxEnabled : undefined}
+          onTune={(on) => { if (control) void setTune(on).then((s) => onSnap?.(s)) }}
+          onAtuTune={() =>
+            control && void atuTune()
+              .then((s) => onSnap?.(s))
+              .catch((e) => pushToast(String(e), 'error'))
+          }
+        />
       )}
 
       {rtty?.keyerError && (
@@ -938,7 +1001,7 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
           clicked off, is rttySetAuto(false) → seq.abort() + Engine::rtty_stop(): the queue is
           cleared and rtty_abort + slot_tx_abort unkey the rig. Hiding `stream` takes it away —
           fine under THE STOP LINE (features/panelState.ts), because Stop TX and the TX-enable
-          latch are in the header and the Esc/Stop macro and the sequencer's Abort are in the
+          latch are in the TX strip and the Esc/Stop macro and the sequencer's Abort are in the
           dock, none of them with a ⊞ id. A pane's own stop is a convenience; those four are
           what hold the guarantee up — and while an over is actually keying outside an auto
           sequence, THREE of the four are live: Stop TX (never disabled), the Esc/Stop macro
@@ -953,7 +1016,14 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
           itself. Do NOT add the Auto toggle to stop-line.test.tsx's RTTY stopControls; that
           would demand this cockpit's only ⊞ entry be unhideable. */}
       {shown('stream') && (
-      <CockpitPaneFrame title={t('rtty.pane.stream.title')} paneId="stream" {...closeProps('stream')}>
+      <CockpitPaneFrame
+        title={t('rtty.pane.stream.title')}
+        paneId="stream"
+        split={streamLogPair ? STREAM_LOG_SPLIT : undefined}
+        share={streamShare != null ? streamShare * STREAM_LOG_SPLIT : undefined}
+        paneRef={streamFrameRef}
+        {...closeProps('stream')}
+      >
       <div className="cw-decode rtty-stream" title={t('rtty.stream.title')}>
         <div className="cw-decode-head">
           <span className="cw-decode-label">{RX_PLATE}</span>
@@ -1101,8 +1171,26 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
           behind a scroll, and the everyday strip is no better there: that is the zoom's, not
           the contest's. Esc/Stop and Stop TX are on screen at every size measured, and the
           page body never scrolls. */}
+      {streamLogPair && panels && (
+        <PaneSeam
+          above={streamFrameRef}
+          below={logFrameRef}
+          varName="--pane-share"
+          scale={STREAM_LOG_SPLIT}
+          onCommit={(stream) => panels.setShares({ stream })}
+          onReset={() => panels.setShares({ stream: null })}
+          label={t('rtty.seam.streamLog.label')}
+        />
+      )}
       {snap && (
-        <CockpitPaneFrame title={t('rtty.pane.log.title')} paneId="log" weight={1.5}>
+        <CockpitPaneFrame
+          title={t('rtty.pane.log.title')}
+          paneId="log"
+          weight={1.5}
+          split={streamLogPair ? STREAM_LOG_SPLIT : undefined}
+          share={streamShare != null ? (2 - streamShare) * STREAM_LOG_SPLIT : undefined}
+          paneRef={logFrameRef}
+        >
           {!control ? <RemoteRecallEntry snap={snap} mode={RTTY} onOpenLog={onOpenLogbook} /> : (
           <LogEntry
             onOpenLogbook={onOpenLogbook}
@@ -1133,7 +1221,7 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
           continuous-TX latch, Stop and the compose bar, pinned OUTSIDE any pane so nothing
           can scroll them out of reach. None of these has an id in the RTTY panel vocabulary
           ('stream' is the only entry). For the sequencer's Abort, the Esc/Stop macro and the
-          header's Stop TX / TX-arm that is THE STOP LINE — those four render outside every
+          TX strip's Stop TX / TX-arm that is THE STOP LINE — those four render outside every
           ⊞-removable pane, so unticking 'stream' (which takes its own Auto-toggle stop with
           it) cannot take any of them away. FOUR IS THE LIST, NOT THE LIVE COUNT: mid-over
           outside an auto sequence three are operable (Stop TX, the Esc/Stop macro, the latch)
@@ -1296,7 +1384,7 @@ export function RttyCockpit({ snap, onSnap, active = true, onSetFrequency, onSet
       </div>
 
       {/* THE EDITOR — out of flow, standing on the dock's top edge over the key it edits, so it
-          moves and covers no control in the dock; non-modal, so Stop TX in the header stays one
+          moves and covers no control in the dock; non-modal, so Stop TX in the TX strip stays one
           click away. Esc is decided by the cockpit's keyboard handler above, never here. */}
       {control && editing && (
         <RttyMacroEditor

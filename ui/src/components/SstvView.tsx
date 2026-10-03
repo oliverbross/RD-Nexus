@@ -6,7 +6,7 @@
 // catalog under `sstv.*`; the mode names, rasters, key-down seconds, VIS codes, dial
 // readings, callsigns, FSK IDs and the picture's own painted text are invariant tokens and
 // stay in the code.
-import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStationCapability, useStationControl, useStationData } from '../stationAccess'
 import { RemoteCollectionsContext } from '../remote-web/collections'
 import { sstvPlan, loadSstvImage } from '../remote-web/sstv'
@@ -16,9 +16,14 @@ import { confirmDialog } from '../confirm'
 import type { AppSnapshot, BandChannel, SstvGalleryEntry, SstvHealth, SstvState } from '../types'
 import { Waterfall } from './Waterfall'
 import { CockpitHeader } from './CockpitHeader'
+import { CockpitTxStrip } from './CockpitTxStrip'
 import { FrequencyControl } from './FrequencyControl'
+import { RotorStrip } from './RotorStrip'
+import { rotorPointAt } from './rotorPointAt'
 import { PanelsMenu } from './PanelsMenu'
 import { CockpitPaneFrame } from './panes/CockpitPaneFrame'
+import { PaneSeam } from './PaneSeam'
+import { SSTV_STAGE_SPLIT_MAX, SSTV_STAGE_SPLIT_MIN } from '../features/paneSeam'
 import { panelHost } from '../features/panelHost'
 import { sstvImageWidth } from '../sstvScale'
 import { readExifOrientation, readIntrinsicSize, sniffImageKind, type ImageKind } from '../sstvExif'
@@ -591,6 +596,7 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
   // Deleting a received picture is permanent and it is the operator's only copy, so a browser may
   // do it only while the station advertises its gallery verb.
   const galleryControl=useStationCapability('sstvGallery')
+  const rotatorControl=useStationCapability('rotator')
   // Panels (Phase 3): the RX canvas + the TX bar are pinned chrome (never panels); only the
   // Transmit composer and the Gallery are removable (⊞ menu). They render through
   // CockpitPaneFrame with ROLES — the composer is fit="content" (a drop zone cannot use
@@ -781,6 +787,13 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
   // the measured integer upscale silently never applied. React calls a callback ref on every
   // mount and unmount, so the observer follows the section instead of the first render.
   const [stageEl, setStageEl] = useState<HTMLElement | null>(null)
+  // The stage's divider (layout L6) sizes the same element, and reads it through a ref object;
+  // one callback feeds both, so the divider follows the section through its mounts too.
+  const stageRef = useRef<HTMLElement | null>(null)
+  const stageRefCb = useCallback((el: HTMLElement | null) => {
+    stageRef.current = el
+    setStageEl(el)
+  }, [])
   const [stage, setStage] = useState({ w: 0, h: 0 })
   useLayoutEffect(() => {
     const el = stageEl
@@ -1457,6 +1470,9 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
     setModeSlug(slug)
   }
 
+  // Set the moment this dock's Stop fires (`stopTx`): it says "stopped" itself, so the end it
+  // causes is not announced a second time when the engine reports it. A new picture clears it.
+  const ownStop = useRef(false)
   const sendImage = async () => {
     if (!canControl) return
     if (!packed || sending) return
@@ -1544,6 +1560,7 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
       )
     }, t('sstv.tx.send.failed')).then((s) => {
       if (s) {
+        ownStop.current = false // a new picture: its end is said afresh
         setSstv(s)
         if (s.sending)
           announce(t('sstv.tx.announce.sending', { mode: m?.name ?? packed.slug }), {
@@ -1555,6 +1572,7 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
 
   const stopTx = () => {
     if (!canControl) return
+    ownStop.current = true
     void sstvStop()
       .then((s) => {
         setSstv(s)
@@ -1562,15 +1580,35 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
         // SSTV's stop-line census. It moves with the button, in the transmit-path batch.
         announce('SSTV transmit stopped', { assertive: true })
       })
-      .catch(() => {})
+      .catch(() => {
+        ownStop.current = false
+      })
   }
 
-  // Announce natural completion (sending true → false without an explicit Stop).
+  // ⛔ HOW A PICTURE ENDED, SAID ONCE as it stops sending: "finished" only for a picture that
+  // played out (N57b, 2026-09-30: one that did not was never finished).
+  //  • This dock's Stop has already said "stopped", the moment it fired.
+  //  • A picture the engine dropped or cut short shows its warning line, an alert that says why.
+  //  • A picture that played out still shows its whole key-down elapsed: the radio loop stamps
+  //    played = total on the tick the picture ends, and every early end clears it (Stop, TX Off,
+  //    Stop TX, a halt, the loop's own cut). Read from the progress rather than from a field of
+  //    its own because the Remote page renders this view too, and its sample carries the
+  //    progress but never the notice.
+  //  • Any other end came early: "stopped", never "finished".
+  const txNotice = sstv?.txNotice
+  const playedOut =
+    (sstv?.txTotalSecs ?? 0) > 0 && (sstv?.txElapsedSecs ?? 0) >= (sstv?.txTotalSecs ?? 0)
   const wasSending = useRef(false)
   useEffect(() => {
-    if (wasSending.current && !sending) announce(t('sstv.tx.announce.finished'))
+    if (wasSending.current && !sending) {
+      if (ownStop.current) ownStop.current = false
+      else if (txNotice) {
+        // The warning line beside Send is the announcement.
+      } else if (playedOut) announce(t('sstv.tx.announce.finished'))
+      else announce(t('sstv.tx.announce.stopped'), { assertive: true })
+    }
     wasSending.current = sending
-  }, [sending])
+  }, [sending, txNotice, playedOut])
 
   const txProgressPct = Math.round((sstv?.txProgress ?? 0) * 100)
   const txRemaining = Math.max(0, (sstv?.txTotalSecs ?? 0) - (sstv?.txElapsedSecs ?? 0))
@@ -1648,14 +1686,12 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
         <CockpitHeader
           snap={snap}
           onSnap={onSnap}
-          onSetTxEnabled={onSetTxEnabled}
-          // THE CORE RADIO CONTROLS. SSTV shipped with only the TX-enable latch, so an
-          // operator had no drive control, no Tune to set it against, and no Stop TX in the
-          // place every other cockpit puts one (operator, 2026-08-04). Drive matters more
-          // here than anywhere: SSTV carries the picture in the AUDIO, so overdriving past
-          // ALC does not just splatter, it visibly wrecks the image at the far end.
-          // The view's own pinned Stop stays — it is the TX-locked one the stop-line census
-          // pins (stop-line.test.tsx) — this adds the familiar header one beside it.
+          // DRIVE. SSTV shipped with only the TX-enable latch, so an operator had no drive
+          // control, no Tune to set it against, and no Stop TX in the place every other
+          // cockpit puts one (operator, 2026-08-04). Drive matters more here than anywhere:
+          // SSTV carries the picture in the AUDIO, so overdriving past ALC does not just
+          // splatter, it visibly wrecks the image at the far end. The latch, Tune, the ATU
+          // and Stop TX are in the TX strip under the stage.
           power={{
             value: txPower,
             unit: '%',
@@ -1670,13 +1706,6 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
             label: t('sstv.header.power.label'),
             title: t('sstv.header.power.title'),
           }}
-          onTune={(on) => { if(canControl) void setTune(on).then((st) => onSnap?.(st)) }}
-          onAtuTune={() =>
-            canControl && void atuTune()
-              .then((st) => onSnap?.(st))
-              .catch((e) => pushToast(String(e), 'error'))
-          }
-          onStopTx={() => { if(canControl) void haltTx() }}
           modeIndicator={
             <span className="cw-mode-badge" title={t('sstv.header.mode.title')}>
               {modeBadge}
@@ -1785,6 +1814,16 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
           >
             {t('sstv.manualRx.start.label')}
           </button>
+          {/* THE ROTOR STRIP, after the receive controls so none of them moves. SSTV has no Call
+              box: the station it answers is the one the Reply preset uses, the newest FSK ID heard.
+              `active`, because this cockpit stays mounted while hidden (its VIS receiver never
+              sleeps). Its ■ stops the rotator, never a transmission. */}
+          {canControl || rotatorControl ? <RotorStrip
+            active={active}
+            onOpenSettings={onOpenSettings}
+            targetCall={lastHeardCall}
+            onPointAt={rotorPointAt(canControl)}
+          /> : <span className="dim" role="status" aria-label={t('remote.rotatorUnavailable')} title={t('remote.rotatorUnavailable')}>{t('rotor.strip.aria')} —</span>}
         </CockpitHeader>
       )}
 
@@ -1805,7 +1844,8 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
           all in this cockpit. Stop lives in `.sstv-tx-bar` and the TX-enable latch in the
           header, neither with a ⊞ id (THE STOP LINE). */}
       {(inFlight || shown('scope')) && (
-      <section className="sstv-canvas" aria-label={t('sstv.stage.aria')} ref={setStageEl}>
+      <>
+      <section className="sstv-canvas" aria-label={t('sstv.stage.aria')} ref={stageRefCb}>
         {inFlight ? (
           <div className="sstv-live">
             {preview && (
@@ -1904,6 +1944,43 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
           </div>
         )}
       </section>
+      {/* THE STAGE'S DIVIDER (layout L6), under it and with it, a shell child like the scope
+          dividers. It sizes the stage — the band or the picture, whichever is on it — and it
+          paints NOTHING until the operator moves it: the stage is a grower that follows this
+          view at every window, and no fixed share reproduces it (`.sstv-canvas[data-sized]`,
+          styles.css). Moved, the size is stored per surface; Backspace or a double-click gives
+          the growing stage back. It stops nothing and sends nothing (THE STOP LINE). */}
+      <PaneSeam
+        axis="y"
+        varName="--sstv-stage-h"
+        strip={stageRef}
+        storageKey="nexus.split.sstv.stage"
+        min={SSTV_STAGE_SPLIT_MIN}
+        max={SSTV_STAGE_SPLIT_MAX}
+        defaultPct={null}
+        label={t('sstv.stage.splitter.label')}
+      />
+      </>
+      )}
+
+      {/* THE TX STRIP — FT's cluster under the RX stage (2026-10-01): the TX-enable
+          latch (a STOP here: set_tx_enabled(false) arms sstv_abort), Tune, the rig's ATU and
+          Stop TX, sticky so they never leave the window. A shell child with no ⊞ id. The view's
+          own pinned Stop in `.sstv-tx-bar` stays — it is the TX-locked one the stop-line census
+          pins (stop-line.test.tsx) — and this is the familiar Stop TX every screen has. */}
+      {snap && (
+        <CockpitTxStrip
+          radio={snap.radio}
+          onSnap={onSnap}
+          onSetTxEnabled={onSetTxEnabled}
+          onTune={(on) => { if(canControl) void setTune(on).then((st) => onSnap?.(st)) }}
+          onAtuTune={() =>
+            canControl && void atuTune()
+              .then((st) => onSnap?.(st))
+              .catch((e) => pushToast(String(e), 'error'))
+          }
+          onStopTx={() => { if(canControl) void haltTx() }}
+        />
       )}
 
       {/* THE LOWER PANES — CockpitPaneFrame with ROLES, and deliberately NO
@@ -2361,6 +2438,16 @@ export function SstvView({ snap, theme = 'default', onSnap, active = true, onSet
             <div className="sstv-tx-progress-track">
               <div className="sstv-tx-progress-fill" style={{ width: `${txProgressPct}%` }} />
             </div>
+          </div>
+        )}
+        {/* A picture the engine DROPPED while it waited for the transmitter (TX went off, the
+            dial left the licence privileges, or the Phone screen was left), or one the radio
+            loop CUT SHORT on the air (transmit went off under it, or a tune, a radio switch or
+            another stop ended its transmission), says so here, beside Send, until the next
+            picture keys: the engine's own sentence, like the RTTY, PSK and CW keyer warnings. */}
+        {!sending && txNotice && (
+          <div className="cw-keyer-warn" role="alert">
+            ⚠ {txNotice}
           </div>
         )}
       </div>

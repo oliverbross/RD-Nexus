@@ -73,11 +73,23 @@ impl Default for OpenHamClockState {
 impl Drop for OpenHamClockState {
     fn drop(&mut self) {
         let runtime = self.0.get_mut().unwrap_or_else(|e| e.into_inner());
-        if let Some(child) = runtime.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        stop_runtime(runtime);
     }
+}
+
+fn stop_runtime(runtime: &mut Runtime) {
+    if let Some(child) = runtime.child.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    runtime.child = None;
+}
+
+/// Stop the owned launcher during Tauri's synchronous quit cleanup. OpenHamClock's packaged
+/// worker also watches Nexus's PID so forced termination cannot strand it.
+pub fn stop(state: &OpenHamClockState) {
+    let mut runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    stop_runtime(&mut runtime);
 }
 
 fn set_status(state: &OpenHamClockState, status: OpenHamClockStatus) {
@@ -274,11 +286,7 @@ pub fn start(app: AppHandle) {
             }
             {
                 let mut runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(child) = runtime.child.as_mut() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-                runtime.child = None;
+                stop_runtime(&mut runtime);
             }
             set_status(
                 &state,
@@ -328,11 +336,7 @@ pub fn openhamclock_status(
 pub fn restart_openhamclock(app: AppHandle, state: State<'_, OpenHamClockState>) {
     {
         let mut runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(child) = runtime.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        runtime.child = None;
+        stop_runtime(&mut runtime);
         runtime.status = OpenHamClockStatus {
             phase: "starting",
             url: None,

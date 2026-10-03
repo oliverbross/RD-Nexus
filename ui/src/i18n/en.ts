@@ -229,9 +229,7 @@ export const EN = {
   "remote.thisBrowserApprovedUntil": "This browser is approved until {{until}} UTC.",
   "remote.thisBrowserRenewsUntil": "This browser is approved until {{until}} UTC. Using the station from here keeps it approved, up to {{limit}} UTC.",
   "remote.thisBrowserApprovalEnding": "This browser’s approval ends {{until}} UTC. To keep using it, approve it again in Nexus at the shack.",
-  "remote.awaitDevice": "Approve this browser in Nexus at the shack. Browser code:",
-  "remote.browserName": "Name this browser",
-  "remote.requestApproval": "Request local approval",
+  "remote.thisBrowserKey": "This browser’s key: {{key}}",
   "remote.stationAccess": "Station access",
   "remote.revokeHint": "Revoking access disconnects this station and removes the approval of every browser that used it. To use it again, pair it again at the shack and approve your browsers there again.",
   "remote.revokeStation": "Revoke station access",
@@ -382,6 +380,82 @@ export const EN = {
   'remote.stop.stopped': 'Stopped',
   'remote.stop.stopped.title': 'The station reports the transmitter free.',
   "remote.audio.unavailable": "The station has no audio to send right now.",
+  // The stream: Nexus at the shack as a live picture, operated from this browser. Stop TX and the
+  // TX indicator on that view stay the invariant tokens every cockpit uses (StreamView.tsx).
+  "remote.stream.open": "Stream",
+  "remote.stream.stage": "Nexus at the shack",
+  "remote.stream.picture": "Nexus at the shack. Click it, then use your mouse and keyboard to operate it. Tab leaves the picture.",
+  "remote.stream.start": "Start the stream",
+  "remote.stream.end": "End the stream",
+  "remote.stream.ptt": "Hold PTT",
+  "remote.stream.ptt.title": "Hold to talk: the rig keys when your microphone's audio arrives, and unkeys when you let go or the picture stops.",
+  "remote.stream.connecting": "Connecting to the station…",
+  "remote.stream.waiting": "Waiting for the station…",
+  "remote.stream.permission": "Station control is off for this browser. Allow it in Nexus at the shack (Settings → Station → Remote access → Advanced), then try again.",
+  "remote.stream.occupied": "Another browser is using this station. You can start once it lets go.",
+  "remote.stream.ready": "Ready. Start the stream to see and operate Nexus at the shack.",
+  "remote.stream.display": "The stream is the Nexus window as Windows draws it at the shack, so Nexus there must stay open, and not minimized.",
+  "remote.stream.starting": "Starting the stream…",
+  "remote.stream.refused": "The station couldn't start the stream just now. Start the stream again.",
+  "remote.stream.waitingForPicture": "Waiting for the station's picture…",
+  "remote.stream.live": "Streaming Nexus at the shack",
+  "remote.stream.stalled": "The picture has stopped updating. The station will not transmit for this browser until it moves again.",
+  "remote.stream.noPresence": "The station is holding off transmitting for this browser until its picture here catches up.",
+  "remote.stream.mic.off": "Mic off",
+  "remote.stream.mic.on": "Mic on",
+  "remote.stream.mic.title": "Your microphone, for talking on the rig. It stays off until you turn it on, and your browser asks first. Then hold PTT and talk: the rig keys when your audio arrives.",
+  "remote.stream.mic.notes": "Microphone",
+  "remote.stream.mic.usb": "The rig must take its SSB audio from USB (its menu for the transmit audio source). Most radios come set to the front microphone, and then an over sends the shack's microphone instead of you.",
+  "remote.stream.mic.denied": "The browser did not allow the microphone. Allow it in the browser's settings for this site, then turn the microphone on again.",
+  "remote.stream.mic.unavailable": "This browser cannot send the microphone on this stream.",
+  "remote.stream.mic.processing": "The browser is still processing the microphone (echo cancellation, noise suppression or automatic gain), which can make your voice sound worse on the air.",
+  "remote.stream.mic.needed": "PTT is held but your microphone is off, so nothing is transmitted. Turn the microphone on to talk.",
+  "remote.stream.mic.noPower": "The rig shows no power out while your voice is arriving. Set its SSB audio source to USB (its menu for the transmit audio source).",
+  "remote.stream.mic.uplink": "Your connection stalled, so the transmission stopped.",
+  "remote.stream.mic.ended.audioGap": "Your audio stopped arriving, so the transmission stopped.",
+  "remote.stream.mic.ended.presence": "Control was lost, so the transmission stopped.",
+  "remote.stream.mic.ended.ceiling": "The transmission ended at its 10-minute limit. Press PTT again to carry on.",
+  "remote.stream.mic.ended.watchdog": "The TX watchdog stopped the transmission.",
+  "remote.stream.mic.ended.routeChanged": "The station's audio changed, so the transmission stopped. Press PTT again.",
+  "remote.stream.id.due": "Time to give your call sign.",
+  "remote.stream.id.end": "Remember to give your call sign at the end of the contact.",
+  "remote.stream.idle.prompt": "Still there? The stream ends in a minute unless you click.",
+  "remote.stream.idle.keep": "Keep streaming",
+  "remote.stream.idle.ended": "Nobody answered “Still there?”, so the stream ended.",
+  "remote.stream.ended.notController": "The stream ended because station control was lost.",
+  "remote.stream.ended.unavailable": "This station can't stream yet. Update Nexus at the shack and turn streaming on there.",
+  "remote.stream.ended.accessExpired": "Your Remote access has ended, so the stream can't start.",
+  "remote.stream.ended.remoteOff": "Remote access was switched off for this account, so the stream ended.",
+  "remote.stream.ended.tryLater": "Too many tries. Wait a minute, then start the stream again.",
+  "remote.stream.ended.station": "The station ended the stream.",
+  "remote.stream.ended.insecure": "The station's reply was not encrypted end to end, so the stream was refused.",
+  "remote.stream.ended.unsupported": "This browser can't show the stream. Use a current Chrome, Edge, Firefox or Safari.",
+  "remote.stream.ended.hidden": "The stream stops while this tab is in the background. Start it again when you're back.",
+  "remote.stream.ended.failed": "The connection to the station was lost. Start the stream again.",
+  "remote.stream.ended.disabled": "Streaming is off at the shack. In Nexus there, turn on “Stream this station from my browser” (Settings → Station → Remote access), then start the stream again.",
+  "remote.stream.ended.inUse": "Another browser is streaming this station. You can stream once it ends.",
+  "remote.stream.ended.invalidOffer": "The station could not use this browser's stream request. Use a current Chrome, Edge, Firefox or Safari.",
+  "remote.stream.ended.notPinned": "Nexus at the shack is asking you to approve this browser. Approve it there if it shows this browser’s key, below, then start the stream again.",
+  "remote.stream.ended.keyChanged": "This browser’s key has changed, so Nexus at the shack asks you to approve it again. Approve it there if it shows this browser’s key, below, then start the stream again.",
+  "remote.stream.offline": "The station isn't online. Check that Nexus is running at the shack with Remote turned on, and that the computer is awake.",
+  // The station card (the operator, 2026-10-02: "Each station card has one big "Stream" button and a
+  // small "Listen" for audio only"): one sentence for where this browser stands, then the next step.
+  "remote.listen.open": "Listen",
+  "remote.listen.ready": "Ready. Press Listen to hear the station's receive audio.",
+  "remote.listen.refused": "The station couldn't start just now. Press Listen again.",
+  "remote.listen.unavailable": "This station isn't sending its receive audio. Check that Nexus at the shack is up to date and has the radio's audio input set.",
+  "remote.card.ready": "Ready. Stream to see and operate Nexus at the shack, or Listen for its audio only.",
+  "remote.card.notApproved": "This browser isn't approved for this station yet. Press Stream, and Nexus at the shack asks you to approve it.",
+  "remote.card.waiting": "Waiting for approval at the shack: Nexus there asks whether to let “{{browser}}” stream. Approve it if it shows this key: {{key}}.",
+  "remote.card.waitingNoKey": "Waiting for approval at the shack: Nexus there asks whether to let “{{browser}}” stream. Approve it there.",
+  "remote.card.browserCode": "Browser code: {{code}}",
+  // The name a browser gives itself when it asks for approval, shown at the shack. `browser` and
+  // `system` are product names (Chrome, Windows), never translated.
+  "remote.browserLabel": "{{browser}} on {{system}}",
+  "remote.browserLabelUnknown": "Web browser",
+  // Remote streaming is a beta (the operator, 2026-10-02): the mark and the line, on every surface it is entered from.
+  "remote.beta.mark": "Beta",
+  "remote.beta.notice": "Remote streaming is a beta feature. Access could be revoked at any time.",
   "remote.b3.potaAlertsOlder": "POTA activation alerts need a newer Nexus at the station.",
   "remote.b3.awardsObserver": "Journey and uploads are not available remotely yet. Confirmation diagnostics come from the station.",
   "remote.b3.sstvSave": "Save",
@@ -455,6 +529,21 @@ export const EN = {
   "remote.browserRenewsUntil": "Approved until {{until}} UTC. Using the station from this browser keeps it approved, up to {{limit}} UTC.",
   "remote.browserApprovalEnding": "This approval ends {{until}} UTC. Approve the browser again to keep it.",
   "remote.approveAgain": "Approve again",
+  "remote.browserKey": "Key {{key}}",
+  "remote.browserKeyNotPinned": "This browser can’t stream until you approve it again here. First check this key matches the one the browser shows.",
+  // Settings ▸ Remote access as one card: the streaming switch, the browsers with their keys, and the
+  // sign-in status; the pairing's options and the permissions fold under Advanced.
+  "remote.native.browsers": "Your browsers",
+  "remote.native.asks": "Asks to stream this station.",
+  "remote.native.remove": "Remove",
+  "remote.native.advanced": "Advanced",
+  "remote.approve": "Approve",
+  // The question Nexus asks at the shack when a browser asks to stream. Never approved by default:
+  // Deny holds the keyboard, and Escape or a click outside answers nothing.
+  "remote.approval.title": "Let {{browser}} stream this station?",
+  "remote.approval.body": "A browser signed in to your Remote account asks to stream and operate this station. Approve it only if this key matches the one the browser shows: {{key}}.",
+  "remote.approval.bodyAgain": "This browser was approved before, but it can’t stream until you approve it again here. Approve it only if this key matches the one the browser shows: {{key}}.",
+  "remote.approval.deny": "Deny",
 
   'monitor.title': 'Station monitor',
   'monitor.observer': 'Monitoring only',
@@ -848,6 +937,10 @@ export const EN = {
   'update.downloadFailed':
     "Couldn't open your browser — download Nexus yourself from {{url}}",
   'update.copyLink': 'Copy link',
+  // The Download button on a failed self-update (the banner's way out), and the note Settings'
+  // "Check for updates" shows while the update it found downloads.
+  'update.downloadInstead.title': 'Open the download page and install the update yourself',
+  'update.downloading': 'Downloading Nexus {{version}}. You can install it when the download finishes.',
   'update.checkFailed': 'Could not reach the update server to check for updates',
   'update.upToDate': "You're on the latest Nexus ({{current}})",
   'update.unreadable': "Couldn't read the latest release info",
@@ -1196,6 +1289,8 @@ export const EN = {
   // The table. Column headers name a CONCEPT and are prose; every value under them is a
   // token. `{{query}}` is what the operator typed, inserted verbatim.
   'logbook.globe.loading': 'Loading globe…',
+  // The divider under the globe band (layout L7); its tooltip is paneSeam.title.
+  'logbook.globe.height.label': 'Globe height',
   'logbook.search.placeholder': 'Search call / grid / band / mode / date…',
   'logbook.search.clear': 'Clear',
   'logbook.sync.name': 'Wavelog sync',
@@ -1650,6 +1745,9 @@ export const EN = {
 
   // The breakdown panels. Every band and mode name under these headings is data.
   'awards.bands.head': 'DXCC by band',
+  // The divider between the progress column (DXCC and grids by band, DXCC by mode) and the chase
+  // lists (layout L7); its tooltip is paneSeam.title.
+  'awards.columns.split.label': 'Progress column / chase lists',
   'awards.grids.head': 'Grids by band (VUCC)',
   // Band names and frequencies are invariant tokens — never translate '6 m' or '50 MHz'.
   'awards.grids.filter.vucc.label': 'VUCC bands',
@@ -2175,6 +2273,8 @@ export const EN = {
   'map.layers.expand.title': 'Show the Layers panel',
   'map.layer.opacity.aria': '{{layer}} opacity',
   'map.layer.daynight.label': 'Day / night (greyline)',
+  // The sun and the moon, each where it is overhead. One layer for both: they are the sky.
+  'map.layer.sunMoon.label': 'Sun and moon',
   'map.layer.relief.label': 'Relief (World view)',
   'map.layer.muf.label': 'Ionosonde MUF',
   'map.layer.aurora.label': 'Aurora oval',
@@ -2246,9 +2346,9 @@ export const EN = {
   // acronym and stays in the component; the three trend arias are whole strings rather than
   // a stem plus a direction word.
   'map.insights.collapsed.title': 'Show propagation insights',
-  'map.insights.pill': 'Conditions',
+  'map.insights.pill': 'Propagation',
   'map.insights.aria': 'Propagation insights',
-  'map.insights.title': 'Conditions',
+  'map.insights.title': 'Propagation',
   'map.insights.collapse.title': 'Collapse',
   'map.insights.muf.title':
     'Maximum Usable Frequency — the modelled DX ceiling right now; bands below it are open',
@@ -2281,6 +2381,7 @@ export const EN = {
   // The MUF layer's whole name is the acronym — a token, and a constant in the component.
   'globe.layer.pca': 'Polar cap (PCA)',
   'globe.layer.greyline': 'Greyline',
+  'globe.layer.sunMoon': 'Sun and moon',
   'globe.layer.sats': 'Satellites',
   'globe.layer.pass': 'Tracked pass',
   'globe.layer.rings': 'Range rings',
@@ -2342,6 +2443,13 @@ export const EN = {
   'prop.impact.bz.hardSouth': 'field hard south — storm likely, polar paths fading',
   'prop.impact.bz.south': 'field south — high-lat paths softening soon',
   'prop.impact.bz.neutral': 'field neutral/north — stable',
+  // The solar-wind speed gauge. It turns where the insight feed's fast-stream line does
+  // (FAST_WIND_KMS in propViz.ts), so the two never disagree about the same wind.
+  'prop.impact.wind.normal': 'ordinary wind — stable',
+  'prop.impact.wind.fast': 'fast stream — high-lat paths may get unsettled',
+  // The Bz gauge when its reading is old or missing ({{ago}} is prop.opening.ago.*: "45m ago").
+  'prop.spaceWx.bz.stale': 'last reading {{ago}}',
+  'prop.spaceWx.bz.none': 'no solar-wind reading',
   'prop.impact.a.storm': 'stormy day — HF rough, polar paths out',
   'prop.impact.a.active': 'active day — paths up and down',
   'prop.impact.a.unsettled': 'unsettled day — minor fading spells',
@@ -2448,6 +2556,8 @@ export const EN = {
   // Space-weather gauges. The index NAMES (SFI, Kp, A, X-ray, Bz) are technical tokens and
   // stay in the component; these are the Simple-mode plain-English glosses.
   'prop.spaceWx.aria': 'Space weather',
+  // The speed gauge's name is prose, unlike the index tokens; its unit (km/s) stays in the component.
+  'prop.spaceWx.wind': 'Wind',
   'prop.spaceWx.gloss.sfi':
     'Solar Flux Index — how energized the ionosphere is. Higher opens the upper HF bands (20–10 m). ~70 is low; 150+ is great.',
   'prop.spaceWx.gloss.kp':
@@ -2571,7 +2681,7 @@ export const EN = {
   'dxped.workNow.head': 'Work now — needed × on the air',
   'dxped.workNow.none':
     'Nothing you need is workable right now. New ones appear here the moment a needed expedition is on a band with a real path to you.',
-  'dxped.showOnMap.title': 'Open Connect with this expedition selected on the map',
+  'dxped.showOnMap.title': 'Open Conditions with this expedition selected on the map',
   'dxped.showOnMap.label': '◎ show on map',
   'dxped.calendar.empty': 'The forward calendar is empty — announced operations land here.',
 
@@ -2853,6 +2963,9 @@ export const EN = {
   'watchlist.item.remove.title': 'Remove from watch list',
   // `{{value}}` is the call, prefix, grid or entity the operator typed.
   'watchlist.item.remove.aria': 'Remove {{value}}',
+  // #390 — an entry's own note, edited in place on its row. `{{value}}` as above.
+  'watchlist.item.notes.aria': 'Notes for {{value}}',
+  'watchlist.item.notes.placeholder': 'Add a note',
   'watchlist.add.kind.aria': 'Watch kind',
   // The <option> VALUES ('call', 'dxcc', 'grid') are persisted tokens and stay in the code.
   'watchlist.add.kind.call': 'Call / prefix',
@@ -2864,6 +2977,11 @@ export const EN = {
   'watchlist.add.value.placeholder.dxcc': 'e.g. {{entity}}',
   'watchlist.add.cqOnly.label': 'CQ only',
   'watchlist.add.cqOnly.title': 'Only alert on a CQ call',
+  'watchlist.add.notes.aria': 'Notes for the new entry',
+  'watchlist.add.notes.placeholder': 'Notes (optional): why, and until when',
+  // The tooltip on both note fields, the add row's and each entry's.
+  'watchlist.notes.title':
+    'Your own note on this entry: why it is on the list, and when it can come off. It changes nothing about what alerts.',
   'watchlist.add.submit': 'Add',
   // The WATCH tile on the Call Roster, the Stations list and Spots — one word on all three,
   // echoing this list's own name. `{{what}}` is the entry that matched: the operator's label
@@ -3038,6 +3156,9 @@ export const EN = {
   'settings.pounce.threshold.atnoZoneOrState': 'New entity, zone, or US state',
 
   'settings.alerts.legend': 'Alerts',
+  'settings.alerts.popups.label': 'Pop-up notifications',
+  'settings.alerts.popups.hint':
+    'The messages in the bottom-right corner. Turned off, confirmations such as Logged QSO and alerts such as a new DXCC, a station calling you, a band opening or space weather stop popping up. Sounds are not affected. Errors, notices about transmitting, the radio or the log, and any message with a button, such as Stop alarm, still pop up.',
   'settings.alerts.myCall.label': 'My call',
   'settings.alerts.myCall.hint': 'Beep + flash when someone directs a call at you.',
   'settings.alerts.confirmTier.label': 'Confirmation opportunities',
@@ -3172,6 +3293,8 @@ export const EN = {
   'ota.filter.mode.aria': 'Mode filter',
   'ota.filter.mode.label': 'Mode',
   'ota.filter.all': 'All',
+  // The Connect box's Filter button (its label is the Spots board's own Filter / Filtered).
+  'ota.filter.toggle.title': 'Show or hide the band, mode and sort choices',
   // The sort picker. The <option> VALUES ('value', 'activator' …) are persisted tokens and
   // stay in the code; these are the words beside them.
   'ota.sort.aria': 'Sort spots',
@@ -3617,14 +3740,14 @@ export const EN = {
   'settings.launchAtLogin.aria.disable': 'Turn off start at sign-in',
   'settings.launchAtLogin.unsupported':
     'This computer did not let Nexus change whether it starts at sign-in, so the setting is unchanged.',
-  'settings.connectWeb.legend': 'Connect on a TV',
-  'settings.connectWeb.label': 'Serve Connect on this network',
+  'settings.connectWeb.legend': 'Conditions on a TV',
+  'settings.connectWeb.label': 'Serve Conditions on this network',
   'settings.connectWeb.hint':
-    'Serves the full Connect view — the map with every layer, the panes, live openings — read-only, to any browser on your network: a shack TV, a tablet, a phone. Nothing can be changed from it.',
+    'Serves the full Conditions view — the map with every layer, the panes, live openings — read-only, to any browser on your network: a shack TV, a tablet, a phone. Nothing can be changed from it.',
   'settings.connectWeb.exposes':
     'While this is on, anyone on your network can see your callsign, grid square and the propagation picture — including the callsigns of stations heard and spotted. Your log, your needs board and the frequency you are on are never sent.',
-  'settings.connectWeb.aria.enable': 'Serve Connect on the local network',
-  'settings.connectWeb.aria.disable': 'Stop serving Connect on the local network',
+  'settings.connectWeb.aria.enable': 'Serve Conditions on the local network',
+  'settings.connectWeb.aria.disable': 'Stop serving Conditions on the local network',
   'settings.connectWeb.port.label': 'Port',
   'settings.connectWeb.port.hint': 'Separate from the Field Day scoreboard, so both can run at once.',
   'settings.connectWeb.url.label': 'Open this on the TV',
@@ -4116,6 +4239,9 @@ export const EN = {
 
   // The 48 h schedule, its sortable headers and the discovery band beneath it.
   'sat.schedule.head': 'Schedule — favorites, next {{hours}} h',
+  // The divider between the planning column (the schedule) and the pass column (layout L7); its
+  // tooltip is paneSeam.title.
+  'sat.columns.split.label': 'Schedule column / pass column',
   'sat.schedule.sortBy': 'Sort by {{label}}',
   'sat.schedule.column.bird': 'Bird',
   'sat.schedule.column.aos': 'AOS local',
@@ -4322,7 +4448,7 @@ export const EN = {
   // has to keep the three consistent, which is why they read as the same words here.
   'memories.empty.none': 'No memories yet.',
   'memories.empty.hint':
-    'Start with a <b>starter pack</b> — nets, calling frequencies, POTA, and digital watering holes, ready to go. Or save the current frequency with <b>＋ Save</b>, import a CHIRP CSV, or send repeaters here from the Program section. Star a memory (★) and it shows on the MEM strip in every cockpit.',
+    'Start with a <b>starter pack</b> — nets, calling frequencies, POTA, and digital watering holes, ready to go. Or save the current frequency with <b>＋ Save</b>, import a CHIRP CSV, or send repeaters here from the Repeaters section. Star a memory (★) and it shows on the MEM strip in every cockpit.',
   'memories.empty.browsePacks': 'Browse starter packs',
   'memories.empty.noMatch': 'Nothing matches this view.',
 
@@ -4503,7 +4629,11 @@ export const EN = {
   // the exported CSV, so it cannot vary by locale), the example grid and frequency, and the
   // persisted project name. The rig models in the "Max name" list are tokens in
   // `features/radioprog.ts`.
-  'program.title': 'Program',
+  'program.title': 'Repeaters',
+  // The view's three cards, headed the way the Conditions boxes are: where to look, what was found, and the
+  // channel list (program.builder.title).
+  'program.card.search': 'Search',
+  'program.card.results': 'Results',
   'program.sub':
     'Build channel lists for your radios — repeaters near a location, exported for CHIRP or tuned on your rig',
 
@@ -4513,12 +4643,12 @@ export const EN = {
   // `{{grid}}` is the station locator with its separator, or nothing at all.
   'program.origin.station.label': 'My station {{grid}}',
   'program.origin.station.title': 'Your station grid from Settings',
-  'program.origin.grid.label': 'Grid',
-  'program.origin.grid.aria': 'Grid square',
-  'program.origin.city.label': 'City',
-  'program.origin.city.aria': 'City',
+  // ONE box takes a grid or a city (a locator is the place as typed; anything else is a town to look
+  // up). {{grid}} is an example locator, a token.
+  'program.origin.place.placeholder': 'Grid or city: {{grid}}, Gatlinburg TN',
+  'program.origin.place.aria': 'Where to search: a grid square or a city',
+  'program.route.to.place.aria': 'Where the route ends: a grid square or a city',
   // A HUMAN example, not a technical one: a locale should offer a place its operators know.
-  'program.origin.city.placeholder': 'Gatlinburg, TN',
   'program.city.search': 'Search',
   'program.city.searching': 'Searching…',
   'program.city.noMatch': 'No places matched — try "City, State"',
@@ -4532,14 +4662,29 @@ export const EN = {
   'program.radius.label': 'Radius',
   'program.radius.auto.label': 'Auto',
   'program.radius.auto.title': "Radius from the selected bands' realistic repeater reach",
-  'program.radius.auto.hint': '= {{radius}} ({{bands}})',
+  'program.radius.auto.hint': '{{radius}}: about how far {{bands}} reach from a car or a handheld',
   'program.radius.auto.allBands': 'all bands',
+
+  // Or a route: from one place to another, the machines within a corridor either side of the
+  // straight line between them. The two places are given as the origin is.
+  'program.route.add': 'Route to…',
+  'program.route.add.title':
+    'List the repeaters along a trip from here to another place, in the order you pass them',
+  'program.route.remove.title': 'Back to the repeaters around one place',
+  'program.route.from': 'From',
+  'program.route.to': 'To',
+  'program.route.to.aria': 'Route destination',
+  'program.corridor.aria': 'Route corridor',
+  'program.corridor.label': 'Corridor',
+  'program.corridor.hint': 'either side of a straight line between the two places',
 
   // The fetch, and what the directory answered with.
   'program.fetch.label': '⟳ Fetch repeaters',
   'program.fetch.busy': '⟳ Fetching…',
   'program.fetch.title': 'Fetch repeaters within {{radius}}',
   'program.fetch.title.noOrigin': 'Pick a valid origin first (grid or city)',
+  'program.fetch.title.route': 'Fetch repeaters within {{radius}} of the route',
+  'program.fetch.title.noRoute': 'Pick both ends of the route first (grid or city)',
   'program.fetch.retry': 'Retry',
   'program.stamp.title': 'Directory data age (cached per source, weekly)',
   'program.stamp.stale': ' · stale (fetch failed, cached data shown)',
@@ -4554,6 +4699,31 @@ export const EN = {
   'program.missingStates':
     'RepeaterBook did not answer for <b>{{states}}</b>, so repeaters there are missing from this list. That is a fetch that failed, not an empty area — fetch again in a few minutes.',
 
+  // The UK coordinator's list, a beta endpoint. `{{rsgb}}` and `{{hearham}}` are the two
+  // directories' own names and `{{squares}}` a list of 4-character locator squares: tokens.
+  'program.rsgb.unavailable':
+    "The {{rsgb}} repeater list could not be read just now, so these are <b>{{hearham}}'s machines alone</b>. Fetch again later to add the coordinator's.",
+  // hearham is the list under the others (`{{hearham}}`, its own name: a token). Said when its list
+  // could not be read while another directory answered, and in place of "No repeaters within …"
+  // when nothing is shown, since the area is then not known to be empty.
+  'program.hearham.unavailable':
+    'The {{hearham}} repeater list could not be read just now, so <b>its machines are missing from this list</b>. Fetch again in a few minutes.',
+  'program.rsgb.beyond':
+    "{{rsgb}} is asked about the locator squares nearest you, not every one this radius reaches, so the machines in <b>{{squares}}</b> are {{hearham}}'s alone.",
+  'program.rsgb.beyond.route':
+    "{{rsgb}} is asked about the locator squares at the start of this route, not every one it crosses, so the machines in <b>{{squares}}</b> are {{hearham}}'s alone.",
+  // A route asks RepeaterBook about nine states at most. `{{rb}}` and `{{hearham}}` are the two
+  // directories' own names and `{{states}}` a list of 2-letter state codes: tokens.
+  'program.route.rbBeyond':
+    "{{rb}} is asked about the states at the start of this route, not every one it crosses, so the machines in <b>{{states}}</b> are {{hearham}}'s alone. Search the rest of the trip as a route of its own.",
+
+  // The saved-projects file Program could not read. `{{path}}` is a file path on the operator's
+  // computer — a token, never translated. "Repeaters" in the second is this section's own name.
+  'program.projectsFile.setAside':
+    'Nexus could not read your saved channel lists, so it kept that file, untouched, at <code>{{path}}</code> and started a new list. Nothing was deleted.',
+  'program.projectsFile.keptInPlace':
+    'Nexus could not read your saved channel lists at <code>{{path}}</code> and could not move that file aside, so Repeaters will not save until it is moved or repaired. Nothing was deleted.',
+
   // Narrowing the results. The band chips and the FM chip are mode/band names, not prose.
   'program.filters.aria': 'Result filters',
   'program.filters.allBands': 'All',
@@ -4563,12 +4733,68 @@ export const EN = {
     'Also list DMR / D-STAR / Fusion machines (badged; programming them comes later)',
   'program.filters.onAir.label': 'On-air only',
   'program.filters.onAir.title': 'Hide machines the directory marks off-air',
-  'program.filters.search.placeholder': 'Filter call / city…',
+  // The list's OWN filter, beside the list: it narrows this list and never asks for a place (an operator
+  // typed "woodstock, il" here, meaning to search near it, 2026-10-02). A place typed anyway is offered
+  // to Near: {{place}} is the operator's own words.
+  'program.filters.search.placeholder': 'Filter: call or MHz',
+  'program.filters.search.clear': 'Clear the filter',
+  'program.filters.place.offer': 'Search near “{{place}}” instead?',
+  'program.filters.bands.label': 'Bands',
+  'program.filters.show.label': 'Show',
   'program.filters.search.aria': 'Filter results',
+  'program.filters.search.title':
+    'Filters this list by callsign or town. A frequency in MHz (147.18, 438.5125) shows every repeater on it, whatever the filters. To search near another place, use Near.',
   'program.count': '{{shown}} of {{total}} shown · nearest first',
-  'program.addAll.label': '＋ Add all shown',
+  'program.count.freq': '{{shown}} on {{freq}} MHz (±{{tol}} kHz), filters not applied · nearest first',
+  'program.count.route': '{{shown}} of {{total}} shown · in order along the route',
+  // What the filters hide, after the count: {{why}} is a list of the filters that hide something (the
+  // three below and the On-air only chip's own words), joined the language's own way.
+  'program.count.hidden': {
+    one: '— {{count}} hidden by {{why}}',
+    other: '— {{count}} hidden by {{why}}',
+  },
+  'program.count.why.bands': '{{bands}} only',
+  'program.count.why.fm': 'FM only',
+  'program.count.why.text': 'the filter “{{text}}”',
+  'program.count.showAll': 'Show all',
+  'program.count.freq.route':
+    '{{shown}} on {{freq}} MHz (±{{tol}} kHz), filters not applied · in order along the route',
+  // THE MAP (the operator's pick, 2026-09-30: "hearham-only map now"). Every dot is a hearham
+  // listing, so the words say so, and say what is left off when RepeaterBook or the RSGB list
+  // filled the list too: RepeaterBook's terms forbid a map, and the RSGB list is not mapped yet.
+  'program.map.aria': {
+    one: 'Map of {{count}} repeater',
+    other: 'Map of {{count}} repeaters',
+  },
+  'program.map.shows': {
+    one: 'On the map: {{count}} machine, as {{hearham}} lists it and where it places it.',
+    other: 'On the map: {{count}} machines, as {{hearham}} lists them and where it places them.',
+  },
+  'program.map.rb': {
+    one: 'Not on the map: {{count}} machine only {{rb}} lists. Its terms do not allow its listings on a map.',
+    other: 'Not on the map: {{count}} machines only {{rb}} lists. Its terms do not allow its listings on a map.',
+  },
+  'program.map.rb.none':
+    "{{rb}}'s listings are never mapped (its terms do not allow it). Every machine shown is one {{hearham}} lists too.",
+  'program.map.rsgb': {
+    one: 'Not on the map for now: {{count}} machine only the {{rsgb}} list has.',
+    other: 'Not on the map for now: {{count}} machines only the {{rsgb}} list has.',
+  },
+  'program.map.rsgb.none':
+    'The {{rsgb}} list is not mapped for now. Every machine shown is one {{hearham}} lists too.',
+  'program.map.hint':
+    'A filled dot is in your channel list. Point at a dot to find its row; click one to save the machine to Memories or add it.',
+  // The selected dot's card: its ✕.
+  'program.map.card.close': 'Close',
+  'program.addAll.label': 'Add all to channel list',
   'program.addAll.confirm.title': 'Add {{count}} channels?',
   'program.addAll.confirm.ok': 'Add channels',
+  // Save all shown: every FM repeater the list shows into Memories, each once.
+  'program.saveAll.label': 'Save all to Memories',
+  'program.saveAll.title':
+    'Save every FM repeater shown to Memories, once each: the ones already there are left as they are',
+  'program.saveAll.confirm.title': 'Save {{count}} repeaters to Memories?',
+  'program.saveAll.confirm.ok': 'Save them',
 
   // The results list, and what it says when it has nothing. Two whole sentences for the
   // empty case: where the mode word sits belongs to the translator.
@@ -4577,25 +4803,56 @@ export const EN = {
     'Pick a location and press <b>Fetch repeaters</b> — results land here; ADD the machines you want on your radio.',
   'program.results.none': 'No repeaters within {{radius}}.',
   'program.results.none.fm': 'No FM repeaters within {{radius}}.',
+  'program.results.none.freq': 'No repeater on {{freq}} MHz (±{{tol}} kHz) within {{radius}}.',
+  'program.results.prompt.route':
+    'Pick both ends of the route and press <b>Fetch repeaters</b> — the machines along it land here in order; ADD the ones you want on your radio.',
+  'program.results.none.route': 'No repeaters within {{radius}} of the route.',
+  'program.results.none.fm.route': 'No FM repeaters within {{radius}} of the route.',
+  'program.results.none.freq.route':
+    'No repeater on {{freq}} MHz (±{{tol}} kHz) within {{radius}} of the route.',
+  // On a route, where a machine is: `{{along}}` and `{{off}}` are distances (120 mi, 3 mi) and
+  // `{{dir}}` a compass point (NE): tokens.
+  'program.row.route.title': '{{along}} along the route, {{off}} {{dir}} of it',
+  'program.row.route.off': '{{off}} {{dir}} of the route',
   'program.results.tryWider': 'Try {{radius}}',
   'program.results.showDigital': 'Show digital',
   'program.row.offAir': 'OFF-AIR',
-  'program.row.star.title':
-    'Star this repeater — saves it to Memories and the cockpit MEM strip for one-click tuning',
-  'program.row.unstar.title':
-    'Unstar — keeps the channel in Memories, drops it off the cockpit strip',
+  // Each machine's directories and date. `{{sources}}` names them ("RSGB + hearham"), `{{date}}`
+  // is a directory's own date as it writes it (2026-05-14) and `{{age}}` the list's age as
+  // program.age.* prints it ("2d ago").
+  'program.row.source.updated': '{{sources}} · updated {{date}}',
+  'program.row.source.noDate': '{{sources}} · no date · fetched {{age}}',
+  'program.row.links.title': 'How this repeater links beyond its own coverage, as its directory lists it: AllStar, IRLP and DMR ID numbers, and its DMR color code (CC).',
+  'program.row.link.node': 'node {{node}}',
+  // Where the directories disagree. `{{used}}` and `{{others}}` are a directory's name with what
+  // it lists ("RSGB 88.5", "hearham 438.525", "RSGB FM+DMR", "hearham CC9"): tokens.
+  'program.row.differ.label': 'Sources differ',
+  'program.row.differ.title':
+    'The directories disagree about this machine. The row programs the first value shown; check the others before you rely on it.',
+  'program.row.differ.tone': 'Tone {{used}} is programmed (also listed: {{others}})',
+  'program.row.differ.input': 'Input {{used}} is programmed (also listed: {{others}})',
+  'program.row.differ.mode': 'Mode {{used}} is programmed (also listed: {{others}})',
+  'program.row.differ.colorCode': 'Color code {{used}} is programmed (also listed: {{others}})',
+  // Save to Memories: the machine as a memory, not starred. Once saved the row shows the badge
+  // instead; {{name}} is the memory's name ("W9ABC 94", a callsign and a frequency: a token).
+  'program.row.save.label': 'Save to Memories',
+  'program.row.save.title':
+    'Save this repeater to Memories: frequency, offset, tone or DCS, callsign, town and links. Not starred, so it stays off the cockpit strip',
+  'program.row.saved.label': 'In Memories',
+  'program.row.saved.title': 'In Memories as {{name}}. Star it there to put it on the cockpit strip',
   // Tune is a RETUNE of the CAT rig — frequency, shift, offset and tone. It never transmits.
   'program.row.tune.label': 'Tune',
   'program.row.tune.title': 'Tune your CAT rig to this repeater now (FM + shift + offset + tone)',
-  'program.row.add.label': '＋ Add',
-  'program.row.added.label': '✓ Added',
-  'program.row.add.title': 'Add to the channel list',
+  'program.row.add.label': 'Add to channel list',
+  'program.row.added.label': 'In channel list',
+  'program.row.add.title': 'Add to the channel list, to program a radio (CHIRP or CSV)',
   'program.row.remove.title': 'Remove from the channel list',
   'program.row.add.digital.title':
     'Digital repeater — programming DMR/D-STAR/Fusion comes in a later version',
 
   // The channel list being built — the artifact this section exists to produce.
   'program.builder.title': 'Channel list',
+  'program.builder.sub': 'for programming a radio: CHIRP or CSV',
   'program.builder.nameCap.label': 'Max name',
   'program.builder.nameCap.title':
     "Your radio's channel-name length — auto names re-derive to fit (hand-edited names are kept)",
@@ -4611,7 +4868,7 @@ export const EN = {
   'program.chan.moveDown.aria': 'Move down',
   'program.chan.remove.aria': 'Remove',
 
-  // Getting the list out — by hand, by CSV, or into Nexus's own memory bank.
+  // Getting the list out — by hand, by CSV, or into Nexus's Memories.
   'program.deliver.byHand.label': 'Add by hand…',
   'program.deliver.byHand.title':
     "Type in a repeater or simplex channel the directory doesn't have (or has wrong)",
@@ -4623,9 +4880,9 @@ export const EN = {
     'Save a CHIRP-ready CSV — CHIRP (free) flashes nearly every radio from it',
   'program.deliver.exportCsv.label': 'Export CSV',
   'program.deliver.exportCsv.title': 'Plain CSV — spreadsheets, Anytone CPS, RT Systems',
-  'program.deliver.saveBank.label': 'Save to Memory Bank',
+  'program.deliver.saveBank.label': 'Save list to Memories',
   'program.deliver.saveBank.title':
-    "Save these channels into Nexus's own memory bank (the Phone cockpit's MEMORY recall list) — recall retunes the rig with shift + tone",
+    "Save these channels into Nexus's Memories (the Phone cockpit's MEMORY recall list) — recall retunes the rig with shift + tone",
   'program.deliver.clear.label': 'Clear',
   'program.clear.confirm.title': 'Clear the whole channel list?',
   'program.clear.confirm.ok': 'Clear list',
@@ -4660,9 +4917,7 @@ export const EN = {
   'program.tune.done': 'Tuned {{freq}} {{mode}} — {{shift}}{{tone}}',
   'program.tune.simplex': 'simplex',
   'program.tune.tone': ' · tone {{hz}}',
-  'program.star.unstarred': '{{name}} unstarred — still in Memories',
-  'program.star.starred': '{{name}} starred — already in Memories',
-  'program.star.saved': '{{name}} ★ — on the cockpit MEM strip and in Memories',
+  'program.save.done': '{{name}} saved to Memories',
   // The already-there clause is INTERPOLATED into the sentence, not glued after it: it
   // carries the second count, which one message cannot pluralise beside the first.
   'program.saveBank.done': {
@@ -4759,6 +5014,15 @@ export const EN = {
   'freq.channel.menu.aria': 'Band channel preset: {{channel}}',
   'bandMenu.condition.unknown': 'No data',
   'bandMenu.condition.unknown.title': 'No current band-condition data for this band',
+  'bandTiles.aria': 'Bands for you: one tile per band',
+  'bandTiles.title.state': '{{band}}: {{word}}',
+  'bandTiles.title.opening': '{{mode}} opening seen on this band',
+  'bandTiles.title.heard': '{{hearYou}} hear you · you hear {{youHear}}',
+  'bandTiles.title.region': 'Best toward {{region}} ({{octant}}, {{bearing}}°)',
+  'bandTiles.title.modelled': '{{timing}} (modelled)',
+  'bandTiles.title.best': 'The Band Advisor’s best band right now',
+  'bandTiles.title.rig': 'Your radio is on this band',
+  'bandTiles.title.focus': 'Click to show this band on the map, and again to clear it',
   'bandPicker.txLock.splitTitle':
     'TX locked — your split transmit frequency, {{tx}} MHz, is outside your license privileges. Receiving on {{rx}} MHz is fine.',
   'bandPicker.txLock.title':
@@ -4776,6 +5040,14 @@ export const EN = {
   'tv.noLink': 'no link to Nexus',
   'tv.stale': 'data {{min}} min old',
   'tv.waiting': 'Waiting for the first propagation picture from Nexus…',
+  // ---- The dashboard bar (components/DashboardBar.tsx): the clock and space-weather
+  // line across the top of the Connect pop-out and the TV page. The index names (SFI, Kp, A,
+  // X-ray, SW) and `UTC` are tokens, not catalog strings.
+  'dash.bar.aria': 'Clock and space weather',
+  'dash.index.sw.title': 'Solar wind speed, km/s',
+  'dash.behind.label': 'Stay behind',
+  'dash.behind.title': 'Keep this window behind your other windows, even when you click on it, so it can fill the screen behind Nexus',
+  'dash.behind.failed': 'Could not change whether this window stays behind',
   'freq.channel.rxOnly': 'receive only',
   'freq.channel.rxOnly.title':
     'Your licence class has no transmit privileges on this band. You can tune here and listen; transmitting will be refused.',
@@ -4914,6 +5186,8 @@ export const EN = {
   // `settings.radio.check.*` — this is only the panel's fallback when one carries no message.
   'settings.save.callsignFirst': 'Enter your callsign on the Station tab before saving.',
   'settings.save.fdPositionName': 'Name this position on the Contesting tab before hosting or joining a club event — the club band board shows this name.',
+  'settings.save.js8GroupCannotJoin':
+    '{{group}} is a group that cannot be joined. Take it out of Groups under JS8 on the Digital tab before saving.',
   'settings.save.checkRadio': 'Check the radio settings.',
   'settings.save.failed': 'Could not save settings.',
 
@@ -5066,11 +5340,11 @@ export const EN = {
     'HRDLog.net code cleared — auto-upload to HRDLog.net is off',
   'settings.connections.repeaterbook.token.saveFailed': 'Could not save the RepeaterBook token',
   'settings.connections.repeaterbook.token.saved':
-    'RepeaterBook token saved — the Program section now uses RepeaterBook',
+    'RepeaterBook token saved — the Repeaters section now uses RepeaterBook',
   'settings.connections.repeaterbook.token.clearFailed':
     'Could not clear the RepeaterBook token',
   'settings.connections.repeaterbook.token.cleared':
-    'RepeaterBook token cleared — the Program section falls back to hearham.com',
+    'RepeaterBook token cleared — the Repeaters section falls back to hearham.com',
   'settings.connections.cloudlog.key.saveFailed': 'Could not save the Cloudlog API key',
   'settings.connections.cloudlog.key.saved': 'Cloudlog API key saved to the keychain',
   'settings.connections.cloudlog.key.clearFailed': 'Could not clear the Cloudlog API key',
@@ -5121,7 +5395,7 @@ export const EN = {
   'settings.radios.bands.hint': 'Covers bands (for auto band-routing; none = covers all):',
   'settings.radios.add.action': '+ Add radio',
   'settings.radios.hint.multi':
-    "The Rig / CAT + Audio settings below edit “{{name}}”. Each radio has its OWN CAT + audio — click “Edit” on any radio to configure it WITHOUT changing the one you're operating on; “Make active” swaps your operating radio.",
+    "The Rig / CAT + Audio settings below edit “{{name}}”. Each radio has its OWN CAT + audio — click “Edit” on any radio to configure it WITHOUT changing the one you're operating on; “Make active” swaps your operating radio. These Rig / CAT controls are station-wide instead, so changing one changes every radio: “Interface keys RTS on the CAT port”, “Split operation”, “Follow the radio's split”, “Wheel tuning sensitivity”, and under Advanced, “Sharing port”, “Serial handshake” and “Keying line at startup”.",
   'settings.radios.hint.single':
     'Run two rigs at once — e.g. an HF radio plus a VHF/UHF radio on a different antenna? Add a second radio; you can then Edit either one without interrupting the one you are operating on. Newcomers can ignore this.',
   // The accessible name is its own entry, not a slice of the hint below it: a hint is a whole
@@ -5201,6 +5475,13 @@ export const EN = {
   'settings.rigControl.ptt.rts': 'Serial RTS',
   'settings.rigControl.ptt.dtr': 'Serial DTR',
   'settings.rigControl.ptt.vox': 'VOX (no keying)',
+  // #381. Front/Mic and Rear/Data name the radio's two audio inputs and are prose; CAT, PTT, VOX,
+  // USB, the jack labels DATA and ACC, and SignaLink (an interface) are invariant tokens.
+  'settings.rigControl.txAudio.label': 'Transmit audio source (CAT PTT)',
+  'settings.rigControl.txAudio.front': 'Front/Mic',
+  'settings.rigControl.txAudio.rear': 'Rear/Data',
+  'settings.rigControl.txAudio.hint':
+    'Which of the radio’s audio inputs transmits when Nexus keys it over CAT. <b>Front/Mic</b> is how Nexus has always keyed the radio. <b>Rear/Data</b> keys its data input instead: choose it if your sound card reaches the radio through its rear DATA or ACC jack (where a SignaLink plugs in) or its own USB audio, and the radio sends no audio from Nexus although it does on VOX. The Phone cockpit’s PTT is not affected and keys the radio as it always has. <b>Per radio.</b>',
   'settings.rigControl.pttPort.label': 'PTT Serial Port',
   // `{{example}}` is the platform's own device-name example, supplied by the panel as an
   // invariant token (RIG_EXAMPLES) — a "localised" COM16 names no port on any machine.
@@ -5327,6 +5608,11 @@ export const EN = {
   'settings.rigControl.split.fakeit': 'Fake It',
   'settings.rigControl.split.hint':
     'Keeps your transmitted audio between 1500–2000 Hz by shifting the TX dial in 500 Hz steps, so audio harmonics fall outside the transmit filter — cleaner signal. Rig = uses VFO B split. Fake It = retunes the VFO around each over (works on any CAT rig). None = stock WSJT-X default, transmits at the raw audio offset.',
+  // "Follow the radio's split" (`splitDetectEnabled`). Split stays the ham word it is across these
+  // catalogs; the help says what the switch does, when it holds transmit, and which radio it never asks.
+  'settings.rigControl.splitDetect.label': "Follow the radio's split",
+  'settings.rigControl.splitDetect.hint':
+    'Nexus reads the radio’s split, so a split you set at the radio is the one it checks your licence privileges against; if the radio says it is split but not where it transmits, Nexus will not transmit. A radio whose split can only be read by moving it is never asked. Off by default.',
 
   // The multiplier beside this label (×1.00) is a number and is rendered by the panel.
   'settings.rigControl.wheel.label': 'Wheel tuning sensitivity',
@@ -5548,7 +5834,7 @@ export const EN = {
   'settings.amplifier.model.label': 'Amplifier',
   'settings.amplifier.model.none': 'None',
   'settings.amplifier.model.hint':
-    'Place the Amplifier pane in Connect to see the readings. Nothing here changes how the radio transmits.',
+    'Place the Amplifier pane in Conditions to see the readings. Nothing here changes how the radio transmits.',
   'settings.amplifier.follow.label': 'Follow the radio\u2019s band',
   'settings.amplifier.follow.hint':
     'Step the amplifier to the band you are on, without being asked. Off by default \u2014 this is the one amplifier control that acts on its own. It never moves the amplifier while you are transmitting, and it steps one band at a time, checking where the amplifier actually is after each one rather than assuming it got there. \u26a0\ufe0f If your amplifier already follows the radio through its own band-data cable, as most SPE installations do, leave this off: the hardware is doing the same job, and two things steering one band is worse than either alone.',
@@ -5572,7 +5858,7 @@ export const EN = {
   'settings.rotator.model.number.placeholder': 'Hamlib rotator model number (rotctl -l lists them)',
   'settings.rotator.model.number.aria': 'Hamlib rotator model number',
   'settings.rotator.model.hint':
-    'Nexus runs the control daemon (rotctld) for you, the same way it does CAT. Then use the Rotor pane in Connect, ↗ on Needed rows, or the compass anywhere.',
+    'Nexus runs the control daemon (rotctld) for you, the same way it does CAT. Then use the Rotor pane in Conditions, ↗ on Needed rows, or the compass anywhere.',
   'settings.rotator.port.label': 'Rotator port & baud',
   'settings.rotator.port.aria': 'Rotator serial port',
   'settings.rotator.baud.aria': 'Rotator baud rate',
@@ -5589,6 +5875,12 @@ export const EN = {
     'This controller runs at {{rate}} baud — the rate its Hamlib backend declares. Leave it here.',
   'settings.rotator.baud.hint.wrong':
     '<b>This controller runs at {{rate}} baud, not {{set}}</b> — at the wrong rate it never answers and reads as broken hardware. Set {{rate}}, or re-pick the model above to fill it in.',
+  // In place of the baud hint when the model is PstRotatorAz (Hamlib model 3). `{{address}}`,
+  // `{{sent}}` and `{{bearing}}` are invariant tokens the panel supplies: where PstRotatorAz
+  // listens, and what Hamlib's backend for it sends for a bearing. UDP Control and Setup are names
+  // in PstRotatorAz's own English window.
+  'settings.rotator.port.hint.pstRotator':
+    'PstRotatorAz: enter {{address}} as the port, and turn on UDP Control in its Setup (the baud is not used). Its Hamlib backend can garble the bearing it sends — {{sent}} for {{bearing}}° — so PstRotatorAz may not turn to it.',
   'settings.rotator.external.label': 'External rotctld (advanced)',
   // `{{example}}` is a host:port the panel supplies as an invariant token.
   'settings.rotator.external.placeholder': 'host:port — e.g. {{example}}',
@@ -5867,6 +6159,18 @@ export const EN = {
     'No Parsec session is connected, so nothing will be stopped.',
   'settings.transmit.parsecStop.status.unreadable':
     'Nexus cannot find or read Parsec\u2019s log (it looks for log.txt in %APPDATA%\\Parsec and %ProgramData%\\Parsec), so nothing will be stopped until it can.',
+
+  // Remote as a stream (TX sign-off 2026-09-27): off by default. "Stream" is the picture sent
+  // over the internet, never a radio transmission; the hint names what is sent, what input can
+  // reach, and the stop: five seconds after the connection drops, seven after the picture freezes
+  // (a picture older than two seconds renews nothing, then the five-second lapse). `Nexus` and
+  // `Windows` are tokens.
+  'settings.remoteStream.label': 'Stream this station from my browser',
+  'settings.remoteStream.hint':
+    'A browser you approved for station control, while it holds control, is shown this Nexus window and can operate it. Its clicks and keys reach Nexus only, never anything else on this computer. Only this window is sent: a dialog that opens outside it, such as a file picker, is not, and a minimized window sends nothing. The stream is encrypted end to end. While a browser is connected, every transmission stops within five seconds if its connection drops, and within seven if its picture freezes.',
+  'settings.remoteStream.display':
+    'The stream is this window as Windows draws it on this computer, so keep Nexus open, and not minimized, while a browser streams it.',
+  'settings.remoteStream.unavailable': 'Available on Windows only, for now.',
 
   // `Test CAT`, `Rig Model` and `Serial Port` are the names of controls in Rig & CAT, and
   // `rigctld` is the daemon's own; the call site supplies the emphasis for each.
@@ -6300,6 +6604,12 @@ export const EN = {
   'settings.js8.rxSpeeds.label': 'Decode these speeds',
   'settings.js8.rxSpeeds.hint':
     'All four are decoded at once by default, as JS8Call does — a Slow station and a Turbo station on the same band both print. Untick a speed to save CPU on a small machine; each activity row is marked with its speed letter (E/A/B/C).',
+  'settings.js8.callsignAgingMin.label': 'Callsign aging (minutes)',
+  'settings.js8.callsignAgingMin.hint':
+    'Off (0) by default, as in JS8Call. Otherwise a station not heard for this many minutes leaves the Stations list, unless you have it selected or it has an unread message for you, and your HEARING? replies leave it out. Up to 1440 (a day).',
+  'settings.js8.activityAgingMin.label': 'Band activity aging (minutes)',
+  'settings.js8.activityAgingMin.hint':
+    '2 by default, as in JS8Call. A row of the Band activity pane whose newest decode is this many minutes old leaves the pane, unless RX is on its offset. 0 keeps every row. Up to 1440 (a day).',
   'settings.js8.automatic.title': 'Automatic transmissions',
   'settings.js8.hbIntervalMin.label': 'Heartbeat interval (minutes)',
   'settings.js8.hbIntervalMin.hint':
@@ -6310,12 +6620,21 @@ export const EN = {
   'settings.js8.hbAck.label': 'Answer heartbeats',
   'settings.js8.hbAck.hint':
     'Off by default, as in JS8Call. On, a heard heartbeat is answered with your signal report (HEARTBEAT SNR), one frame per station, and a message you hold for that station is offered to it. Needs TX on.',
+  'settings.js8.hbAckDeny.label': 'Never acknowledge heartbeats from these callsigns',
+  'settings.js8.hbAckDeny.hint': 'Comma-separated, empty by default as in JS8Call. A heartbeat from a station on this list draws no acknowledgement.',
   'settings.js8.autoreply.label': 'Auto-reply to queries',
   'settings.js8.autoreply.hint':
-    'On by default, as in JS8Call: SNR?, GRID?, INFO?, STATUS?, HEARING? and QUERY MSGS addressed to you are answered after a one-period countdown you can cancel in the cockpit. @ALLCALL queries are answered at most once per station every 15 minutes. Needs TX on.',
+    'On by default, as in JS8Call: SNR?, GRID?, INFO?, STATUS?, HEARING? and QUERY MSGS addressed to you are answered, and a MSG to you or to a group you joined, or a MSG TO: you hold for another station, gets an ACK; each one first asks for your Yes in the cockpit, unless you turn that off below. On @ALLCALL only QUERY MSGS is answered, when a message waits for that station, at most once every 15 minutes. Off, a reply is put in the message box for you to send, as JS8Call does, and QUERY MSGS is not answered. Needs TX on.',
+  'settings.js8.autoreplyConfirmation.label': 'Ask for confirmation before sending automatic replies',
+  'settings.js8.autoreplyConfirmation.hint':
+    'On by default, as in JS8Call: every automatic reply (to a query, an ACK, a relay, a heartbeat acknowledgement) waits in the cockpit for your Yes, and is not sent if you say No or do not answer within 89 seconds. Off, each goes by itself in the next period.',
+  'settings.js8.autoreplyAllow.label': 'Only auto-reply to these callsigns',
+  'settings.js8.autoreplyAllow.hint': 'Comma-separated. Empty, the JS8Call default, answers everyone. Otherwise only a station on this list, by its call as heard or its base call (W1AW covers W1AW/P), is answered; anyone else is not acted on at all: no reply, no relay, nothing filed or held for them.',
+  'settings.js8.autoreplyDeny.label': 'Never auto-reply to these callsigns',
+  'settings.js8.autoreplyDeny.hint': 'Comma-separated, empty by default as in JS8Call. A station on this list (W1AW covers W1AW/P) is not acted on at all: no reply, no relay, its message not filed.',
   'settings.js8.relay.label': 'Relay for other stations',
   'settings.js8.relay.hint':
-    'On by default, as in JS8Call: a message routed through your callsign is passed along, and MSG TO: messages are held in your inbox until the addressee asks for them. This is third-party traffic — whether it is permitted where you operate is your call.',
+    'On by default, as in JS8Call: a message routed through your callsign is passed along (with Auto-reply off, it is put in the message box for you to send), and MSG TO: messages are held in your inbox until the addressee asks for them. This is third-party traffic — whether it is permitted where you operate is your call.',
   'settings.js8.idleWatchdogMin.label': 'Idle watchdog (minutes)',
   'settings.js8.idleWatchdogMin.hint':
     'After this long with nothing typed, heartbeats, auto-replies and relaying all switch off and the cockpit says so — the JS8Call rule, so an unattended station goes quiet. 60 by default; 0 turns the watchdog off; anything below 5 counts as 5. TX enable is left as it was.',
@@ -6504,7 +6823,7 @@ export const EN = {
   // ── Settings ▸ Logging & Connectors ▸ Integrations & Feeds ─────────────────────────
   // ⚠️ Everything this section names on the wire is invariant and stays in the panel: the
   // UDP addresses and ports it offers as field examples, the file names (ALL.TXT, .wav) and
-  // the program names (WSJT-X, JTDX, JTAlert, GridTracker, HRD, OpenHamClock) inside these
+  // the program names (WSJT-X, JTDX, JTAlert, GridTracker, HRD) inside these
   // sentences. Two labels are invariant as WHOLE strings and are still in the panel because
   // they are nothing but names — `WSJT-X UDP API` and `PSK Reporter`, the same rule that
   // leaves the Phone/CW/Digital tab labels literal. So are the cluster presets, which name
@@ -6557,7 +6876,7 @@ export const EN = {
     'Surface spots from human DX-cluster nodes, including Phone/SSB, on the Needed board + Connect.',
   'settings.integrations.rbnSpots.label': 'RBN spots',
   'settings.integrations.rbnSpots.hint':
-    'Surface CW and digital "new ones" from the Reverse Beacon Network on the Needed board + Connect.',
+    'Surface CW and digital "new ones" from the Reverse Beacon Network on the Needed board + Conditions.',
   'settings.integrations.clusterNodes.label': 'Phone/SSB cluster nodes',
   'settings.integrations.clusterNodes.empty':
     'No nodes — add one below to get SSB/phone needs (RBN only carries CW + digital).',
@@ -6682,7 +7001,7 @@ export const EN = {
     'An address alone sends nothing outside a Field Day event — turn on Broadcast every QSO below for everyday logging.',
   'settings.n1mm.broadcastAll.label': 'Broadcast every QSO',
   'settings.n1mm.broadcastAll.hint':
-    'Send the contact packet for <b>every</b> logged QSO, not just Field Day — point OpenHamClock or GridTracker at the address above and each contact plots on its map as you log it. One packet per QSO: this never doubles up with the Field Day broadcast, so it is safe to leave on through an event. Off by default; with it off, packets go out <em>only</em> while a Field Day event is running.',
+    'Send the contact packet for <b>every</b> logged QSO, not just Field Day — point a map app such as GridTracker at the address above and each contact plots on its map as you log it. One packet per QSO: this never doubles up with the Field Day broadcast, so it is safe to leave on through an event. Off by default; with it off, packets go out <em>only</em> while a Field Day event is running.',
 
   // ── Settings ▸ Logging & Connectors ▸ LoTW users list ──────────────────────────────
   // ⚠️ `{{count}}` arrives ALREADY FORMATTED by the panel (the grouping is that call site's,
@@ -6919,13 +7238,17 @@ export const EN = {
   'settings.confirmations.repeaterbook.token.forget.title':
     'Remove the stored RepeaterBook token from the system keychain',
   'settings.confirmations.repeaterbook.token.hint':
-    "Optional. Without a token the <b>Program</b> section uses the open hearham.com directory. Add a personal token (from your RepeaterBook account's <b>API Apps</b> page) to pull from RepeaterBook.com under your own account instead. Stored in the OS keychain. Shared RepeaterBook access for every Nexus user is pending RepeaterBook's approval; if RepeaterBook is unreachable, Program falls back to hearham.com.",
+    "Optional. Without a token the <b>Repeaters</b> section uses the open hearham.com directory. Add a personal token (from your RepeaterBook account's <b>API Apps</b> page) to pull from RepeaterBook.com under your own account instead. Stored in the OS keychain. Shared RepeaterBook access for every Nexus user is pending RepeaterBook's approval; if RepeaterBook is unreachable, Repeaters falls back to hearham.com.",
 
   'settings.confirmations.cloudlog.note':
     'Use a <b>Wavelog API v2</b> token for automatic two-way logbook sync. Legacy Cloudlog/Wavelog keys remain supported for upload-only forwarding.',
   'settings.confirmations.cloudlog.url.label': 'Base URL',
   'settings.confirmations.cloudlog.url.hint':
     'Your Cloudlog/Wavelog site root. Leave blank to disable.',
+  // #378: shown under the Base URL once it starts with http://. `{{ranges}}` is the local-network
+  // address ranges (192.168.x.x and the rest), as an operator types them — a token list.
+  'settings.confirmations.cloudlog.url.plainHttp':
+    'With plain http:// your API key travels unencrypted to this address. That is allowed only for an address on your own network ({{ranges}}, or a name that resolves only to those), and any other is refused.',
   'settings.confirmations.cloudlog.stationId.label': 'Station profile id',
   // #226. `…/station/edit/3` is a URL fragment, and Wavelog/Cloudlog/Station Locations are the
   // product's own names — tokens inside the sentence.
@@ -7082,7 +7405,7 @@ export const EN = {
   'settings.waterfallScopes.ft.hint': 'The FT waterfall keeps a palette of its own.',
   'settings.mapGlobe.legend': 'Map & globe',
   'settings.mapGlobe.note':
-    'The Connect map’s view (globe, flat or beam), its layers and its colours are chosen on the map itself, and Connect keeps a separate set for each activity you pick there.',
+    'The Conditions map’s view (globe, flat or beam), its layers and its colours are chosen on the map itself, and Conditions keeps a separate set for each activity you pick there.',
   'settings.performance.legend': 'Performance',
   'settings.performance.motion.label': 'Motion',
   'settings.performance.motion.system': 'Follow the computer',
@@ -7175,20 +7498,42 @@ export const EN = {
   // labels stay in `ConnectView.tsx` as tokens; the other two are prose and are below.
   'connect.intent.aria': 'What are you doing?',
   'connect.intent.dx.label': 'Chase DX',
-  'connect.intent.dx.title': 'Beam map, need-colored, live openings',
+  'connect.intent.dx.title': 'Globe, need-colored, live openings',
   'connect.intent.pota.title': 'World view, park/summit activators',
   'connect.intent.casual.label': 'Ragchew',
   'connect.intent.casual.title': 'Who can I hear — signal-colored, calm',
   'connect.intent.vhf.title': 'Openings front-and-center (Es / F2 / aurora)',
   'connect.globe3d.loading': 'Loading 3D globe…',
   'connect.popOut.label': '⧉ Pop out',
-  'connect.popOut.title': 'Open Connect in its own window (for a second monitor)',
+  'connect.popOut.title': 'Open Conditions in its own window (for a second monitor)',
 
-  // The pane frame: one grid slot's header. `{{slot}}` is the slot id (`left1`, `bottom3`),
-  // and the B2/B3 picker groups are named by their tier code — neither is prose.
+  // The pane frame: one grid slot's header. `{{slot}}` is the slot id (`left1`, `bottom3`), which
+  // is not prose. The picker's groups, and ⋯ ▸ Add a tab's, say what the boxes in them are for.
   'connect.slot.pick.aria': 'Choose what the {{slot}} slot shows',
   'connect.slot.pick.title': 'Choose what this slot shows',
-  'connect.slot.group.core': 'Panels',
+  'connect.slot.group.bands': 'Bands',
+  'connect.slot.group.spaceWx': 'Space weather',
+  'connect.slot.group.activity': 'Activity',
+  'connect.slot.group.station': 'Station',
+  // A pane's ⋯ menu (connect/BoxMenu): the pane's own options. `{{title}}` is the pane's name, `{{pct}}`
+  // a whole number. The A− / A+ glyphs beside the two words stay in the code.
+  'connect.box.menu.aria': 'Options for {{title}}',
+  'connect.box.menu.title': 'Options for this pane',
+  'connect.box.text.size': 'Text size: {{pct}}%',
+  'connect.box.text.smaller': 'Smaller text',
+  'connect.box.text.larger': 'Larger text',
+  // …and its link to the manual section that describes the pane (connect/paneHelp); the ? glyph stays in the code.
+  'connect.box.help': '{{title}} in the manual',
+  'connect.box.help.title': 'Opens this part of the manual in your browser',
+  // TABS: several panes in one slot. The strip of tabs is named for screen readers; the + and − glyphs stay in the code.
+  'connect.box.tabs.aria': 'Panes in this slot',
+  'connect.box.tab.add': 'Add a tab',
+  'connect.box.tab.remove': 'Remove {{title}} from this slot',
+  // AUTO-ROTATE (the dashboard window and the TV page only): the heading over the choices, and the choices, bare durations like dxped.alarm.lead.option.
+  'connect.box.rotate.heading': 'Rotate the tabs',
+  'connect.box.rotate.off': 'Off',
+  'connect.box.rotate.secs': '{{secs}} s',
+  'connect.box.rotate.mins': '{{mins}} min',
   // ── Close + resize (2026-09-13) ── A ⊞ Panels entry names the pane AND where it comes back:
   // which pane sits in a slot is the operator's pick, so the title alone says nothing about
   // where the space will be taken from.
@@ -7206,12 +7551,35 @@ export const EN = {
   'connect.rail.left.split': 'Split between the left panels',
   'connect.rail.right.split': 'Split between the right panels',
   'connect.rail.handle.title': 'Drag, or use the arrow keys, to resize ({{label}}). Double-click to reset.',
+  // The divider between the map and the bottom panels (layout L7); its tooltip is paneSeam.title.
+  'connect.strip.height.label': 'Bottom panel row height',
+  // ── The dashboard rail (components/DashRail): Connect's panels in a column beside a cockpit. Its
+  // name is also its landmark's and the ⊞ Panels row that turns it on; its title heads the rail and
+  // names the NOW bar's switch. The slot words finish "Choose what the {{slot}} slot shows" and a ⊞
+  // entry's "{{title}} · {{where}}"; `{{above}}`/`{{below}}` are two panels' names.
+  'dashRail.name': 'Dashboard rail',
+  'dashRail.title': 'Dashboard',
+  'dashRail.width.label': 'Dashboard rail width',
+  'dashRail.split.label': 'Split between {{above}} and {{below}}',
+  'dashRail.hide.label': 'Hide the dashboard rail',
+  'dashRail.hide.title': 'Hide the dashboard rail beside this cockpit (⊞ Panels or the NOW bar brings it back)',
+  'dashRail.crash.label': 'The dashboard rail',
+  'dashRail.slot.where.rail1': 'top',
+  'dashRail.slot.where.rail2': 'upper middle',
+  'dashRail.slot.where.rail3': 'lower middle',
+  'dashRail.slot.where.rail4': 'bottom',
+  'dashRail.menu.small': 'Needs a larger window (or a smaller zoom) to show. Remembered for this section.',
   // ── Layout presets (the UI redesign, 2026-09-26) ── The ⊞ Panels menu's Layout section. The
   // name beside the heading says which layout is on screen: Standard (the stock layout, which
   // Reset layout restores), a preset's own name, or Custom once the operator moves or resizes
   // anything. `replaces` quotes the Undo button by its own name (`panels.undo`).
   'connect.layout.heading': 'Layout',
   'connect.layout.standard': 'Standard',
+  'connect.layout.standard.title': 'Conditions as it opened before Frame + bar: two panes down each side of the map and three along the bottom, all open, at the usual widths',
+  // The layout the one-time switch to Frame + bar kept (step 5, ConnectView `switchToDefaultOnce`): the
+  // operator's own arrangement from before the update, offered after Standard whenever one was kept.
+  'connect.layout.kept.label': 'Your earlier layout',
+  'connect.layout.kept.title': 'The layout you had here before Conditions opened in Frame + bar, as you left it: every box, tab, width and split',
   'connect.layout.custom': 'Custom',
   'connect.layout.mapFirst.label': 'Map first',
   'connect.layout.mapFirst.title': 'The map as big as it goes: both side columns at their narrowest and the bottom row closed',
@@ -7219,11 +7587,25 @@ export const EN = {
   'connect.layout.listFirst.title': 'The chase and spot lists in two wide columns, with a small map between them and the bottom row closed',
   'connect.layout.dashboard.label': 'Dashboard',
   'connect.layout.dashboard.title': 'Seven panes open at once around a smaller map: conditions on the left, activity on the right, what is coming along the bottom',
+  // The dashboard window's wall-display layout: a frame of panes around a full-height map.
+  'connect.layout.frame.label': 'Frame',
+  'connect.layout.frame.title': 'Two panes down each side of a map that runs the full height, for a dashboard on a screen of its own: band conditions and space weather on the left, who is hearing you and what to chase on the right',
+  // The default view (the operator's pick, 2026-10-01: "A: Frame + bar"; the default since step 5, and
+  // named so: "Frame + bar (default)"): Frame's shape with the dashboard window's clock and space-weather
+  // bar across the top, and the other boxes behind tabs.
+  'connect.layout.frameBar.label': 'Frame + bar (default)',
+  'connect.layout.frameBar.title': "Frame's shape with the clock and space-weather bar across the top: Bands for you over Openings on the left, Chase over Getting Out on the right, and the other boxes one click away as tabs",
   'connect.layout.replaces': 'Picking one replaces your own arrangement. Undo last change puts it back.',
+  // Connect's own Layout button (the operator's pick, 2026-10-01): it opens the same picker as the
+  // ⊞ Panels menu's Layout section, beside ⊞ Panels in Connect's header. The title names the five
+  // layouts by their own labels above.
+  'connect.layout.button': 'Layout',
+  'connect.layout.button.title': 'Choose a layout for this screen: Standard, Map first, List first, Dashboard, Frame or Frame + bar (default)',
 
   // Pane names, as they read in the picker and in each pane's header.
-  'connect.pane.advisory.title': 'Conditions',
+  'connect.pane.advisory.title': 'Best band',
   'connect.pane.bandAdvisor.title': 'Band Advisor',
+  'connect.pane.bandTiles.title': 'Bands for you',
   'connect.pane.selection.title': 'Selection',
   'connect.pane.outlook.title': 'Band Outlook',
   'connect.pane.openings.title': 'Openings',
@@ -7244,9 +7626,15 @@ export const EN = {
   'connect.kp.kind.observed': 'measured',
   'connect.kp.kind.estimated': 'estimated by NOAA',
   'connect.kp.kind.predicted': 'forecast',
+  // ---- The Space Wx box's 30-day trends (NOAA's daily solar indices). SFI and SSN are index
+  // tokens and stay in the component; each {{date}}/{{from}}/{{to}} is a short UTC day it formats.
+  'connect.solar.caption': 'NOAA daily · {{from}} – {{to}}',
+  'connect.solar.stale': 'NOAA daily indices not updated since {{date}}',
+  'connect.solar.unavailable': '30-day SFI and sunspot trend unavailable.',
+  'connect.solar.trend.aria': '{{index}} daily, {{from}} to {{to}}: low {{low}}, high {{high}}',
   'connect.pane.spacewx.title': 'Space Wx',
   'connect.pane.getout.title': 'Getting Out',
-  'connect.pane.bestband.title': 'Best Band → Region',
+  'connect.pane.bestband.title': 'Bands by region',
   'connect.pane.activity.title': 'Activity Matrix',
   'connect.pane.beacons.title': 'NCDXF Beacons',
   'connect.pane.insights.title': 'Insights',
@@ -7261,6 +7649,7 @@ export const EN = {
   'connect.pane.amp.title': 'Amplifier',
   'connect.pane.scope.title': 'Band Scope',
   'connect.pane.contests.title': 'Contests',
+  'connect.pane.clock.title': 'Clock',
 
   // The five self-fetching panes describe themselves: their data lives inside the
   // component, so their one-line projection is a standing hint rather than a reading.
@@ -7276,6 +7665,24 @@ export const EN = {
     "A live spectrum of the active radio's passband — band noise and signals at a glance.",
   'connect.pane.scope.idle': "Flat — the radio's audio isn't reaching Nexus right now.",
   'connect.pane.contests.basic': 'Upcoming HF/VHF contests (WA7BNM) appear here once online.',
+
+  // ---- The Clock box. UTC is a token and stays in the component, "Local" is the top bar's own
+  // word, and every time is ASCII digits the component formats (never locale-formatted).
+  'connect.pane.clock.basic': "UTC and local time, today's date, and sunrise and sunset at your grid.",
+  'connect.clock.utc.aria': 'UTC {{time}}',
+  'connect.clock.local.aria': 'Local time {{time}}',
+  'connect.clock.sun': '{{grid}} · Sunrise {{rise}} · Sunset {{set}}',
+  'connect.clock.sun.local': "On this computer's clock: sunrise {{rise}}, sunset {{set}}",
+  'connect.clock.sun.up': 'Sun up all day',
+  'connect.clock.sun.down': 'Sun down all day',
+  'connect.clock.noGrid': "Set your grid in Settings for today's sunrise and sunset.",
+
+  // ---- The Spots and POTA/SOTA boxes: the two boards themselves (their words are the boards').
+  // The POTA/SOTA box's name is the programmes' names, a token in the registry, not an entry.
+  // Each one-line state is what a screen with no board to lend shows (the wall display).
+  'connect.pane.spots.title': 'Spots',
+  'connect.pane.spots.basic': "The spot list isn't available on this screen.",
+  'connect.pane.pota.basic': "The POTA/SOTA list isn't available on this screen.",
 
   // Where a snapshot came from. The words are the chip; the freshness is a number.
   'connect.prov.title': 'Data provenance',
@@ -7477,6 +7884,11 @@ export const EN = {
   'aprs.retune.title.noCoverage':
     "This radio doesn't cover {{freq}} MHz — RF APRS needs a VHF radio.",
   'aprs.dial.title': "The rig's current dial / band / mode (this view hides the top bar's readout)",
+  // The body's layout (layout L7): the divider between the station list column and the map, and
+  // the switch that puts the map on the left.
+  'aprs.rail.width.label': 'Station list column width',
+  'aprs.mapLeft.label': 'Map on the left',
+  'aprs.mapLeft.title': 'Show the map on the left of the station list, or back on the right',
   // Monitor arms the DECODER on the receive audio. Three states, because "decoding" and
   // "may ack by itself" are different things — the ack still needs TX on.
   'aprs.monitor.label.auto': '● Monitoring (auto)',
@@ -7804,8 +8216,15 @@ export const EN = {
   'operate.waterfall.redock.title':
     'The waterfall is in its own window — click to bring it back here',
   'operate.waterfall.splitter.label': 'waterfall height',
+  'operate.txmsgs.splitter.label': 'Tx messages height',
   'operate.seam.bandActivityRxFreq.label': 'Band Activity / Rx Frequency',
   'operate.seam.qsocolStations.label': 'Rx Frequency column / Stations roster',
+  'operate.seam.decodesQsocol.label': 'Band Activity / Rx Frequency column',
+  'operate.seam.stationsDecodes.label': 'Stations roster / Band Activity',
+  'operate.seam.rosterRail.label': 'Call Roster / side rail',
+  'operate.seam.railRoster.label': 'Side rail / Call Roster',
+  'operate.panels.railLeft.label': 'Side rail on the left',
+  'operate.panels.railLeft.note': 'Stations in Classic; Band Activity and Rx Frequency in Roster',
 
   // The ⊞ menu's entries — the panes' operator-facing names, resolved when the menu is
   // built rather than at import (the registry-by-getter rule, batch 3).
@@ -7820,7 +8239,7 @@ export const EN = {
 
   // The rotor's two answers. `{{call}}` is a callsign, `{{deg}}` a bearing and `{{error}}`
   // the backend's own refusal — all three pass through verbatim.
-  'operate.rotor.pointed': 'Rotator → {{call}}: {{deg}}°',
+  'operate.rotor.pointed': 'Rotator → {{call}}: {{deg}}° ({{to}})',
   'operate.rotor.failed': 'Rotator: {{error}}',
 
   // ── Operate ▸ the merged operating strip ────────────────────────────────────────────
@@ -7988,6 +8407,13 @@ export const EN = {
   'operate.roster.filter.hideBlocked': 'Hide blocked',
   'operate.roster.filter.hideBlocked.title':
     'Drop blocked callsigns from the roster entirely (unchecked: they render dimmed). Alt-double-click a row to block or unblock; the auto-responder never answers blocked calls either way.',
+  // #386 — the distance cap. `{{distance}}` is a number and its unit ("1000 mi", "1500 km"), in the
+  // units chosen in Settings.
+  'operate.roster.filter.distance.aria': 'Maximum distance',
+  'operate.roster.filter.distance.title':
+    'Show only the stations within this distance of your grid square. A station you have not heard send a grid yet has no known distance, so it always stays on the list, and so does the station you are working.',
+  'operate.roster.filter.distance.any': 'Any distance',
+  'operate.roster.filter.distance.within': 'Within {{distance}}',
   // Two whole labels: the button names the station when there is one to name.
   'operate.roster.spot.label': 'Spot',
   'operate.roster.spot.label.call': 'Spot {{call}}',
@@ -8116,6 +8542,8 @@ export const EN = {
   // menu, because that is what each surface shipped; two keys rather than one re-cased.
   'rtty.pane.stream.title': 'Decoded text',
   'rtty.pane.log.title': 'Log',
+  'rtty.seam.streamLog.label': 'Decoded text / Log',
+  'rtty.waterfall.splitter.label': 'waterfall height',
   'rtty.stream.title':
     "Decoded RTTY text — faint characters are low-confidence copy (the demodulator's soft metric)",
   'rtty.arm.on.label': 'RX armed',
@@ -8246,6 +8674,8 @@ export const EN = {
   // ── PSK ▸ the decoded-text pane ─────────────────────────────────────────────────────
   'psk.pane.log.title': 'Log',
   'psk.pane.stream.title': 'Decoded text',
+  'psk.seam.streamLog.label': 'Decoded text / Log',
+  'psk.waterfall.splitter.label': 'waterfall height',
   'psk.stream.title':
     "Decoded PSK31 text — faint characters are low-confidence copy (the demodulator's phase-margin metric)",
   'psk.arm.on.label': 'RX armed',
@@ -8326,6 +8756,11 @@ export const EN = {
   'js8.panel.inbox': 'Inbox',
   'js8.panel.log': 'Log',
   'js8.panel.offsets': 'Band activity',
+  'js8.seam.columns.label': 'Activity column / Stations column',
+  'js8.seam.auxWidth.label': 'Stations column width',
+  'js8.seam.activityOffsets.label': 'Activity / Band activity',
+  'js8.seam.stationsInbox.label': 'Stations / Inbox',
+  'js8.waterfall.splitter.label': 'waterfall height',
   'js8.panel.activity.title':
     'Every decoded frame at every enabled speed — E/A/B/C is the speed (Slow/Normal/Fast/Turbo), then offset, SNR and the message. Faint rows are low-confidence copy; italic rows closed without their last frame.',
   // Appended to the tooltip above rather than folded into it: a translated catalog keeps its
@@ -8358,7 +8793,9 @@ export const EN = {
   'js8.station.empty': 'No stations heard yet — the heard list fills as heartbeats and CQs decode',
   'js8.station.select.title': 'Write to {{call}} (fills the To box and the log strip)',
   'js8.station.query.title': 'Send {{cmd}} to {{call}} — they answer automatically if their auto-reply is on',
+  'js8.station.sendGrid.title': 'Send your grid square {{grid}} to {{call}}',
   'js8.station.stored': { one: '{{count}} message stored for this station', other: '{{count}} messages stored for this station' },
+  'js8.station.unread.title': 'Unread message for you from {{call}}, in the Inbox',
   'js8.station.pin.title': 'Pin {{call}} to the top of this list',
   'js8.station.unpin.title': 'Unpin {{call}} — it goes back into the heard order',
   'js8.station.distance.title': 'Great-circle distance to {{grid}}, from your grid square',
@@ -8377,6 +8814,7 @@ export const EN = {
   'js8.inbox.delete.label': 'Delete',
   'js8.inbox.delete.title': 'Delete this message from the inbox',
   'js8.inbox.failed': 'Inbox change refused',
+  'js8.inbox.new': 'New message from {{from}} at {{time}} UTC, in the Inbox',
 
   // ── JS8 ▸ the dock: addressee, composer, CQ, HB ──────────────────────────────────────
   'js8.dock.aria': 'JS8 composer',
@@ -8410,17 +8848,17 @@ export const EN = {
   'js8.dock.estimate.title':
     'How many periods this takes on the air (one frame per period). An estimate — the engine packs the real frames and refuses anything over ten minutes of airtime.',
   'js8.dock.autoreply.title.off':
-    'Auto-reply is off — SNR?, GRID?, INFO?, QUERY and MSG to you go unanswered. Click to turn it on (remembered). It answers only while TX is on.',
+    'Auto-reply is off — an answer to SNR?, GRID?, INFO? or STATUS? to you, an ACK for a MSG or a relay is put in the message box for you to send, as JS8Call does, and nothing keys by itself; QUERY MSGS goes unanswered. Click to turn it on (remembered). It answers only while TX is on.',
   'js8.dock.autoreply.title.on':
     'Auto-reply is on, but TX is off — nothing keys; a reply is shown as “would have replied”. Enable TX (the header pill) to let replies go out.',
   'js8.dock.autoreply.title.armed':
-    'Auto-reply is ARMED: SNR?, GRID?, INFO?, QUERY and MSG addressed to you, @ALLCALL or a group you joined are answered after a visible countdown you can cancel. Click to turn it off.',
+    'Auto-reply is ARMED: SNR?, GRID?, INFO?, QUERY and MSG addressed to you or a group you joined are answered, each after your Yes when Settings asks for one. Click to turn it off.',
   'js8.dock.relay.title.off':
     'Relay is off — a > message routed through you is displayed and not passed on. Click to turn it on (remembered). Relaying is third-party traffic; you are responsible for it.',
   'js8.dock.relay.title.on':
     'Relay is on, but TX is off — nothing keys. Enable TX (the header pill) to relay.',
   'js8.dock.relay.title.armed':
-    'Relay is ARMED: a > message routed through you is retransmitted with *DE* your call, and the final hop is acknowledged. Click to turn it off.',
+    'Relay is ARMED: a > message routed through you is retransmitted with *DE* your call, and the final hop is acknowledged. With Auto-reply off, it is put in the message box for you to send instead. Click to turn it off.',
   'js8.dock.hbAck.title.off':
     'Heartbeat acknowledgements are off (JS8Call’s default). Click to answer heartbeats with HEARTBEAT SNR (remembered). Answers only while TX is on.',
   'js8.dock.hbAck.title.on':
@@ -8431,13 +8869,16 @@ export const EN = {
   // than nine edits is the same as js8.panel.activity.differs).
   'js8.dock.arm.differs':
     'Two acts, where JS8Call has one: this switch is the second, the header’s TX pill is the first, and the chip reads ARMED only while both are on.',
-  'js8.dock.pending': 'Auto-reply to {{to}} in {{secs}} s: {{text}}',
   'js8.dock.pending.txOff': 'Would reply to {{to}} — TX is off, nothing keys: {{text}}',
-  'js8.dock.pending.idle': 'Would reply to {{to}} — not armed (idle watchdog), nothing keys: {{text}}',
   'js8.toast.idleTripped':
-    'JS8 idle watchdog: no operator activity for {{min}} min — heartbeat, autoreply and relay are off. TX stays as you left it; any send or switch re-arms them.',
-  'js8.dock.pending.cancel.label': 'Cancel',
-  'js8.dock.pending.cancel.title': 'Cancel this automatic reply before it goes out',
+    'JS8 idle watchdog: no operator activity for {{min}} min — HB, AUTOREPLY, RELAY, HB ACK and the repeating CQ are off. TX stays as you left it. Your next send, switch, speed choice, or Read or Delete in the Inbox brings back AUTOREPLY, RELAY and HB ACK as Settings has them; HB and the repeating CQ stay off until you switch them on.',
+  // JS8Call's AutoreplyConfirmation box, its own words (mainwindow.cpp:5211-5212): Yes / No, with
+  // the seconds to No on the No button, as JS8Call counts them on its default button.
+  'js8.dock.confirm': 'A transmission is queued for autoreply: {{text}} — would you like to send this transmission?',
+  'js8.dock.confirm.yes.label': 'Yes',
+  'js8.dock.confirm.yes.title': 'Send it: it goes out in the next period, through every TX check.',
+  'js8.dock.confirm.no.label': 'No ({{secs}})',
+  'js8.dock.confirm.no.title': 'Do not send it. With no answer it is No when the count reaches 0, as in JS8Call.',
   'js8.dock.queue.title': 'Queued frames — one leaves per period while TX is on. F/L mark the first and last frame of a message.',
   'js8.dock.queue.drop.label': 'Drop queue',
   'js8.dock.queue.drop.title': 'Drop every queued frame. Not a stop: a frame already on the air finishes — Stop TX cuts it.',
@@ -8449,7 +8890,8 @@ export const EN = {
   'js8.dock.origin.cqRepeat': 'repeating CQ',
   'js8.dock.idle': 'Idle {{min}}/{{limit}} min',
   'js8.dock.idle.off': 'Idle watchdog off',
-  'js8.dock.idle.tripped': 'Idle watchdog tripped — heartbeats, auto-reply and relay are off until you send something',
+  'js8.dock.idle.tripped':
+    'Idle watchdog tripped — your next send or switch brings back AUTOREPLY, RELAY and HB ACK; HB and the repeating CQ stay off until you switch them on',
 
   // ── JS8 ▸ the toasts ─────────────────────────────────────────────────────────────────
   'js8.toast.noCallsign': 'Set your callsign in Settings before transmitting',
@@ -8459,7 +8901,7 @@ export const EN = {
   'js8.toast.arm.failed': 'JS8 switch refused',
   'js8.toast.command.failed': 'JS8 command refused',
   'js8.toast.noAddressee': 'A command needs a station — put a callsign, @ALLCALL or a group in To',
-  'js8.toast.cancel.failed': 'Could not cancel the reply',
+  'js8.toast.answer.failed': 'Could not answer the question',
   'js8.toast.drop.failed': 'Could not drop the queue',
 
   // ── SSTV ▸ what the file picker refuses, and why ────────────────────────────────────
@@ -8541,6 +8983,7 @@ export const EN = {
     'Slant trim — fine sample-clock correction. Auto-corrected by the decoder; the manual trim comes in a later build.',
   'sstv.header.slant.aria': 'SSTV slant trim (disabled — decoder not wired yet)',
   'sstv.stage.aria': 'SSTV image',
+  'sstv.stage.splitter.label': 'waterfall and picture height',
   'sstv.waterfall.hint': 'the band — a picture takes this space when one arrives',
   'sstv.caption.lines': '{{mode}} — {{done}}/{{total}} lines',
   'sstv.caption.decoding': 'decoding {{mode}}…',
@@ -8646,6 +9089,7 @@ export const EN = {
   'sstv.tx.send.failed': 'SSTV send refused',
   'sstv.tx.announce.sending': 'Transmitting SSTV {{mode}}',
   'sstv.tx.announce.finished': 'SSTV transmit finished',
+  'sstv.tx.announce.stopped': 'SSTV transmit stopped',
   'sstv.tx.progress': 'TX — {{mode}} · {{clock}} remaining',
 
   // ── SSTV ▸ the gallery ──────────────────────────────────────────────────────────────
@@ -8731,11 +9175,16 @@ export const EN = {
   'cw.panel.copilot': 'CW Copilot',
   'cw.panel.decode': 'CW Decode',
   'cw.panel.sent': 'Sent Echo',
+  // Phone's two feeds (#345) in CW (plan H8), named as the views they come from, as in Phone.
+  'cw.panel.spots': 'Spots',
+  'cw.panel.needed': 'Needed',
   'cw.pane.decode.title': 'Decode',
   'cw.pane.sent.title': 'Sent',
   'cw.pane.rigctl.title': 'Rig controls',
   'cw.pane.bandActivity.title': 'Band activity',
   'cw.pane.copilot.title': 'Copilot',
+  'cw.pane.spots.title': 'Spots',
+  'cw.pane.needed.title': 'Needed',
   'cw.pane.log.title': 'Log',
 
   // ── CW ▸ the header: the mode badge, speed, keyer, pitch, macro profile, filter ──────
@@ -8779,7 +9228,7 @@ export const EN = {
   'cw.filter.failed': 'Could not set filter width',
   // `{{call}}` is a callsign, `{{bearing}}` a heading in degrees and `{{error}}` the engine's
   // own words — all three arrive invariant.
-  'cw.rotator.pointed': 'Rotator → {{call}}: {{bearing}}°',
+  'cw.rotator.pointed': 'Rotator → {{call}}: {{bearing}}° ({{to}})',
   'cw.rotator.failed': 'Rotator: {{error}}',
   'cw.record.start.aria': 'Record QSO audio',
   'cw.record.stop.aria': 'Stop recording this QSO',
@@ -8806,6 +9255,9 @@ export const EN = {
   'cw.scope.audio.sub': 'zero-beat',
   'cw.scope.colors.label': 'Colors',
   'cw.scope.splitter.label': 'scope height',
+  'cw.seam.columns.label': 'Decode column / Rig controls column',
+  // The divider between the Spots and Needed panes (its accessible name, and the resize tooltip's).
+  'cw.seam.spotsNeeded.label': 'Spots / Needed',
   'cw.rfZoom.aria': 'Panadapter zoom',
   'cw.rfZoom.full.label': 'Full',
   'cw.rfZoom.full.title': "The rig's whole scope sweep (set the width on the radio)",
@@ -8929,6 +9381,7 @@ export const EN = {
   'phone.pane.needed.title': 'Needed',
   // The divider between those two panes (its accessible name, and the resize tooltip's).
   'phone.seam.spotsNeeded.label': 'Spots / Needed',
+  'phone.seam.columns.label': 'Band activity column / Receiver column',
   'phone.pane.rigscope.title': 'Rig scope controls',
   'phone.pane.receiver.title': 'Receiver',
   'phone.pane.transmitter.title': 'Transmitter',
@@ -9129,6 +9582,7 @@ export const EN = {
   // toasts it raises, and a toast is neither a control nor anything a sweep can see.
   'phone.tx.locked': 'TX locked — this frequency/mode is outside your license privileges',
   'phone.tx.turnedBackOn': 'TX was off — turned it back on. Press PTT again to talk.',
+  'phone.tx.remoteLock': 'Lock (hands-free PTT) does not work over Remote. Untick Lock, then hold PTT or the Space bar to talk.',
 
   // ── Phone ▸ the scope strip, its span chips and its zoom ─────────────────────────────
   // The strip is the rig's real RF panadapter when one streams and the receiver's audio
@@ -9285,14 +9739,20 @@ export const EN = {
 
   // ── The shell: loading, window title, the rails, the crash escape ───────────────────
   'shell.loading': 'Connecting to Nexus…',
+  'shell.boot.title': 'Nexus could not finish starting',
+  'shell.boot.timeout': 'The local engine did not answer within 12 seconds.',
+  'shell.boot.failed': 'The local engine returned an error: {{detail}}',
+  'shell.boot.retry': 'Retry connection',
+  'shell.panel.openFailed': 'Could not open the detached panel: {{detail}}',
+  'shell.section.loading': 'Opening section…',
   // `Nexus` is the program's name — the same word in every language.
   'shell.windowTitle': '{{section}} — RD-Nexus',
   // Screen-reader announcement of the radio's transmit state. Not a control: the TX controls
   // themselves live in the cockpits and move with them.
   'shell.tx.announce.on': 'Transmitting',
   'shell.tx.announce.off': 'Receiving',
-  'shell.rail.stations.aria': 'Resize stations panel (double-click to reset)',
-  'shell.rail.waterfall.aria': 'Resize waterfall pane (double-click to reset)',
+  'shell.rail.stations.label': 'stations panel width',
+  'shell.rail.waterfall.label': 'waterfall panel width',
   'shell.bandActivity.title': 'Band Activity — heard on the band',
   'shell.roam.aria': 'Roam settings',
   'shell.roam.close.aria': 'Close Roam settings',
@@ -9371,6 +9831,31 @@ export const EN = {
     'Nexus did not open the logbook database because your data folder is on a network drive, where a database can be damaged by the way file locking works across a network. Nothing is lost: this session keeps your log in log.adi, as before. To use the database, move the data folder to a drive inside this computer in Settings ▸ Config ▸ Data & log folder.',
   'shell.logStore.failed':
     'Nexus could not open the logbook database. Reason: {{reason}}. Nothing is lost: this session keeps your log in log.adi, as before. The diagnostic log has the details, in Settings ▸ Logging & Connectors ▸ Integrations & Feeds ▸ Diagnostic log.',
+  // A file Nexus could not read at launch and KEPT rather than save over (features/keptFiles.ts):
+  // a torn journal, or one a newer Nexus wrote. `{{path}}` is the file's full path on the
+  // operator's computer, a token. One sentence per store says what the file held; `other` is a
+  // store this build has no words for. “Log this QSO?” is the popup's own title
+  // (logPrompt.title), quoted as this language shows it.
+  'shell.keptFile.pendingQso':
+    'Nexus could not read the file of QSOs that were waiting in the “Log this QSO?” popup, so it kept that file, untouched, at {{path}}. Nothing was deleted.',
+  'shell.keptFile.fieldDay':
+    'Nexus could not read all of the backup of your Field Day or contest log, so it kept that file, untouched, at {{path}}, and started a new backup from the contacts it could read. Nothing was deleted.',
+  'shell.keptFile.js8Inbox':
+    'Nexus could not read your JS8 inbox, so it kept that file, untouched, at {{path}}, and started a new inbox. Nothing was deleted.',
+  'shell.keptFile.pendingMsgs':
+    'Nexus could not read the file of Tempo messages waiting to send, so it kept that file, untouched, at {{path}}. Nothing was deleted.',
+  'shell.keptFile.assistance':
+    'Nexus could not read your Assistance record, so it kept that file, untouched, at {{path}}, and started a new record. Nothing was deleted.',
+  'shell.keptFile.conversations':
+    'Nexus could not read your Tempo conversations, so it kept that file, untouched, at {{path}}, and started with none. Nothing was deleted.',
+  'shell.keptFile.settings':
+    'Nexus could not read your settings, so it kept that file, untouched, at {{path}}, and started from the default settings. Nothing was deleted.',
+  'shell.keptFile.other':
+    'Nexus could not read one of its files, so it kept that file, untouched, at {{path}}, and started a new one. Nothing was deleted.',
+  'shell.keptFile.keptInPlace':
+    'Nexus could not read {{path}} and could not move it aside, so it has left the file where it is and will not write over it. Nothing was deleted. Move or repair the file, then restart Nexus.',
+  'shell.keptFile.settingsKeptInPlace':
+    'Nexus could not read your settings at {{path}} and could not move that file aside, so it started from the default settings and will not save any setting over that file. Nothing was deleted. Move or repair the file, then restart Nexus.',
   // Quitting while the logbook still has changes on their way to disk: Nexus keeps the main
   // window open until they are saved (components/LogbookSaving.tsx). `{{count}}` is a number of
   // changes; `{{reason}}` is the station's diagnostic wording, passed through untranslated. The
@@ -9458,8 +9943,8 @@ export const EN = {
   'shell.recall.done.setMode': '{{name}} — {{freq}} MHz · set {{mode}} on the rig',
   'shell.net.reminder': 'Net {{until}}: {{name}} — {{freq}} {{mode}}',
   'shell.net.tune': 'Tune',
-  'shell.rotator.pointed': '↗ Pointing antenna to {{bearing}}° ({{call}})',
-  'shell.rotator.pointedLong': '↗ Pointing antenna long path to {{bearing}}° ({{call}})',
+  'shell.rotator.pointed': '↗ Pointing antenna to {{bearing}}° ({{call}}, {{to}})',
+  'shell.rotator.pointedLong': '↗ Pointing antenna long path to {{bearing}}° ({{call}}, {{to}})',
   'shell.rotator.failed': "Couldn't point the antenna at {{call}}",
   // `WSJT-X`, `JTDX` and `MSHV` are program names and `:2237` their agreed UDP port.
   'shell.source.companion': 'Source: {{source}} — listening for WSJT-X/JTDX/MSHV on :2237',
@@ -9511,9 +9996,9 @@ export const EN = {
     'Ham Clock — the complete OpenHamClock dashboard, using the bundled Nexus service',
   'nav.phone.title': 'Phone (SSB) operating — PTT, sideband, RF power, panadapter (casual)',
   'nav.cw.title': 'CW operating — keyboard + F-key macros, WPM, spectrum (casual)',
-  'nav.connect.label': 'Connect',
+  'nav.connect.label': 'Conditions',
   'nav.connect.title':
-    'Connect — THE map: grayline globe + live spots + openings + propagation, with click-to-work',
+    'Conditions (formerly Connect) — THE map: grayline globe + live spots + openings + propagation, with click-to-work',
   'nav.needed.label': 'Needed',
   'nav.needed.title': "Needed — what you still need that's on the air now; single-click to QSY",
   'nav.spots.label': 'Spots',
@@ -9541,9 +10026,9 @@ export const EN = {
     'Memories — saved channels: repeaters, nets, calling freqs; groups + ★ favorites; one click to tune',
   'nav.groupsio.title': 'Groups.io — memberships, topics, offline archives, drafts and explicit posting',
   'groupsio.remoteUnavailable': 'Groups.io is available in the installed RD-Nexus application, where the operating system credential vault can protect its API key.',
-  'nav.program.label': 'Program',
+  'nav.program.label': 'Repeaters',
   'nav.program.title':
-    'Program — build channel lists for your radios: local repeaters → CHIRP CSV, rig memories, or tune-now',
+    'Repeaters — build channel lists for your radios: local repeaters → CHIRP CSV, rig memories, or tune-now',
   'nav.order.reset.label': 'Reset order',
   'nav.order.reset.title': 'Reset the section order to default',
   'nav.mode.title': 'Active operating mode',
@@ -9565,13 +10050,9 @@ export const EN = {
   'nowbar.age.mins': '{{mins}}m',
   'nowbar.age.hours': '{{hours}}h',
   'nowbar.band.label': 'Band',
-  'nowbar.band.open': 'open',
-  'nowbar.band.fair': 'fair',
-  'nowbar.band.quiet': 'quiet',
-  'nowbar.band.closed': 'closed',
   // The chip's own tooltip, used only when the advisory carries no reason of its own (that
   // reason is backend prose, interpolated as data — it moves in phase 3).
-  'nowbar.band.title.connect': 'Open Connect — the map + nowcast',
+  'nowbar.band.title.connect': 'Open Conditions — the map + nowcast',
   'nowbar.band.title.plain': 'Band activity',
   'nowbar.out.label': 'Out',
   // Reads the same at every value in English ("1 hear you" as much as "3 hear you"), so it is
@@ -9599,6 +10080,9 @@ export const EN = {
   'nowbar.prop.offline': 'NO LIVE DATA',
   'nowbar.prop.title':
     'Propagation nowcast data is {{source}} — separate from the Cluster/PSKR connection pills',
+  // The dashboard rail's switch, the bar's last chip (its label is dashRail.title).
+  'nowbar.rail.on.title': 'Hide the dashboard rail beside this cockpit',
+  'nowbar.rail.off.title': 'Show the dashboard rail beside this cockpit (a column of Conditions panels)',
   // The connector pills. Each state is a WHOLE sentence: "connected but quiet" and "cannot
   // reach the server" are different claims, and they were one broken-looking "waiting" once.
   'nowbar.feed.live.value': 'live {{age}}',
@@ -9657,19 +10141,33 @@ export const EN = {
   'panels.undo.title': 'Put the layout back the way it was before the last change',
   'panels.reset': 'Reset layout',
   'panels.reset.title': 'Show every panel again (the stock layout)',
+  // ⊞ Panels ▸ Arrange (layout L3): where each pane of a grid cockpit stands, in the menu above the
+  // entries. `{{pane}}` is the pane's name as its ⊞ entry reads it.
+  'panels.arrange.heading': 'Arrange',
+  'panels.arrange.column.a': 'Column 1',
+  'panels.arrange.column.b': 'Column 2',
+  'panels.arrange.column.log': 'Log column',
+  'panels.arrange.logForm': 'The log form stays at the foot of this column.',
+  'panels.arrange.pinned': 'Stays in its column, so nothing in progress is lost; it moves up and down.',
+  'panels.arrange.narrow': 'On a narrower window, column 2 follows column 1.',
+  'panels.arrange.up.aria': 'Move {{pane}} up',
+  'panels.arrange.down.aria': 'Move {{pane}} down',
+  'panels.arrange.left.aria': 'Move {{pane}} to the column on the left',
+  'panels.arrange.right.aria': 'Move {{pane}} to the column on the right',
 
   // ── The cockpit pane frame ──────────────────────────────────────────────────────────
   // `{{title}}` is the pane's own name, supplied by the cockpit.
   'pane.popOut.aria': 'Open {{title}} in its own window',
   'pane.popOut.title': 'Open this pane in its own window (for a second monitor)',
+  'pane.seam.logWidth.label': 'log column width',
   'pane.hide.aria': 'Hide {{title}}',
   'pane.hide.title': 'Hide this pane (restore it from the ⊞ Panels menu)',
 
   // ── Drag handles ────────────────────────────────────────────────────────────────────
-  // One entry for both handles (`Splitter` sizes a panel, `SplitterSeam` splits two): the
-  // tooltip makes the same statement about the same gesture, and `{{label}}` — the
-  // separator's accessible name — is what says which handle it is.
-  'splitter.title': 'Drag to resize ({{label}})',
+  // One entry for every divider (PaneSeam: a strip's height, the split between two panes, a
+  // rail's width): the tooltip makes the same statement about the same gestures, and
+  // `{{label}}` — the separator's accessible name — is what says which divider it is.
+  'paneSeam.title': 'Drag, or use the arrow keys, to resize ({{label}}). Double-click or press Backspace to reset.',
 
   // ── The theme cards ─────────────────────────────────────────────────────────────────
   // Each card: the theme's name, and under it a one-line personality in radio terms. The
@@ -9685,6 +10183,31 @@ export const EN = {
   'theme.system.label': 'System',
   'theme.system.title': 'System (follows your computer’s light or dark setting)',
   'theme.system.line': 'Follows your computer, light or dark',
+  // The built-in themes (features/skins.ts): two groups of cards after the three above, each card
+  // a theme's name and its one-line personality. The names are the operator's (2026-09-27, "Keep
+  // these names"); the ids are invariant tokens. LCD, VFD and OLED are display types.
+  'theme.family.rig': 'Rig looks',
+  'theme.family.modern': 'Modern',
+  'theme.amberLcd.label': 'Amber LCD',
+  'theme.amberLcd.line': 'Black chassis, amber digits, warm-white lit keys',
+  'theme.greenLcd.label': 'Green LCD',
+  'theme.greenLcd.line': 'Black chassis, green phosphor digits',
+  'theme.blueVfd.label': 'Blue VFD',
+  'theme.blueVfd.line': 'Deep navy chassis, blue-white fluorescent digits',
+  'theme.silver.label': 'Silver chassis',
+  'theme.silver.line': 'Pale silver front, white panels, dark scopes and meters',
+  'theme.midnight.label': 'Midnight',
+  'theme.midnight.line': 'True black for OLED and dark rooms, cyan lit',
+  'theme.slate.label': 'Slate',
+  'theme.slate.line': 'Soft blue-grey editor dark, low glare',
+  'theme.lagoon.label': 'Lagoon',
+  'theme.lagoon.line': 'Deep teal dark with soft sea-green inks',
+  'theme.ember.label': 'Ember',
+  'theme.ember.line': 'Warm sepia dark with amber digits and aqua keys',
+  'theme.nebula.label': 'Nebula',
+  'theme.nebula.line': 'Violet-tinted dark with lavender keys and digits',
+  'theme.paper.label': 'Paper',
+  'theme.paper.line': 'Warm cream page, white panels, ink-blue keys — low glare',
 
   // ── The colour roles (Settings ▸ Appearance ▸ Colours) ─────────────────────────────────
   // A role is a job a colour does (features/paletteRoles.ts); its hint says what it paints on
@@ -9716,6 +10239,9 @@ export const EN = {
   'palette.preset.gold': 'Gold',
   'palette.preset.yellow': 'Yellow',
   'palette.preset.sky': 'Sky',
+  // On a built-in theme (Settings ▸ Appearance ▸ Theme), the Accent's and the Readout's standard
+  // chip is the theme's own colour rather than the standard one, and says so.
+  'palette.preset.themeOwn': 'Theme’s own',
 
   // ── The waterfall palette picker ────────────────────────────────────────────────────
   // Two wordings, and the difference is load-bearing: an UNSCOPED picker drives the master
@@ -9866,6 +10392,13 @@ export const EN = {
   // magnetic marks, `WMM`, `AOS`/`LOS`, `az`, `rotctld` and the SAT/ROTOR plates. The ■ buttons
   // on both surfaces stop ROTATION and the satellite track — never a transmission.
   'rotor.stop.failed': 'Rotator stop: {{error}}',
+  // What a point-at-call's bearing was taken to, the `{{to}}` at the end of every "pointing
+  // antenna" toast: the station's own grid, the position its callbook entry gives, or only the
+  // centre of its country (a tester was sent 20° wide by that and could not tell). `{{grid}}` is
+  // a Maidenhead locator and `{{country}}` a DXCC entity name, both interpolated verbatim.
+  'rotor.pointed.to.grid': 'their grid {{grid}}',
+  'rotor.pointed.to.position': 'their callbook position',
+  'rotor.pointed.to.country': 'the centre of {{country}}: no grid known for them',
 
   'rotor.strip.aria': 'Rotator',
   'rotor.strip.az.title': 'Rotator at {{deg}}° true',
@@ -9923,7 +10456,7 @@ export const EN = {
   'rotor.strip.lost.silent': 'Rotator not answering',
   'rotor.strip.lost.stopped': 'Rotator stopped answering',
   'rotor.strip.lost.silent.title':
-    'A rotator is configured but not answering — check the model, port and baud in Settings ▸ Radio ▸ Rotator (the baud belongs to the model), or the external rotctld, and the Connections log',
+    "The rotator controller isn't answering. Is it switched on and plugged in? Nexus keeps trying to reach it. If it is, check the model, port and baud in Settings ▸ Radio ▸ Rotator (the baud belongs to the model), or the external rotctld, and the Connections log",
   'rotor.strip.lost.stopped.title':
     'The rotator stopped answering mid-pass, so the track let it go — point the antenna yourself. Check the model, port and baud in Settings ▸ Radio ▸ Rotator (the baud belongs to the model), or the external rotctld, and the Connections log',
   'rotor.strip.lost.open.aria': '{{state}} — open the rotator settings',
@@ -10000,7 +10533,18 @@ export const EN = {
   'rotor.pane.stop.title': 'Stop rotation NOW',
   'rotor.pane.hint': 'click the rose or type a bearing · headings are TRUE',
   'rotor.pane.hint.noPosition': 'no position from this rotator — pointing and STOP still work',
+  // Nothing answered the read at all: the controller is off or unplugged, or rotctld is not
+  // running (a tester read "Error 61" here). Shown as the hint and as the readout's tooltip.
+  'rotor.pane.notAnswering':
+    "The rotator controller isn't answering. Is it switched on and plugged in? Nexus keeps trying to reach it.",
   'rotor.pane.slew.failed': 'Rotator: {{error}}',
+  // The elevation, on a rotator whose backend declares an elevation axis (the Yaesu G-5500 on a
+  // GS-232B: 0–180°). `{{min}}` and `{{max}}` are the range that backend declares, in degrees.
+  'rotor.pane.el.title': 'Elevation above the horizon · this rotator reaches {{min}}–{{max}}°',
+  'rotor.pane.commandedEl.title': 'Commanded elevation — the antenna is on its way',
+  'rotor.pane.el.entry.aria': 'Elevation to move to (degrees, {{min}}–{{max}})',
+  'rotor.pane.el.outside': 'This rotator reaches {{min}}–{{max}}° of elevation',
+  'rotor.pane.hint.azel': 'click the rose or type a bearing or an elevation · headings are TRUE',
 
   // ── The shared cockpit header ───────────────────────────────────────────────────────
   // ⚠️ THE FOUR TRANSMIT CONTROLS THIS HEADER DRAWS ARE ABSENT BY DESIGN: the TX-enable latch,
@@ -10208,7 +10752,8 @@ export const EN = {
   'features.chat.label': 'Chat',
   'features.chat.oneLine': 'Free-form QSO text (TempoFast/TempoDeep).',
   'features.fieldDay.oneLine': 'Contest rate workspace (exchange, dupes, scoring, Cabrillo).',
-  'features.connect.label': 'Connect',
+  'features.connect.label': 'Conditions',
+  'features.connect.windowTitle': 'Conditions (formerly Connect)',
   'features.connect.oneLine':
     'Situational awareness — the grayline map + live propagation in one view.',
   'features.needed.label': 'Needed',
@@ -10227,7 +10772,7 @@ export const EN = {
     'Saved channels — repeaters, HF nets, calling freqs: groups, ★ favorites, one-click tune, CHIRP CSV, starter packs + opt-in net reminders.',
   'features.groupsio.oneLine':
     'Groups.io memberships, downloaded topics and messages, offline search, local drafts, archive sync and explicitly confirmed posting.',
-  'features.program.label': 'Program',
+  'features.program.label': 'Repeaters',
   'features.program.oneLine':
     'Program your radios — local repeaters to a channel list: CHIRP CSV, rig memories, or tune-now.',
   'features.awards.label': 'Awards',
@@ -10417,7 +10962,7 @@ export const EN = {
     'Activate and hunt: the map and a field log for parks-and-peaks operating.',
   'profiles.vhf.label': '6m / VHF & openings',
   'profiles.vhf.blurb':
-    'Catch the band coming alive: Connect (map + openings), satellite passes, and the DXpedition board.',
+    'Catch the band coming alive: Conditions (map + openings), satellite passes, and the DXpedition board.',
   'profiles.everything.label': 'Everything (expert)',
   'profiles.everything.blurb':
     'Turn the whole console on. Every section and capability enabled.',
@@ -10597,6 +11142,9 @@ export const EN = {
   'groupsio.archive.official': 'Download official ZIP',
   'groupsio.preview.new': 'NEW GROUPS.IO MESSAGE',
   'groupsio.settings.loading': 'Loading Groups.io configuration…',
+  'groupsio.loading': 'Loading Groups.io…',
+  'groupsio.loadFailed': 'Groups.io could not be loaded',
+  'groupsio.retry': 'Retry',
   'settings.tabs.groupsio': 'Groups.io',
   'groupsio.settings.remoteLocal': "Groups.io account settings are local to the installed RD-Nexus application because its API key is held by that computer's credential vault.",
   'groupsio.settings.keyStorage': 'The API key is stored by macOS Keychain, Windows Credential Manager, or Linux Secret Service. It is never written to settings.json, groupsio.json, logs, backups, or the UI after Connect.',

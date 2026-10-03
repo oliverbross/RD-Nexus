@@ -134,7 +134,7 @@ if test -n "$direct_executable"; then
   printf '%s\n' "$direct_executable" > "$candidates"
 else
   test -n "$root" && test -d "$root" || { echo "package extraction produced no directory" >&2; exit 1; }
-  find "$root" -type f \( -iname 'Nexus' -o -iname 'Nexus.exe' \) -print > "$candidates"
+  find "$root" -type f \( -iname 'Nexus' -o -iname 'Nexus.exe' -o -iname 'RD-Nexus' -o -iname 'RD-Nexus.exe' \) -print > "$candidates"
 fi
 
 test -s "$candidates" || {

@@ -81,6 +81,7 @@ neural_self_test="$(cd "$neural_tmp" && NEURAL_DX_SELF_TEST=1 "$neural")"
 expected_neural_version="$(jq -er '.version' "$repo/docs/neural-dx/upstream.json")"
 printf '%s\n' "$neural_self_test" \
   | node "$repo/scripts/check-neural-dx-self-test.mjs" --version "$expected_neural_version"
+node "$repo/scripts/check-neural-dx-consumer.mjs" --executable "$neural"
 
 # OpenHamClock's build receipt is specific to this staging run. Compare it and the executable
 # bytes against the assembled app so a resource-glob or bundle-layout regression cannot pass by

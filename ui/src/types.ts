@@ -786,12 +786,18 @@ export interface SatBinding {
 export interface SolarWind {
   /** Bz (GSM), nT. Negative = southward = geoeffective. */
   bzNt: number
-  /** Total field magnitude Bt, nT. */
-  btNt: number
-  /** Bulk speed, km/s. */
-  speedKms: number
-  /** Proton density, p/cm³. */
-  density: number
+  /** Total field magnitude Bt, nT. `null` = not known (the magnetometer row carried Bz without it;
+   *  an older station sends 0). */
+  btNt: number | null
+  /** Bulk speed, km/s. `null` = not known (the plasma feed did not answer, or its newest reading
+   *  is not from this sample's moment). ⚠️ An OLDER station sends 0 for the same thing — the Sun's
+   *  wind never blows below ~250 km/s, so a reader treats a speed ≤ 0 as not known too. */
+  speedKms: number | null
+  /** Proton density, p/cm³. `null` = not known (an older station sends 0). */
+  density: number | null
+  /** When the magnetometer reading was made, Unix seconds UTC. Absent from an OLDER station, whose
+   *  sample's age cannot be known — see `solarWindAgeSecs` in propViz. */
+  timeUnix?: number
 }
 
 export interface SpaceWxView {
@@ -983,6 +989,23 @@ export interface KpPoint {
 /** The NOAA planetary-K outlook: about a week back and three days forward. */
 export interface KpForecast {
   points: KpPoint[]
+}
+
+/** One day of NOAA SWPC's daily solar indices. `null` = SWPC published no value for that day —
+ *  never a zero. A sunspot number of 0 is a real reading (a spotless Sun). */
+export interface DailySolarIndex {
+  /** 00:00 UTC of the day, Unix seconds. */
+  dayUnix: number
+  /** Observed 10.7 cm solar flux (SFI). */
+  sfi: number | null
+  /** SESC daily sunspot number — a daily count, not the smoothed number the model uses. */
+  ssn: number | null
+}
+
+/** The last ~30 days of NOAA's daily solar indices, oldest first. EMPTY = the file has never
+ *  arrived, which the Space Wx box says rather than draw a line. */
+export interface DailySolarIndices {
+  days: DailySolarIndex[]
 }
 
 /** The operator's current activation state (POTA/SOTA). */
@@ -1445,6 +1468,12 @@ export interface RadioStatus {
    * (`transmitting` is set solely by the FT slot-TX path), so it is blind to manual PTT,
    * the voice keyer, CW, RTTY and SSTV. It let the dial move under a held mic key. */
   txBusyReason?: string | null
+  /** A streamed Remote operator's microphone over, null/absent without one: `armed` by their press
+   * and waiting for their voice, then `keyed` by it. DISPLAY ONLY — the Phone cockpit's PTT reads
+   * "Armed" for a press it made through the stream until this says `keyed`, and the header's ON AIR
+   * sign waits while it says `armed`, which the station says only while that over owns the
+   * transmitter. */
+  streamMic?: 'armed' | 'keyed' | null
   /** True if the TX watchdog has auto-halted transmit (needs a re-enable). */
   txWatchdog: boolean
   /** FT8/FT4 decode depth (1=Fast, 2=Normal, 3=Deep) — live-settable from the Operate cockpit. */
@@ -1776,6 +1805,13 @@ export interface Js8QueueRow {
 }
 
 /** An automatic reply waiting out its countdown (cancellable until `firesAtMs`). */
+/** A reply the station put in the composer (AUTO off, as JS8Call types it into its compose
+ * box). Native only, never part of Js8State. */
+export interface Js8ComposerPrefill {
+  id: number
+  text: string
+}
+
 export interface Js8PendingReply {
   origin: Js8Origin
   to: string
@@ -1897,6 +1933,13 @@ export interface SstvState {
   /** Seconds of key-down elapsed / total for the in-flight image. */
   txElapsedSecs: number
   txTotalSecs: number
+  /** Why the last picture ended without going out whole — the cockpit's warning line: one that
+   * waited for the transmitter and was dropped instead of sent (TX off, outside the licence
+   * privileges, or the Phone screen left), or one the radio loop cut short on the air (transmit
+   * went off under it, or a tune, a radio switch or another stop ended its transmission). Absent
+   * when there is nothing to say since a picture last keyed, and always absent on the Remote (the
+   * station strips it). */
+  txNotice?: string
 }
 
 /** Where the station's data + log folder is, and where it came from (#289). */
@@ -2521,6 +2564,33 @@ export interface QrzLookup {
   lon?: number | null
 }
 
+/** The Rotor pane's poll (`read_rotator_state`): the azimuth the rotator reports, and what the
+ *  read found — a position; a rotator whose backend has none to give (the Hy-Gain DCU-1:
+ *  pointing and STOP still work); or nothing answering at all (the controller is off or
+ *  unplugged, or rotctld is not running). */
+export interface RotatorState {
+  azDeg: number | null
+  reading: 'position' | 'noPosition' | 'notAnswering'
+  /** The elevation the rotator reports; null when it reports none, and whenever its backend
+   *  declares no elevation axis. */
+  elDeg?: number | null
+  /** The elevation range that backend declares (a G-5500 on a GS-232B: 0–180), from rotctld's
+   *  own `\dump_state`: null when it has no elevation axis, and ABSENT when rotctld did not answer
+   *  that question this time, so the pane keeps what it last knew instead of blinking the
+   *  elevation out while a busy rotctld catches up. */
+  elRange?: [number, number] | null
+}
+
+/** What a point-at-call aimed at (`point_rotator_at_call`): the bearing, and what it was taken
+ *  to — the station's own grid (`grid` names it), the position its callbook gives, or, when
+ *  Nexus knows neither, the centre of its country (`country` names it). The toast says which. */
+export interface PointedAt {
+  bearing: number
+  to: 'grid' | 'position' | 'country'
+  grid: string | null
+  country: string | null
+}
+
 /** Result of a QRZ Logbook push (one-QSO upload). `result` is the outcome tag;
  *  `duplicate` is the benign "already in your QRZ logbook". */
 export interface QrzPushResult {
@@ -2562,7 +2632,7 @@ export interface FeedStatus {
 export interface ConnEvent {
   tsUnix: number
   connector: string
-  level: 'ok' | 'info' | 'error' | string
+  level: 'ok' | 'info' | 'warn' | 'error' | string
   message: string
 }
 
@@ -2975,7 +3045,7 @@ export interface FieldDayQso {
  *
  *  The entry strip's while-typing badge must build the same key the engine will refuse
  *  on. It used to hardcode `(call, band, mode class)`, which is the rule for two of the
- *  seventeen shipped rulesets: Sweepstakes keys on the CALL ALONE, CQ WW and ARRL VHF
+ *  eighteen shipped rulesets: Sweepstakes keys on the CALL ALONE, CQ WW and ARRL VHF
  *  drop the mode class, and every QSO party adds the county in both directions. For the
  *  QSO parties the hardcoded triple was wrong in the expensive direction — it showed
  *  DUPE for a legal contact with a mobile in a new county.
@@ -3460,11 +3530,29 @@ export interface Settings {
   /** Autoreply to directed queries addressed to me / @ALLCALL / a joined group
    * (JS8Call default on). Second act of the two-act rule. */
   js8Autoreply: boolean
+  /** JS8Call's AutoreplyConfirmation (default on): every automatic reply waits in the cockpit for
+   * the operator's Yes and is not sent after 89 s without one. Off, replies go by themselves. */
+  js8AutoreplyConfirmation: boolean
+  /** JS8Call's "Only autoreply to these callsigns" (empty = everyone): anyone else is acted on in
+   * no way. Matched by the call as heard or its base call. */
+  js8AutoreplyAllow: string[]
+  /** JS8Call's "Never autoreply to these callsigns": a station on it is acted on in no way. */
+  js8AutoreplyDeny: string[]
+  /** JS8Call's "Never acknowledge heartbeats from these callsigns". */
+  js8HbAckDeny: string[]
   /** Relay `>` traffic for other stations (third-party traffic; JS8Call default on). */
   js8Relay: boolean
   /** JS8Call's idle watchdog in minutes (default 60, floor 5, 0 = off): HB/autoreply/
    * relay switch OFF after this long without an operator act. */
   js8IdleWatchdogMin: number
+  /** JS8Call's callsign aging in minutes (0 = off, the default; JS8Call's field runs 0-1440): a
+   * station not heard for this long leaves the Stations list, unless it is selected or has an
+   * unread message for me, and HEARING? replies. */
+  js8CallsignAgingMin: number
+  /** JS8Call's band-activity aging in minutes (2, the default; 0 = off; JS8Call's field runs
+   * 0-1440): a Band activity row whose newest decode is this old leaves the pane, unless RX is on
+   * its offset. Display only. */
+  js8ActivityAgingMin: number
   /** Free text answered to INFO?. */
   js8Info: string
   /** Free text answered to STATUS?; empty = JS8Call's `IDLE <min> VERSION …`. */
@@ -3540,6 +3628,10 @@ export interface Settings {
   icomNativeCat: boolean
   /** Which Icom DATA mode to select for digital (1|2|3). 1 = today's behaviour. */
   icomDataMode: number
+  /** "Transmit audio source (CAT PTT)" (#381): 'front' keys as every release has (`T 1`, the MIC
+   * input on most radios), 'rear' keys the DATA input (`T 3`). Offered only for CAT PTT on a radio
+   * whose Hamlib driver has mic/data PTT (`getPttMicDataRigModels`). Per radio; absent = 'front'. */
+  txAudioSource?: string
   /** Command plain SSB (USB/LSB by band) instead of the DATA submode on the soundcard modes —
    * Digital, RTTY-AFSK and SSTV. Per radio. Off by default.
    *
@@ -3699,6 +3791,10 @@ export interface Settings {
    *  Tune through their own stop paths. Generic external CAT PTT and FT auto-sequencing are not
    *  covered. The watcher runs on a Windows station only (the Parsec host). */
   parsecPresenceStop?: boolean
+  /** Remote as a stream. Default OFF. A browser holding station control may be shown this
+   *  station's own Nexus window and drive it; while one is attached, every transmission stops
+   *  within five seconds of the stream going away or its picture going stale. Windows only. */
+  remoteStream?: boolean
   maxPowerPhone?: number | null
   maxPowerCw?: number | null
   maxPowerDigital?: number | null
@@ -3890,6 +3986,10 @@ export interface Settings {
   specialOp?: 'none' | 'hound' | 'superhound'
   /** WSJT-X Split Operation: keep TX audio 1500-2000 Hz via dial shifts. */
   splitMode?: 'none' | 'rig' | 'fakeit'
+  /** Follow the radio's OWN split (Rust `split_detect_enabled`): the loop reads the split of a
+   *  radio that can report it without being moved, and the licence gate judges the split TX
+   *  frequency it reads. Station-wide; default off, and absent in a file that predates it. */
+  splitDetectEnabled?: boolean
   /** Operator overrides of the working-frequency table (empty = stock). */
   workingFrequencies?: { band: string; mode: string; mhz: number }[]
   /** FT8/FT4 decode depth: 1=Fast 2=Normal 3=Deep (stock Deep). */
@@ -3962,6 +4062,10 @@ export interface Settings {
   /** Beep when a park is freshly spotted on the air (App's own poll of
    *  get_ota_map_spots, gated on this — see potaAlert.ts). Off by default. */
   potaNewActivationAlert?: boolean
+  /** #391: pop-up notifications in the bottom-right corner. Ships ON; `false` takes the
+   *  confirmations and the alerts out of the corner (`popsUpWhenOff` in toast.ts says what stays).
+   *  Optional: a station without the field, or the Remote page, which is never sent it, is ON. */
+  popupNotifications?: boolean
   /** Band scope for new-DXCC alerts: 'off' | 'hf' | 'vhf' | 'all' (alertNew stays the master). */
   alertDxccBands: string
   /** Band scope for plain new-grid alerts. Default 'vhf' — grid chasing is VHF-centric. */
@@ -4186,6 +4290,10 @@ export interface RadioProfile {
   icomNativeCat: boolean
   /** Which Icom DATA mode to select for digital (1|2|3). 1 = today's behaviour. */
   icomDataMode: number
+  /** "Transmit audio source (CAT PTT)" (#381): 'front' keys as every release has (`T 1`, the MIC
+   * input on most radios), 'rear' keys the DATA input (`T 3`). Offered only for CAT PTT on a radio
+   * whose Hamlib driver has mic/data PTT (`getPttMicDataRigModels`). Per radio; absent = 'front'. */
+  txAudioSource?: string
   /** Command plain SSB (USB/LSB by band) instead of the DATA submode on the soundcard modes —
    * Digital, RTTY-AFSK and SSTV. Per radio. Off by default.
    *
@@ -4338,6 +4446,10 @@ export interface AppSnapshot {
    *  again when the refusal can pass, held for the quit when it cannot. Null while every change
    *  is in the database or on its way there; absent from a station older than the re-send. */
   logSaveTrouble?: LogSaveTrouble | null
+  /** Files this run could not read and KEPT rather than save over (tempo_core::keep_aside).
+   *  Empty on a healthy launch; absent from the Remote, which never receives these paths, and
+   *  from a station older than the rule. */
+  keptFiles?: KeptFile[]
   /** Parsec presence mode (Settings ▸ Radio ▸ Transmit limits & sharing). Null while it is
    *  switched off, which is the default; absent from a station older than the mode. */
   parsecPresence?: ParsecPresence | null
@@ -4354,6 +4466,17 @@ export interface ParsecPresence {
   stoppedAt: number | null
   /** What that stop ended: 'tune' | 'ptt' | 'rtty' | 'psk'. */
   stopped: string[]
+}
+
+/** A file the station could not read, and kept (mirror of the Rust KeptFile). */
+export interface KeptFile {
+  /** Which store: 'pendingQso', … (tokens; the words are the UI's). */
+  store: string
+  /** Where the file is now: the name it was moved aside to, or its own path when it could not
+   *  be moved. */
+  path: string
+  /** It could not be moved, so it is where it was and nothing writes over it this run. */
+  keptInPlace: boolean
 }
 
 /** Why the logbook database could not be opened at launch (mirror of the Rust
@@ -4383,7 +4506,8 @@ export interface LogSaveTrouble {
 
 /** One repeater from a directory search, normalized across sources. */
 export interface RepeaterRecord {
-  source: 'repeaterbook' | 'hearham'
+  /** The directory: 'rsgb' (the UK coordinator's list), 'repeaterbook' or 'hearham'. */
+  source: 'rsgb' | 'repeaterbook' | 'hearham'
   sourceId: string
   callsign: string
   /** Repeater output (you listen here), MHz. */
@@ -4393,6 +4517,8 @@ export interface RepeaterRecord {
   ctcssEncHz?: number | null
   ctcssDecHz?: number | null
   dcs?: number | null
+  /** The downlink's DCS code, when the source gives one; the same code as `dcs` = both ways. */
+  dcsDec?: number | null
   lat: number
   lon: number
   city: string
@@ -4406,23 +4532,85 @@ export interface RepeaterRecord {
   bandwidthKhz?: number | null
   operational: boolean
   openUse: boolean
+  /** The source's own date for this entry, as it writes it (RepeaterBook's "Last Update",
+   * `2026-05-14`). Absent when it gives none: hearham and the RSGB list have no per-machine date. */
+  updated?: string | null
+  /** How the machine links beyond its own coverage (`repeaters::Link`): hearham's internet node,
+   * on the network its directory names. Absent when there is none. */
+  links?: RepeaterLink[]
   distanceKm: number
   bearingDeg: number
 }
 
-/** One search row: the directory record (display) + the ready-to-add channel
- * (derived in the tested Rust domain — never re-derived in TS). */
+/** One way onto a machine beyond its own coverage: the network (`allStar`, `irlp`, `dmrId` = the
+ * machine's DMR ID, `node` = a node whose network the directory does not name) and the number. */
+export interface RepeaterLink {
+  network: 'allStar' | 'irlp' | 'dmrId' | 'node'
+  node: string
+}
+
+/** One directory row behind a merged machine (`repeaters::SourceRef`). */
+export interface RepeaterSourceRef {
+  source: RepeaterRecord['source']
+  sourceId: string
+  /** The channel id this row gives, so a channel saved from any of a machine's rows finds it. */
+  channelId: string
+  updated?: string | null
+}
+
+/** A field a machine's sources disagree on (`repeaters::Disagreement`): what each said, as
+ * tokens ("88.5", "D023", "438.525", "FM+DMR", "CC1"). The FIRST is the value the row programs;
+ * the rest are shown beside it, never silently dropped. */
+export interface RepeaterDisagreement {
+  field: 'tone' | 'input' | 'mode' | 'colorCode'
+  said: { source: RepeaterRecord['source']; value: string }[]
+}
+
+/** One search row: one MACHINE after the merge (one row per machine, every source kept) as the
+ * record (display) + the ready-to-add channel (derived in the tested Rust domain — never
+ * re-derived in TS). */
 export interface RepeaterSearchRow {
   record: RepeaterRecord
   channel: ProgChannel
+  /** Every directory row behind this machine, the one it programs from first. */
+  sources: RepeaterSourceRef[]
+  /** Fields those rows disagree on: shown on the row, never silently resolved. */
+  disagreements: RepeaterDisagreement[]
+  /** On a route search: how far along the route the machine is, km from the start. The record's
+   * distance and bearing are then from its nearest point of the route. */
+  alongKm?: number | null
+  /** Where Program's map puts the machine: its hearham row's own place, callsign, output and town,
+   * never the record's (which may be RepeaterBook's or RSGB's). Absent when no hearham row lists
+   * it, and then the map leaves it off. */
+  map?: RepeaterMapPoint | null
 }
 
-/** A repeater search response: source label + data age + rows (nearest first). */
-export interface RepeaterSearchResult {
-  source: 'repeaterbook' | 'hearham'
+/** A machine on Program's map, from its hearham row alone (propagation::repeaters::MapPoint). */
+export interface RepeaterMapPoint {
+  lat: number
+  lon: number
+  callsign: string
+  outputMhz: number
+  city: string
+}
+
+/** One directory a search read, and how old its list is. */
+export interface RepeaterListStamp {
+  source: RepeaterRecord['source']
+  /** The list's fetch time (unix secs): its age stamp, and the date of a row with none. */
   fetchedUtc: number
   /** True when a fetch failed/rate-limited and stale cache was served. */
   stale: boolean
+}
+
+/** A repeater search response: the directories it read + rows (nearest first, or in order along
+ * the route). */
+export interface RepeaterSearchResult {
+  /** A route search: the rows are the corridor's, in order along the route. Absent = a radius
+   * search. */
+  route?: boolean
+  /** Every directory this search read, in precedence order (RSGB, RepeaterBook, hearham). */
+  lists: RepeaterListStamp[]
   /**
    * A major band ("2 m", "70 cm", "2 m or 70 cm") the source lists nothing on
    * here while listing other machines — hearham has real rural holes, and a
@@ -4438,6 +4626,18 @@ export interface RepeaterSearchResult {
    * global feed, not per-state exports.
    */
   missingStates: string[]
+  /** A UK origin whose RSGB list could not be read (the endpoint is a beta): the rows are
+   * hearham's alone, and the panel says so. */
+  rsgbUnavailable: boolean
+  /** The hearham list could not be read while another directory answered: the rows are that
+   * directory's alone, and the panel says so, in the list's place when nothing is shown, since
+   * the area is then not known to be empty. Absent from a station that predates it. */
+  hearhamUnavailable?: boolean
+  /** Locator squares the radius reaches that RSGB was not asked about (nine per search are). */
+  rsgbBeyond: string[]
+  /** States a route's corridor crosses that RepeaterBook was not asked about (2-letter codes): a
+   * route asks about the nine it reaches first, no more than a radius search can. */
+  rbBeyond?: string[]
   rows: RepeaterSearchRow[]
 }
 
@@ -4459,14 +4659,29 @@ export interface ProgChannel {
   rtoneHz: number
   ctoneHz: number
   dtcsCode: number
+  /** With toneMode 'dtcs': the code on transmit only, the receiver open (CHIRP Cross "DTCS->"). */
+  dtcsTxOnly?: boolean
   mode: 'fm' | 'nfm' | 'am' | 'dmr' | 'dstar' | 'fusion'
   comment: string
+  /** How the machine links beyond its own coverage ("IRLP 3570", "DMR ID 314158"): tokens the
+   *  exports write after the comment (`Channel::export_comment`). Absent when there are none. */
+  links?: string[]
   dmrColorCode?: number | null
   dmrTimeslot?: number | null
   dmrTalkgroup?: number | null
   dstarRpt1?: string | null
   dstarRpt2?: string | null
   source?: { source: string; sourceId: string; callsign: string } | null
+}
+
+/** Program could not read its saved-projects file this run (mirror of src-tauri's
+ * `RadioProgFileNotice`). The file is never deleted or saved over. */
+export interface RadioProgFileNotice {
+  /** Where the file is now: the timestamped name it was moved aside to, or its own path when it
+   * could not be moved. */
+  path: string
+  /** It could not be moved, so it is still radioprog.json and Program refuses to save over it. */
+  keptInPlace: boolean
 }
 
 /** Where a programming project's repeaters were searched from. */

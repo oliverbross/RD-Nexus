@@ -1,6 +1,34 @@
 // Tauri build script. Runs `tauri-build` codegen, which reads tauri.conf.json,
 // embeds the frontend assets / dev config, and generates the context consumed
 // by `tauri::generate_context!()` in src/lib.rs.
+#[cfg(unix)]
+fn repair_generated_hamlib_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return;
+    };
+    let Some(profile_dir) = std::path::Path::new(&out_dir).ancestors().nth(3) else {
+        return;
+    };
+    let generated = profile_dir.join("resources/hamlib");
+    let Ok(entries) = std::fs::read_dir(generated) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let mut permissions = metadata.permissions();
+        let mode = permissions.mode();
+        if mode & 0o200 == 0 {
+            permissions.set_mode(mode | 0o200);
+            let _ = std::fs::set_permissions(path, permissions);
+        }
+    }
+}
+
 fn main() {
     // The official installer build can bake in the project's ClubLog API key via
     // the CLUBLOG_API_KEY env var (read by `option_env!` in src/lib.rs). Cargo does
@@ -106,5 +134,9 @@ fn main() {
         }
     }
 
+    // A previously copied Homebrew dylib can be read-only (0444). Tauri refreshes resources in
+    // place, so repair only this disposable generated directory before its codegen copy step.
+    #[cfg(unix)]
+    repair_generated_hamlib_permissions();
     tauri_build::build();
 }

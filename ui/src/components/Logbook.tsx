@@ -13,6 +13,8 @@ import type { LogExport, LoggedActivation, LoggedQso } from '../types'
 import { QsoDetail } from './QsoDetail'
 import { gpuCapableForGlobe } from '../gpu'
 import { useLogbookGlobe } from '../features/logbookGlobe'
+import { PaneSeam } from './PaneSeam'
+import { LOG_GLOBE_SPLIT_MAX, LOG_GLOBE_SPLIT_MIN } from '../features/paneSeam'
 import { emptyAnswer, rowKeyAt, type LogLocate, type LogPage, type LogQuestion } from '../features/logAnswers'
 import { defaultAsc, fmtUtc, logOrder, logQueryKey, type LogQuery, type LogSortKey } from '../features/logQuery'
 import { logSource, useLogAnswer, useLogAnswers, useLogPages } from '../features/logSource'
@@ -1067,6 +1069,8 @@ export function Logbook({
   // + a full reconcile every dial-poll re-render). Now only the visible window mounts.
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowsWrapRef = useRef<HTMLDivElement>(null)
+  // The globe band: its divider (layout L7) sizes it, and the list offset below follows it.
+  const globeRef = useRef<HTMLDivElement>(null)
   const [listOffset, setListOffset] = useState(0)
   const rowVirtualizer = useVirtualizer({
     count: listTotal,
@@ -1473,7 +1477,9 @@ export function Logbook({
     setShown({ queryKey, orderRev: pendingRev })
   })
 
-  // Measure where the rows actually start inside .log-scroll (globe + sticky block).
+  // Measure where the rows actually start inside .log-scroll (globe + sticky block). The globe band
+  // is observed too: its divider (layout L7) changes its height without a render of this view or a
+  // resize of the scroller, and the rows start wherever the band now ends.
   useLayoutEffect(() => {
     const el = rowsWrapRef.current
     if (!el) return
@@ -1481,6 +1487,7 @@ export function Logbook({
     measure()
     const ro = new ResizeObserver(measure)
     if (el.parentElement) ro.observe(el.parentElement)
+    if (globeRef.current) ro.observe(globeRef.current)
     return () => ro.disconnect()
   })
 
@@ -2373,11 +2380,26 @@ export function Logbook({
         </p>
         <div className="log-scroll" ref={scrollRef}>
           {globeShown && (
-            <div className="log-globe-band">
+            <div className="log-globe-band" ref={globeRef}>
               <Suspense fallback={<div className="log-globe-loading">{t('logbook.globe.loading')}</div>}>
                 <QsoGlobe logTick={logTick} />
               </Suspense>
             </div>
+          )}
+          {/* The globe | table divider (layout L7): the band's height, a % of the scroller, the
+              band's own 320 px until the operator moves it. It scrolls away with the band. */}
+          {globeShown && (
+            <PaneSeam
+              axis="y"
+              varName="--log-globe-h"
+              strip={globeRef}
+              storageKey="nexus.split.logbook.globe"
+              min={LOG_GLOBE_SPLIT_MIN}
+              max={LOG_GLOBE_SPLIT_MAX}
+              maxShare={Infinity}
+              defaultPct={null}
+              label={t('logbook.globe.height.label')}
+            />
           )}
           {/* Search + column headers BELOW the globe (operator 2026-07-21) — sticky, so
               once the globe scrolls away they pin to the top and the table reads normally. */}

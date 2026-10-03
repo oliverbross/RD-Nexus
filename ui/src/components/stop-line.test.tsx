@@ -31,15 +31,18 @@
 // whether the control you added belongs on the list at all.
 //
 // EACH COCKPIT IS RENDERED WITH THE PROPS APP GIVES IT, and that is load-bearing rather than
-// tidiness: CockpitHeader draws the TX-enable latch (▼ TX On / ■ TX Off) only when it is
-// handed `onSetTxEnabled`, which App passes to RTTY, PSK, SSTV and JS8 — in JS8 the latch is
+// tidiness: the TX strip (CockpitTxStrip) draws the TX-enable latch as a button (TX On / TX Off)
+// only when it is handed `onSetTxEnabled`, which App passes to RTTY, PSK, SSTV and JS8 — in JS8
+// the latch is
 // NOT a stop (slotted mode), so the JS8 case passes the prop for parity with App and lists
 // Stop TX + Tune only. RTTY and SSTV have no other Enable-Tx affordance, the TopBar's being
 // hidden with the digital chrome. The first version of this file omitted the prop, so for
 // RTTY and SSTV the latch was never in the document and the sweep proved nothing about the
 // one control the rule names BY NAME (gating it on a panel id in either cockpit was green).
 // Phone and CW arm elsewhere and legitimately have no latch on screen; their `stopControls`
-// say so by not listing one.
+// say so by not listing one. The same holds for their two feeds (`spots`, `needed`): each
+// renders only with the board App lends it, so both cases lend one — without it the two ids
+// were in the sweep and their panes never on screen, and hiding them proved nothing.
 //
 // WHAT THIS FILE DOES NOT CARE ABOUT: whether a pane can START a transmission. Six can —
 // Operate's Tx messages, its two decode panes and its two rosters, Phone's voice keyer — and
@@ -66,13 +69,15 @@
 // swept here, by construction rather than by oversight — this file finds BUTTONS BY ACCESSIBLE
 // NAME, in one fixed fixture state:
 //   · KEYBOARD-ONLY. Phone's Space bar (window keyup → setPtt(false), only while Lock is off)
-//     and CW's Esc (window keydown → the same abort() Stop TX calls) have no accessible name
-//     and no element. Operate's Esc is the same, in its own sweep.
+//     and Esc have no accessible name and no element. Esc is a stop on every operating screen
+//     and on Satellites (CW's: window keydown → the same abort() Stop TX calls; App binds
+//     Tempo's, Phone's, SSTV's, APRS's and Satellites'); each is NAMED in the last block of this
+//     file and pressed in stop-control-wiring.test.tsx.
 //   · CONDITIONALLY RENDERED. RTTY's auto-sequencer Abort renders only inside
 //     `{auto && seqState !== 'idle'}`, and the `rttyState` fixture above is auto:false /
 //     seqState:'idle' — so there is nothing on screen to look for. Adding a second RTTY case
 //     with an in-flight sequence would sweep it; not done here, and not claimed.
-// SSTV is the one cockpit whose list and census match exactly.
+// SSTV is the one cockpit whose list and census match exactly, Esc (keyboard-only) apart.
 //
 // WHAT THIS DOES NOT COMPUTE, stated rather than guarded:
 //   · A STOP CONTROL THAT IS PRESENT, ENABLED AND INERT. Every assertion here is about the
@@ -92,7 +97,10 @@
 // transmit control at all — it is setup, score, sections, bonuses, the log and the club board.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import * as api from '../api'
+import { sectionFeatures } from '../features/registry'
 import { PhoneCockpit } from './PhoneCockpit'
 import { CwCockpit } from './CwCockpit'
 import { RttyCockpit } from './RttyCockpit'
@@ -109,6 +117,7 @@ import {
   SSTV_PANEL_IDS,
 } from '../features/panelState'
 import type { PanelLayoutApi } from '../features/panelState'
+import { arrangeIds, coercePlacement, movePane, type ArrangeSpec, type PaneMove, type PanePlacement } from '../features/panelPlace'
 import type { AppSnapshot, FieldDayStatus, Js8State, PskState, RttyState, SstvState } from '../types'
 
 const decodeState = {
@@ -318,7 +327,6 @@ vi.mock('../api', async (importOriginal) => {
     js8SendCommand: vi.fn(async () => js8State),
     js8CallCq: vi.fn(async () => js8State),
     js8SetSpeed: vi.fn(async () => js8State),
-    js8Cancel: vi.fn(async () => js8State),
     js8DropQueue: vi.fn(async () => js8State),
     js8InboxMark: vi.fn(async () => js8State),
     js8InboxDelete: vi.fn(async () => js8State),
@@ -353,9 +361,9 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-function panelsWith<P extends string>(removed: readonly P[]): PanelLayoutApi<P> {
+function panelsWith<P extends string>(removed: readonly P[], place?: PanePlacement<P>): PanelLayoutApi<P> {
   return {
-    layout: { v: 1, state: {}, share: {} },
+    layout: place ? { v: 2, state: {}, share: {}, place } : { v: 1, state: {}, share: {} },
     stateOf: (id) => (removed.includes(id) ? 'removed' : 'docked'),
     setPanelState: () => {},
     shareOf: () => 1,
@@ -415,6 +423,10 @@ const fdStatus = {
   log: [{ call: 'W1AW', band: '20m', mode: 'PH', class: '3A', section: 'EMA', whenUnix: 100 }],
 } as unknown as FieldDayStatus
 
+/** The Spots and Needed boards as App lends them to Phone and CW (#345, plan H8), empty. */
+const spotsBoard = { bandPlan: [], selectedCall: null, onSelect: () => {}, onWork: () => {} }
+const neededBoard = { alerts: [], bandPlan: [], selectedCall: null, onQsy: () => {}, onSelect: () => {} }
+
 /**
  * One cockpit's stop-line case. `stopControls` are accessible-name matchers for the controls
  * that END a transmission AND RENDER OUTSIDE EVERY ⊞-REMOVABLE PANE — the set the guarantee
@@ -463,6 +475,8 @@ const phone: Case<(typeof PHONE_PANEL_IDS)[number]> = {
         spots={[]}
         panels={panels}
         fieldDay={fdStatus}
+        spotsBoard={spotsBoard}
+        neededBoard={neededBoard}
       />,
     ),
 }
@@ -486,12 +500,15 @@ const cw: Case<(typeof CW_PANEL_IDS)[number]> = {
         spots={[]}
         panels={panels}
         fieldDay={fdStatus}
+        spotsBoard={spotsBoard}
+        neededBoard={neededBoard}
       />,
     ),
 }
 
-/** The TX-enable latch as CockpitHeader labels it. `radio.txEnabled` is true and
- *  `transmitting` false in this fixture, so it reads "▼ TX On"; the disarmed face is matched
+/** The TX-enable latch as the TX strip labels it — FT's words since 2026-10-01 (it was
+ *  "▼ TX On" / "■ TX Off" in the cockpit header). `radio.txEnabled` is true and `transmitting`
+ *  false in this fixture, so it reads "TX On"; the disarmed face is matched
  *  too, so a fixture flip cannot make the sweep silently stop finding the control.
  *
  *  IT IS A STOP CONTROL IN THESE TWO COCKPITS AND NOWHERE ELSE, which is why it appears only
@@ -500,10 +517,10 @@ const cw: Case<(typeof CW_PANEL_IDS)[number]> = {
  *  either into flush + rig.ptt(false) while an over is in flight. It deliberately does NOT arm
  *  `slot_tx_abort`, so in Operate the same handler lets the FT over complete — that is the
  *  operator's 2026-07-31 ruling, and it is why Operate's TX On/Off is NOT on any stop list.
- *  CockpitHeader draws the latch as a BUTTON only while `radio.transmitting` is false; that
+ *  The strip draws the latch as a BUTTON only while `radio.transmitting` is false; that
  *  flag is the slot-TX indicator alone (RTTY/SSTV report through rtty_sending/sstv_sending),
  *  so it is still a button through every RTTY and SSTV over. */
-const TX_LATCH: [string, RegExp] = ['TX-enable latch', /^▼ tx on$|^■ tx off$/i]
+const TX_LATCH: [string, RegExp] = ['TX-enable latch', /^tx on$|^tx off$/i]
 
 const rtty: Case<(typeof RTTY_PANEL_IDS)[number]> = {
   cockpit: 'RTTY',
@@ -616,7 +633,16 @@ const phoneDual: Case<(typeof PHONE_PANEL_IDS)[number]> = {
   cockpit: 'Phone with a Sub receiver',
   render: (panels) =>
     render(
-      <PhoneCockpit snap={dualSnap} theme="dark" onWorkSpot={() => {}} spots={[]} panels={panels} fieldDay={fdStatus} />,
+      <PhoneCockpit
+        snap={dualSnap}
+        theme="dark"
+        onWorkSpot={() => {}}
+        spots={[]}
+        panels={panels}
+        fieldDay={fdStatus}
+        spotsBoard={spotsBoard}
+        neededBoard={neededBoard}
+      />,
     ),
 }
 const cwDual: Case<(typeof CW_PANEL_IDS)[number]> = {
@@ -624,7 +650,16 @@ const cwDual: Case<(typeof CW_PANEL_IDS)[number]> = {
   cockpit: 'CW with a Sub receiver',
   render: (panels) =>
     render(
-      <CwCockpit snap={dualSnap} theme="dark" onWorkSpot={() => {}} spots={[]} panels={panels} fieldDay={fdStatus} />,
+      <CwCockpit
+        snap={dualSnap}
+        theme="dark"
+        onWorkSpot={() => {}}
+        spots={[]}
+        panels={panels}
+        fieldDay={fdStatus}
+        spotsBoard={spotsBoard}
+        neededBoard={neededBoard}
+      />,
     ),
 }
 
@@ -637,6 +672,21 @@ async function settle() {
   })
 }
 
+/** Each stop control on the screen, by label: the buttons `screen.queryAllByRole('button', { name })`
+ *  finds for its name, in the same order. That query works out the accessible name of every button
+ *  on the screen before it matches one, so a query per control worked out the same names once per
+ *  control. Here one query works them out once, and each control's name is matched against them. */
+function stopsOnScreen(controls: Array<[label: string, name: RegExp]>): Map<string, HTMLButtonElement[]> {
+  const names = new Map<Element, string>()
+  const all = screen.queryAllByRole('button', {
+    name: (accessible, el) => {
+      names.set(el, accessible)
+      return controls.some(([, name]) => name.test(accessible))
+    },
+  }) as HTMLButtonElement[]
+  return new Map(controls.map(([label, name]) => [label, all.filter((e) => name.test(names.get(e)!))]))
+}
+
 describe('the stop line, computed against the real cockpits', () => {
   it.each(CASES.map((c) => [c.cockpit, c] as const))(
     '%s: no ⊞ panel id gates any control that stops a transmission',
@@ -647,14 +697,14 @@ describe('the stop line, computed against the real cockpits', () => {
       // when idle: RTTY's and SSTV's Stop are dead until `sending`. That is a property of
       // the transmitter, not of the ⊞ menu, which is exactly why the baseline is the
       // comparison rather than `disabled === false`.)
-      const found = (name: RegExp) => screen.queryAllByRole('button', { name })
       // Explicit <string>: an empty literal would infer `never` and fail the case's own
       // PanelLayoutApi<P>.
       c.render(panelsWith<string>([]))
       await settle()
+      const shown = stopsOnScreen(c.stopControls)
       const baseline = new Map(
-        c.stopControls.map(([label, name]) => {
-          const els = found(name) as HTMLButtonElement[]
+        c.stopControls.map(([label]) => {
+          const els = shown.get(label)!
           expect(
             els.length,
             `${c.cockpit}: "${label}" is not on screen with every panel SHOWN — the sweep ` +
@@ -672,8 +722,9 @@ describe('the stop line, computed against the real cockpits', () => {
       for (const removed of combos) {
         c.render(panelsWith(removed))
         await settle()
-        for (const [label, name] of c.stopControls) {
-          const els = found(name) as HTMLButtonElement[]
+        const on = stopsOnScreen(c.stopControls)
+        for (const [label] of c.stopControls) {
+          const els = on.get(label)!
           expect(
             els.length,
             `${c.cockpit}: hiding {${removed.join(', ')}} took "${label}" with it — the ` +
@@ -688,6 +739,11 @@ describe('the stop line, computed against the real cockpits', () => {
         cleanup()
       }
     },
+    // A budget for real work (2026-10-02): eleven fresh mounts for Phone, each followed by one
+    // accessible-name pass over every button, and Phone, the first case, also pays the file's
+    // first render. It took 0.55 s alone, 2.6 s in the full suite, 3.0 s at a fifth of a CPU
+    // and 5.9 s at a tenth, past the 5 s default.
+    20_000,
   )
 
   it('the two Sub-receiver cases really draw a SUB row — else they would sweep a copy of their twin', async () => {
@@ -695,6 +751,18 @@ describe('the stop line, computed against the real cockpits', () => {
       c.render(panelsWith<string>([]))
       await settle()
       expect(document.querySelector('[data-receiver="sub"]'), `${c.cockpit}: no SUB row`).not.toBeNull()
+      cleanup()
+    }
+  })
+
+  it('Phone’s and CW’s two feeds are on screen with nothing hidden — else hiding them would sweep nothing', async () => {
+    for (const c of [phone, cw, phoneDual, cwDual] as Array<Case<any>>) {
+      c.render(panelsWith<string>([]))
+      await settle()
+      for (const id of ['spots', 'needed']) {
+        expect(c.ids, `${c.cockpit}: "${id}" left the vocabulary`).toContain(id)
+        expect(document.querySelector(`[data-pane="${id}"]`), `${c.cockpit}: the ${id} pane is not on screen`).not.toBeNull()
+      }
       cleanup()
     }
   })
@@ -718,10 +786,25 @@ describe('the stop line, computed against the real cockpits', () => {
       // Connect has a ⊞ vocabulary (its seven slots) and NO transmit control of any kind, so
       // there is no stop to lose — what is swept is the property that remains meaningful:
       // closing a pane, singly and all at once, leaves every control outside the panes on
-      // screen (the map toolbar, the header). The TopBar's TX cluster is outside the view.
+      // screen (the map toolbar, the header).
+      // ⚠️ CONNECT IS THE STOP LINE'S ONE RULED EXCEPTION. App draws no top bar there, so there is
+      // no Stop TX on Connect at all — the operator, 2026-10-01: "remove all radio control from
+      // connect, reclaim that space". Transmit on Connect is stopped by Esc or by leaving the
+      // screen; stop-control-wiring.test.tsx holds Esc to halt_tx on Connect and every OTHER screen
+      // to the bar. Nothing here is loosened for any other cockpit or screen by it.
       connect:
         'ConnectView.panes.test.tsx — "hiding every pane leaves every control outside the ' +
-        'panes on screen" (Connect renders no transmit control; PRESENCE-ONLY, by name)',
+        'panes on screen" (Connect renders no transmit control; PRESENCE-ONLY, by name); and ' +
+        'the ruled exception ("remove all radio control from connect, reclaim that space"): no top ' +
+        'bar on Connect, Esc sends halt_tx there — stop-control-wiring.test.tsx',
+      // The dashboard rail's four slots. The rail is a sibling of the cockpit in App's shell and
+      // renders no transmit control; what is swept is that it costs no cockpit a stop control:
+      // with the rail on, every control on each cockpit's list below is on screen, no more disabled
+      // than with it off, and not inside the rail — in the real App, every operating cockpit.
+      dashrail:
+        'DashRail.stopLine.test.tsx — every operating cockpit\'s stop-line list, rail off vs on ' +
+        '(PRESENCE + DISABLED, by name, not layout); DashRail.test.tsx — no transmit control in the ' +
+        'rail, every box in the registry placed in it',
     }
     const here = new Set(CASES.map((c) => c.view))
     for (const vocab of ALL_PANEL_VOCABULARIES) {
@@ -739,6 +822,105 @@ describe('the stop line, computed against the real cockpits', () => {
       expect([...c.ids], `${c.cockpit} sweeps a stale id list`).toEqual([...vocab!.panelIds])
     }
   })
+})
+
+// ── THE ARRANGEMENT SWEEP (layout L3) ──────────────────────────────────────────────────────────
+// ⊞ Arrange can put a cockpit's panes in any column and any order, so the stop line has to hold under
+// every arrangement too, not only the stock one: for each cockpit whose vocabulary ARRANGES, 50 random
+// valid placements (seeded — a red names a reproducible placement), each with every id hidden singly
+// and all at once, every listed stop control on screen by accessible name and no more disabled than
+// with nothing hidden in the stock arrangement. Half the placements are built the way the menu builds
+// them (random moves); half are hand-edited junk pushed through the record's own coercion, which is
+// the path a stored or foreign record takes. What makes this hold is structural — the controls are in
+// the header and the dock, which no placement can reach, and a stop control has no id to place — so
+// this is the computation of that, and it proves the placements reached the region (a sweep that
+// rendered the stock grouping 50 times would prove nothing).
+function rng(seed: number) {
+  let a = seed >>> 0
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** `n` placements of `spec`: menu-built (random moves) and coerced junk, alternately. */
+function randomPlacements<P extends string>(spec: ArrangeSpec<P>, n: number, seed: number): Array<PanePlacement<P>> {
+  const next = rng(seed)
+  const ids = arrangeIds(spec)
+  const pick = <T,>(xs: readonly T[]) => xs[Math.floor(next() * xs.length)]
+  const out: Array<PanePlacement<P>> = []
+  while (out.length < n) {
+    if (out.length % 2 === 0) {
+      let place: PanePlacement<P> | undefined
+      for (let k = 1 + Math.floor(next() * 14); k > 0; k--) {
+        place = movePane(spec, place, undefined, pick(ids), pick(['up', 'down', 'left', 'right'] as PaneMove[]), () => true) ?? place
+      }
+      if (place) out.push(place)
+    } else {
+      const raw: Record<string, unknown> = {}
+      for (const id of [...ids, 'ptt', 'stopTx', 'scope', 'txmeters']) {
+        if (next() < 0.7) raw[id] = { col: pick(['a', 'b', 'log', 'c']), order: Math.floor(next() * 9) - 2 }
+      }
+      const place = coercePlacement(spec, raw)
+      if (place) out.push(place)
+    }
+  }
+  return out
+}
+
+describe('THE ARRANGEMENT SWEEP: no placement of the panes gates a control that stops a transmission', () => {
+  // One case per arranging vocabulary (the first; the Sub-receiver twins change no placement, and
+  // each pass is 550 renders).
+  const ARRANGING = CASES.filter(
+    (c, i) => ALL_PANEL_VOCABULARIES.find((v) => v.view === c.view)?.arrange && CASES.findIndex((d) => d.view === c.view) === i,
+  )
+
+  it('some cockpit arranges, so this sweep is reading something', () => {
+    expect(ARRANGING.map((c) => c.view)).toContain('phone')
+  })
+
+  it.each(ARRANGING.map((c) => [c.cockpit, c] as const))(
+    '%s: 50 random placements, every id hidden singly and all at once, every stop control where it was',
+    async (_name, c) => {
+      const spec = ALL_PANEL_VOCABULARIES.find((v) => v.view === c.view)!.arrange! as ArrangeSpec<string>
+      const order = () => [...document.querySelectorAll('.cockpit-panes .pane-frame')].map((f) => f.getAttribute('data-pane'))
+      c.render(panelsWith<string>([]))
+      await settle()
+      const stock = order()
+      const shown = stopsOnScreen(c.stopControls)
+      const baseline = new Map(c.stopControls.map(([label]) => [label, shown.get(label)!.some((e) => !e.disabled)]))
+      cleanup()
+      let differs = 0
+      const placements = randomPlacements(spec, 50, 20260929)
+      expect(placements.length).toBe(50)
+      for (const [i, place] of placements.entries()) {
+        const combos: Array<readonly string[]> = [[], ...c.ids.map((id: string) => [id]), [...c.ids]]
+        for (const removed of combos) {
+          c.render(panelsWith(removed, place))
+          await settle()
+          if (removed.length === 0 && order().join() !== stock.join()) differs++
+          const on = stopsOnScreen(c.stopControls)
+          for (const [label] of c.stopControls) {
+            const els = on.get(label)!
+            const where = `${c.cockpit}, placement #${i} ${JSON.stringify(place)}, hiding {${removed.join(', ')}}`
+            expect(els.length, `${where} took "${label}" with it`).toBeGreaterThan(0)
+            expect(els.some((e) => !e.disabled), `${where} left "${label}" on screen but DISABLED`).toBe(baseline.get(label))
+          }
+          cleanup()
+        }
+      }
+      // The placements reached the region: most of them render in an order the stock one does not.
+      expect(differs, `${c.cockpit}: the random placements left the region in its stock order — the sweep is reading nothing`).toBeGreaterThan(20)
+    },
+    // A budget for real work (2026-10-02): 550 fresh mounts a pass, each followed by one
+    // accessible-name pass over every button, and the time grows in step with the CPU share.
+    // Phone took 15 s alone, 57 s in the full suite, 83 s at a fifth of a CPU and 160 s at a
+    // tenth; CW 17 s alone and 90 s at a fifth. Only one of Phone's 50 placements repeats, so
+    // there is no repeated render left to skip.
+    240_000,
+  )
 })
 
 describe('RTTY: the macro editor never stands between the operator and a stop', () => {
@@ -841,5 +1023,54 @@ describe('RTTY: the macro editor never stands between the operator and a stop', 
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(rttyStop()).toHaveBeenCalled()
     expect(haltTx()).toHaveBeenCalled()
+  })
+})
+
+// ── ESC, NAMED ON EVERY SCREEN ─────────────────────────────────────────────────────────────────
+// Esc is the stop the keyboard holds, on every screen the operator transmits from and on
+// Satellites (N71, 2026-10-01; N66 measured it missing on Tempo, SSTV and APRS, Phone's stopping
+// only its voice keyer, and Satellites with no stop at all). This file cannot press it: it finds
+// controls by accessible name, and five of these screens' Esc is bound by App, which no
+// cockpit-level render contains. So each screen is NAMED here with what binds its Esc, and the
+// list is computed against the registry: a section the operator can transmit from that is not
+// named here goes red, whatever anybody remembers. Every one is PRESSED, with a real keydown, in
+// stop-control-wiring.test.tsx ("Esc on every screen in the registry"), which mounts the real App
+// over a fake bridge and asserts the exact commands that left the UI; that census must name each
+// one too, so the two lists cannot drift apart. The hosted page's Esc is pressed in
+// remote-web/remote-stop-line.test.tsx.
+describe('Esc is a stop on every operating screen and on Satellites', () => {
+  const ESC: Record<string, string> = {
+    operate: 'OperateCockpit, on the shared capture listener (useEscStop) while on show → App handleHaltTx (halt_tx)',
+    cw: 'CwCockpit, on the shared capture listener → the abort() its Stop TX calls (stop_cw, halt_tx)',
+    rtty: 'RttyCockpit, on the shared capture listener → stop() (rtty_stop, halt_tx); an open F-key editor closes instead while nothing is on the air',
+    psk: 'PskCockpit, as RTTY (psk_stop, halt_tx)',
+    js8: 'Js8Cockpit, on the shared capture listener → stop() (halt_tx)',
+    chat: 'App, while Tempo is on show → handleHaltTx, the top bar Stop TX on this screen (halt_tx)',
+    phone: 'App, while Phone is on show → handleHaltTx (halt_tx, as its header Stop TX); the voice keyer also stops itself',
+    sstv: 'App, while SSTV is on show → handleHaltTx (halt_tx, as its header Stop TX)',
+    aprs: 'App, while APRS is on show → handleHaltTx (halt_tx); APRS draws no stop control',
+    sats: 'App, while Satellites is on show → handleHaltTx (halt_tx); Satellites draws no stop control',
+  }
+  // Filed under Operate in the registry and never transmit: manager views that do not touch the rig.
+  const NEVER_TRANSMIT = ['memories', 'program']
+
+  it('every section the operator transmits from, and Satellites, is named with what binds its Esc', () => {
+    const operating = sectionFeatures()
+      .filter((f) => f.category === 'Operate' && !NEVER_TRANSMIT.includes(f.id))
+      .map((f) => f.id as string)
+    expect(operating.length, 'control: the registry has operating sections').toBeGreaterThan(5)
+    expect(Object.keys(ESC).sort()).toEqual([...operating, 'sats'].sort())
+  })
+
+  it('…and the wire census presses Esc on each of them, expecting a stop', () => {
+    const wiring = readFileSync(resolve(__dirname, '../stop-control-wiring.test.tsx'), 'utf8')
+    const census = wiring.slice(wiring.indexOf('const ESC_SCREENS'))
+    expect(census.length, 'control: the census is in the wiring suite').toBeLessThan(wiring.length)
+    for (const view of Object.keys(ESC)) {
+      expect(
+        census.includes(`view: '${view}'`),
+        `${view}: the wiring census does not press Esc on it`,
+      ).toBe(true)
+    }
   })
 })

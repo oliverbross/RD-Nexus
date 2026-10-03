@@ -80,6 +80,7 @@
       "resources/neural-dx/*": "resources/neural-dx/",
       "resources/openhamclock/*": "resources/openhamclock/",
       "../licenses/remote/*": "resources/remote/",
+      "../licenses/stream/*": "resources/stream/",
       "../licenses/openssl/*": "resources/openssl/",
       "../COPYING": "COPYING",
       "../NOTICE": "NOTICE"

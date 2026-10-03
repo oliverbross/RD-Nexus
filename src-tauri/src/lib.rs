@@ -496,6 +496,9 @@ type Kc2gCache = Arc<Mutex<Option<(std::time::Instant, Vec<propagation::MufStati
 type ProtonCache = Arc<Mutex<Option<(std::time::Instant, propagation::live::protons::ProtonFlux)>>>;
 /// TTL cache for the NOAA planetary-K outlook (the three-day forecast).
 type KpForecastCache = Arc<Mutex<Option<(std::time::Instant, propagation::KpForecast)>>>;
+/// TTL cache for NOAA's daily solar indices (thirty days of SFI + sunspot number). Distinct
+/// payload type → distinct TypeId for `.manage()`.
+type SolarIndicesCache = Arc<Mutex<Option<(std::time::Instant, propagation::DailySolarIndices)>>>;
 /// TTL cache for the NOAA R/S/G scales + recent SWPC alerts (one fetch pair).
 /// Distinct payload type → distinct TypeId for `.manage()`.
 type ScalesCache = Arc<
@@ -4084,6 +4087,7 @@ mod logbook_startup_tests {
             "start_cluster_feeds(",
             "start_pskr_feed(",
             "sync_rotctld(",
+            "supervise_rotctld(",
             "build_app(",
         ] {
             assert!(
@@ -5443,15 +5447,216 @@ fn journal_assistance(settings: &tempo_app::settings::Settings, note: &str, forc
         let excess = log.len() - ASSISTANCE_JOURNAL_CAP;
         log.drain(..excess);
     }
-    if let Ok(text) = serde_json::to_string(&*log) {
-        let path = assistance_journal_path();
+    write_assistance_journal(&assistance_journal_path(), &log);
+}
+
+/// The assistance journal at `path` for the launch: its rows, or none when there is no file, or
+/// one this build cannot read. That one is kept aside ([`tempo_core::keep_aside`]), because the
+/// launch journals its own row at once and would write over the record.
+fn restore_assistance_journal(path: &Path, now: i64) -> Vec<AssistanceEvent> {
+    tempo_core::keep_aside::read_or_keep("assistance", path, now, |text| {
+        serde_json::from_str::<Vec<AssistanceEvent>>(text).map_err(|e| e.to_string())
+    })
+    .unwrap_or_default()
+}
+
+/// Write the assistance journal to `path` (atomic tmp+rename, best-effort), unless the file there
+/// is one this run could not read and could not move aside: the record in it is never written
+/// over.
+fn write_assistance_journal(path: &Path, log: &[AssistanceEvent]) {
+    if tempo_core::keep_aside::refuses(path) {
+        return;
+    }
+    if let Ok(text) = serde_json::to_string(log) {
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let tmp = path.with_extension("json.tmp");
         if std::fs::write(&tmp, text).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
+            let _ = std::fs::rename(&tmp, path);
         }
+    }
+}
+
+#[cfg(test)]
+mod assistance_journal_tests {
+    //! The assistance journal on the launch's read and the journal's own write, when the file
+    //! there cannot be read: kept, byte for byte, under a dated name and never written over, and
+    //! named for the screen. A journal whose only news is fields, and no journal, read as they
+    //! always have.
+    use super::*;
+    use tempo_core::keep_aside::Kept;
+
+    /// 2026-09-30 14:22:33 UTC.
+    const NOW: i64 = 1_790_778_153;
+    const ASIDE: &str = "assistance_journal.unreadable-20260930-142233.json";
+
+    fn scratch(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nexus-assist-{label}-{nanos}"));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    /// Every file in `dir` whose bytes are exactly `bytes`.
+    fn holding(dir: &Path, bytes: &[u8]) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| std::fs::read(p).ok().as_deref() == Some(bytes))
+            .collect();
+        found.sort();
+        found
+    }
+
+    fn kept_under(dir: &Path) -> Vec<Kept> {
+        tempo_core::keep_aside::kept()
+            .into_iter()
+            .filter(|k| k.path.starts_with(dir))
+            .collect()
+    }
+
+    fn row(note: &str) -> AssistanceEvent {
+        AssistanceEvent {
+            ts_unix: 1_790_000_000,
+            unassisted: true,
+            sources: vec![AssistanceSourceState {
+                name: "DX cluster".into(),
+                active: false,
+            }],
+            note: note.into(),
+        }
+    }
+
+    /// The record as this build writes it: one row.
+    fn a_journal() -> String {
+        serde_json::to_string(&vec![row("UNASSISTED entry declared by the operator")]).unwrap()
+    }
+
+    /// An unreadable record is kept, byte for byte, beside the new one; the launch's own row,
+    /// written the moment it starts, makes a new record and does not touch the kept one.
+    fn assert_kept(what: &str, bytes: Vec<u8>) {
+        let dir = scratch("kept");
+        let path = dir.join("assistance_journal.json");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let mut log = restore_assistance_journal(&path, NOW);
+        assert!(log.is_empty(), "{what}: nothing is read out of it");
+        log.push(row("Nexus started"));
+        write_assistance_journal(&path, &log);
+
+        assert_eq!(
+            holding(&dir, &bytes),
+            vec![dir.join(ASIDE)],
+            "{what}: the unreadable record must survive the launch's own row, byte for byte, moved aside"
+        );
+        assert_eq!(
+            kept_under(&dir),
+            vec![Kept {
+                store: "assistance",
+                path: dir.join(ASIDE),
+                kept_in_place: false,
+            }],
+            "{what}: the screen is told where it is"
+        );
+        assert_eq!(
+            restore_assistance_journal(&path, NOW + 1).len(),
+            1,
+            "{what}: the new record is this build's"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_assistance_journal_cut_short_is_kept_and_never_written_over() {
+        let whole = a_journal().into_bytes();
+        assert_kept("cut short", whole[..whole.len() * 3 / 5].to_vec());
+    }
+
+    /// A value this build does not know: a source state a later build could record.
+    #[test]
+    fn an_assistance_journal_with_a_value_this_build_does_not_know_is_kept_and_never_written_over()
+    {
+        let unknown = a_journal().replacen("\"active\":false", "\"active\":\"partly\"", 1);
+        assert!(
+            unknown.contains("partly"),
+            "the fixture must carry the unknown value"
+        );
+        assert_kept("an unknown value", unknown.into_bytes());
+    }
+
+    /// A record that cannot be moved aside (every dated name taken, in a folder the writer can
+    /// write to) is never written over.
+    #[test]
+    fn an_assistance_journal_that_cannot_be_moved_is_never_written_over() {
+        let dir = scratch("stuck");
+        let path = dir.join("assistance_journal.json");
+        let bytes = b"[{\"tsUnix\":1790000000,\"unassisted\"".to_vec();
+        std::fs::write(&path, &bytes).unwrap();
+        std::fs::write(dir.join(ASIDE), b"taken").unwrap();
+        for n in 2..=100 {
+            std::fs::write(
+                dir.join(format!(
+                    "assistance_journal.unreadable-20260930-142233-{n}.json"
+                )),
+                b"taken",
+            )
+            .unwrap();
+        }
+        let mut log = restore_assistance_journal(&path, NOW);
+        log.push(row("Nexus started"));
+        write_assistance_journal(&path, &log);
+        assert_eq!(
+            std::fs::read(&path).ok(),
+            Some(bytes),
+            "the unreadable record must never be written over"
+        );
+        assert_eq!(
+            kept_under(&dir),
+            vec![Kept {
+                store: "assistance",
+                path: path.clone(),
+                kept_in_place: true,
+            }],
+            "the screen is told it was left in place"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn an_assistance_journal_whose_only_news_is_fields_reads_as_it_always_has() {
+        let dir = scratch("fields");
+        let path = dir.join("assistance_journal.json");
+        let journal = a_journal().replacen("{", "{\"aNewField\":7,", 1);
+        assert!(journal.contains("aNewField"));
+        std::fs::write(&path, &journal).unwrap();
+        assert_eq!(
+            (
+                restore_assistance_journal(&path, NOW).len(),
+                kept_under(&dir)
+            ),
+            (1, vec![]),
+            "read as it always has, with nothing to say"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn no_assistance_journal_is_a_first_run() {
+        let dir = scratch("none");
+        let path = dir.join("assistance_journal.json");
+        assert_eq!(
+            (
+                restore_assistance_journal(&path, NOW).len(),
+                kept_under(&dir)
+            ),
+            (0, vec![]),
+            "no record: nothing read and nothing to say"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
 
@@ -5905,7 +6110,192 @@ fn write_json_atomic(path: &std::path::Path, text: &str) -> bool {
 
 /// Atomically write the conversation JSON (see [`write_json_atomic`]).
 fn write_conversations_atomic(text: &str) -> bool {
-    write_json_atomic(&conversations_path(), text)
+    write_conversations_at(&conversations_path(), text)
+}
+
+/// [`write_conversations_atomic`] at `path`, unless the file there is one this run could not read
+/// and could not move aside: the threads in it are never written over.
+fn write_conversations_at(path: &Path, text: &str) -> bool {
+    !tempo_core::keep_aside::refuses(path) && write_json_atomic(path, text)
+}
+
+/// The Tempo conversation threads at `path` for the launch. `None` when there is no file, and when
+/// there is one this build cannot read, which is kept aside ([`tempo_core::keep_aside`]): the
+/// threads' own saver would otherwise write the empty roster over it moments after the launch.
+fn restore_conversations(path: &Path, now: i64) -> Option<Vec<tempo_app::dto::Conversation>> {
+    tempo_core::keep_aside::read_or_keep("conversations", path, now, |text| {
+        serde_json::from_str::<Vec<tempo_app::dto::Conversation>>(text).map_err(|e| e.to_string())
+    })
+}
+
+#[cfg(test)]
+mod conversations_file_tests {
+    //! The Tempo conversation threads on the launch's read and the threads' own write, when the
+    //! file there cannot be read: kept, byte for byte, under a dated name and never written over,
+    //! and named for the screen. A file whose only news is fields, and no file, read as they
+    //! always have.
+    use super::*;
+    use tempo_core::keep_aside::Kept;
+
+    /// 2026-09-30 14:22:33 UTC.
+    const NOW: i64 = 1_790_778_153;
+    const ASIDE: &str = "conversations.unreadable-20260930-142233.json";
+
+    fn scratch(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nexus-convs-{label}-{nanos}"));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    /// Every file in `dir` whose bytes are exactly `bytes`.
+    fn holding(dir: &Path, bytes: &[u8]) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| std::fs::read(p).ok().as_deref() == Some(bytes))
+            .collect();
+        found.sort();
+        found
+    }
+
+    fn kept_under(dir: &Path) -> Vec<Kept> {
+        tempo_core::keep_aside::kept()
+            .into_iter()
+            .filter(|k| k.path.starts_with(dir))
+            .collect()
+    }
+
+    /// The threads as this build writes them: one thread, one message, from W1ABC.
+    const THREADS: &str = r#"[{"peer":"W1ABC","messages":[{"from":"W1ABC","to":"K2DEF","text":"hello from the shack","slot":5,"directedToMe":true,"outbound":false,"snr":-10,"freqHz":1500.0,"dtSec":0.1,"tier":"TempoFast"}]}]"#;
+
+    fn peers(convs: &Option<Vec<tempo_app::dto::Conversation>>) -> Option<Vec<String>> {
+        convs
+            .as_ref()
+            .map(|c| c.iter().map(|t| t.peer.clone()).collect())
+    }
+
+    /// An unreadable file is kept, byte for byte, beside the new one; the threads' saver,
+    /// whose first pass writes the roster moments after the launch, makes a new file and does
+    /// not touch the kept one.
+    fn assert_kept(what: &str, bytes: Vec<u8>) {
+        let dir = scratch("kept");
+        let path = dir.join("conversations.json");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let restored = restore_conversations(&path, NOW);
+        assert_eq!(peers(&restored), None, "{what}: nothing is read out of it");
+        assert!(
+            write_conversations_at(&path, "[]"),
+            "{what}: the saver writes a new file"
+        );
+
+        assert_eq!(
+            holding(&dir, &bytes),
+            vec![dir.join(ASIDE)],
+            "{what}: the unreadable threads must survive the saver's first pass, byte for byte, moved aside"
+        );
+        assert_eq!(
+            kept_under(&dir),
+            vec![Kept {
+                store: "conversations",
+                path: dir.join(ASIDE),
+                kept_in_place: false,
+            }],
+            "{what}: the screen is told where it is"
+        );
+        assert_eq!(
+            peers(&restore_conversations(&path, NOW + 1)),
+            Some(vec![]),
+            "{what}: the new file is this build's"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn conversations_cut_short_are_kept_and_never_written_over() {
+        let whole = THREADS.as_bytes();
+        assert_kept("cut short", whole[..whole.len() * 3 / 5].to_vec());
+    }
+
+    /// A value this build does not know: a waveform tier from a later build.
+    #[test]
+    fn conversations_with_a_value_this_build_does_not_know_are_kept_and_never_written_over() {
+        let unknown = THREADS.replacen("\"tier\":\"TempoFast\"", "\"tier\":\"TempoUltra\"", 1);
+        assert!(
+            unknown.contains("TempoUltra"),
+            "the fixture must carry the unknown value"
+        );
+        assert_kept("an unknown value", unknown.into_bytes());
+    }
+
+    /// A file that cannot be moved aside (every dated name taken, in a folder the saver can write
+    /// to) is never written over.
+    #[test]
+    fn conversations_that_cannot_be_moved_are_never_written_over() {
+        let dir = scratch("stuck");
+        let path = dir.join("conversations.json");
+        let bytes = b"[{\"peer\":\"W1ABC\",\"messages\":[".to_vec();
+        std::fs::write(&path, &bytes).unwrap();
+        std::fs::write(dir.join(ASIDE), b"taken").unwrap();
+        for n in 2..=100 {
+            std::fs::write(
+                dir.join(format!("conversations.unreadable-20260930-142233-{n}.json")),
+                b"taken",
+            )
+            .unwrap();
+        }
+        assert_eq!(peers(&restore_conversations(&path, NOW)), None);
+        let wrote = write_conversations_at(&path, "[]");
+        assert_eq!(
+            std::fs::read(&path).ok(),
+            Some(bytes),
+            "the unreadable threads must never be written over"
+        );
+        assert!(!wrote, "the saver is told its write did not happen");
+        assert_eq!(
+            kept_under(&dir),
+            vec![Kept {
+                store: "conversations",
+                path: path.clone(),
+                kept_in_place: true,
+            }],
+            "the screen is told it was left in place"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn conversations_whose_only_news_is_fields_read_as_they_always_have() {
+        let dir = scratch("fields");
+        let path = dir.join("conversations.json");
+        let threads = THREADS
+            .replacen("{\"peer\"", "{\"aNewField\":7,\"peer\"", 1)
+            .replacen("\"slot\"", "\"aNewMessageField\":true,\"slot\"", 1);
+        assert!(threads.contains("aNewMessageField"));
+        std::fs::write(&path, &threads).unwrap();
+        assert_eq!(
+            (peers(&restore_conversations(&path, NOW)), kept_under(&dir)),
+            (Some(vec!["W1ABC".to_string()]), vec![]),
+            "read as they always have, with nothing to say"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn no_conversations_file_is_a_first_run() {
+        let dir = scratch("none");
+        let path = dir.join("conversations.json");
+        assert_eq!(
+            (peers(&restore_conversations(&path, NOW)), kept_under(&dir)),
+            (None, vec![]),
+            "no file: no threads and nothing to say"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 /// The durable UI-state store: `ui-state.json`, a SIBLING of settings.json inside the current
@@ -12315,6 +12705,46 @@ async fn get_kp_forecast(
     }
 }
 
+/// NOAA's daily solar indices — thirty days of solar flux and sunspot number, for the Space Wx
+/// box's SSN and its trend lines. Display only: nothing here reaches the propagation model,
+/// whose sunspot input is the smoothed R12 (`LAST_SSN`), a different quantity.
+///
+/// Cached an hour: SWPC issues the file about once a day, and an hourly read picks up a new day
+/// within the hour for ~3 KB. Serves the last good copy on a failed fetch and an EMPTY one if
+/// there never was one — never fabricated. The copy stays honest however long the fetch keeps
+/// failing, because every row carries its own date: the box says how old the newest day is.
+#[tauri::command]
+async fn get_solar_indices(
+    cache: State<'_, SolarIndicesCache>,
+) -> Result<propagation::DailySolarIndices, String> {
+    const SOLAR_INDICES_TTL_SECS: u64 = 3600;
+    {
+        let g = cache.lock().map_err(|e| e.to_string())?;
+        if let Some((when, v)) = g.as_ref() {
+            if when.elapsed().as_secs() < SOLAR_INDICES_TTL_SECS {
+                return Ok(v.clone());
+            }
+        }
+    }
+    // Blocking HTTP: on the blocking pool (see `get_aurora`).
+    let fetched =
+        tauri::async_runtime::spawn_blocking(propagation::live::swpc::fetch_daily_solar_indices)
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+    match fetched {
+        Ok(v) => {
+            if let Ok(mut g) = cache.lock() {
+                *g = Some((std::time::Instant::now(), v.clone()));
+            }
+            Ok(v)
+        }
+        Err(_) => {
+            let g = cache.lock().map_err(|e| e.to_string())?;
+            Ok(g.as_ref().map(|(_, v)| v.clone()).unwrap_or_default())
+        }
+    }
+}
+
 /// Real-time KC2G ionosonde MUF/foF2 station fixes for the Connect map's MUF
 /// overlay. Cached `KC2G_TTL_SECS`; serves the last-good set on a fetch failure,
 /// empty if we never had one (never fabricated).
@@ -13956,11 +14386,42 @@ async fn probe_cat_ports(
     }
 }
 
-/// The spawned rotctld daemon (integrated rotator) + the params it was
-/// spawned with, so a settings change respawns only when something changed.
+/// The params the integrated rotctld is spawned with (model, serial port, baud, TCP port), so a
+/// settings change respawns only when something changed.
 type RotctldParams = (u32, String, u32, u16);
-static ROTCTLD: Mutex<Option<(tempo_audio::rigctld_proc::RigctldProc, RotctldParams)>> =
-    Mutex::new(None);
+
+/// The integrated rotctld, and what its supervisor remembers between reconciles.
+struct RotctldOwner {
+    /// The running daemon and the params it was spawned with.
+    daemon: Option<(tempo_audio::rigctld_proc::RigctldProc, RotctldParams)>,
+    /// The params whose start failed and was REPORTED on the Connections log — one line per
+    /// episode, however many times [`rotctld_tick`] tries again. Cleared when a daemon comes up
+    /// or the rotator is unconfigured; a change of params is a new episode.
+    failing: Option<RotctldParams>,
+}
+static ROTCTLD: Mutex<RotctldOwner> = Mutex::new(RotctldOwner {
+    daemon: None,
+    failing: None,
+});
+
+/// What one reconcile of the integrated rotctld did — so the supervisor's rules can be held to
+/// in a test, with the real daemon.
+#[derive(Debug, PartialEq, Eq)]
+enum RotctldSync {
+    /// Running with the right params; nothing done.
+    Running,
+    /// A daemon was started and was still there after its first moment.
+    Started,
+    /// A start failed: the spawn itself, or a daemon that exited at once — what a controller
+    /// that is switched off looks like, because its USB serial port does not exist yet.
+    /// `reported` is whether THIS attempt wrote the Connections line: only an episode's first.
+    StartFailed { reported: bool },
+    /// The daemon was stopped: the rotator was unconfigured, or an external rotctld now
+    /// overrides it.
+    Stopped,
+    /// Nothing configured and nothing running.
+    Idle,
+}
 /// Fallback local port for the integrated daemon — rotctld's own upstream default, used when a
 /// radio profile carries no allocated port (a settings file older than per-radio ports).
 const ROTCTLD_PORT: u16 = 4533;
@@ -14021,14 +14482,81 @@ fn sync_rotctld(engine: &SharedEngine) {
     profile_sync::with_current(
         &ROTCTLD,
         || engine_lock(engine).settings().clone(),
-        |owner, settings| sync_rotctld_owned(owner, &settings),
+        |owner, settings| {
+            sync_rotctld_owned(owner, &settings);
+        },
     );
 }
 
-fn sync_rotctld_owned(
-    g: &mut Option<(tempo_audio::rigctld_proc::RigctldProc, RotctldParams)>,
+/// How often the supervisor starts a configured integrated rotctld that is not running
+/// ([`rotctld_tick`]). Seconds, not a poll: each attempt spawns a process and waits a quarter
+/// second to see it stay up.
+const ROTCTLD_RETRY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Keep a configured integrated rotctld running, on its own.
+///
+/// ⭐ **A controller switched on after Nexus never came online** (a tester's report,
+/// 2026-09-29: macOS, an ARCO Junior on USB, "Error 61" on every command). rotctld EXITS when it
+/// cannot open its port, and a controller that is off has no USB serial port yet; the reconcile
+/// ran only on a Settings save, a radio switch and at startup, so the daemon stayed dead until
+/// one of those happened, and every command met a refused connection. This retries every
+/// [`ROTCTLD_RETRY`] while a rotator is configured and its daemon is not running, through the
+/// same reconcile as a save — so every guarantee it gives holds (never two daemons, the
+/// per-radio port, kill-on-drop) — and says so on the Connections log once per episode, not
+/// once per try. It stops for good when Nexus quits.
+fn supervise_rotctld(engine: SharedEngine) {
+    let spawned = std::thread::Builder::new()
+        .name("rotctld-supervisor".into())
+        .spawn(move || loop {
+            std::thread::sleep(ROTCTLD_RETRY);
+            if tempo_audio::service::SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
+            profile_sync::with_current(
+                &ROTCTLD,
+                || engine_lock(&engine).settings().clone(),
+                |owner, settings| {
+                    rotctld_tick(owner, &settings, tempo_audio::rigctld_proc::spawn_rotctld);
+                },
+            );
+        });
+    if let Err(e) = spawned {
+        conn_log(
+            "Rotator",
+            "error",
+            format!(
+                "could not start the rotator supervisor ({e}) — a controller switched on after \
+                 Nexus will need a Settings save to come online"
+            ),
+        );
+    }
+}
+
+/// One supervisor tick: reconcile only when a daemon is wanted and is not running, so a healthy
+/// daemon costs one lock and one `try_wait`. `None` when there was nothing to do.
+fn rotctld_tick(
+    owner: &mut RotctldOwner,
     st: &Settings,
-) {
+    spawn: impl FnOnce(u32, &str, u32, u16) -> std::io::Result<tempo_audio::rigctld_proc::RigctldProc>,
+) -> Option<RotctldSync> {
+    let want = st.rotator_host.trim().is_empty() && st.rotator_model > 0;
+    let running = owner
+        .daemon
+        .as_mut()
+        .is_some_and(|(proc, _)| proc.is_alive());
+    (want && !running).then(|| reconcile_rotctld(owner, st, spawn))
+}
+
+fn sync_rotctld_owned(owner: &mut RotctldOwner, st: &Settings) -> RotctldSync {
+    reconcile_rotctld(owner, st, tempo_audio::rigctld_proc::spawn_rotctld)
+}
+
+/// The reconcile itself, with the spawn handed in so a test can count its attempts.
+fn reconcile_rotctld(
+    owner: &mut RotctldOwner,
+    st: &Settings,
+    spawn: impl FnOnce(u32, &str, u32, u16) -> std::io::Result<tempo_audio::rigctld_proc::RigctldProc>,
+) -> RotctldSync {
     let want = st.rotator_host.trim().is_empty() && st.rotator_model > 0;
     let params = (
         st.rotator_model,
@@ -14036,15 +14564,18 @@ fn sync_rotctld_owned(
         st.rotator_baud,
         rotctld_port_for(st),
     );
+    // One Connections line per episode: a failure of params already reported is a retry.
+    let report = owner.failing.as_ref() != Some(&params);
+    let g = &mut owner.daemon;
     // Liveness is a `&mut` question (`try_wait`), so it is asked BEFORE the match rather than in
     // a pattern guard. A daemon that died takes the respawn path, which is SAFE here for the
     // same reason the CAT daemon's rebuild is: while it is dead there is no rotator channel to
     // race, no motion is in flight (the mast stopped when the daemon did), and a fresh one is
-    // the only route back. It cannot loop, either — this function runs on a settings save, a
-    // radio switch and at startup, never on a timer.
+    // the only route back. It cannot run away, either: a save, a radio switch and startup call
+    // this, and the supervisor calls it every ROTCTLD_RETRY only while the daemon is down.
     let running = g.as_mut().map(|(proc, p)| (*p == params, proc.is_alive()));
     match (running, want) {
-        (Some((true, true)), true) => {} // running, with the right params
+        (Some((true, true)), true) => RotctldSync::Running, // running, with the right params
         (was, true) => {
             if let (Some((_, false)), Some((proc, _))) = (was, g.as_mut()) {
                 conn_log(
@@ -14059,8 +14590,7 @@ fn sync_rotctld_owned(
             }
             let slot = &mut *g;
             *slot = None; // kill-on-drop reaps a stale daemon first
-            match tempo_audio::rigctld_proc::spawn_rotctld(params.0, &params.1, params.2, params.3)
-            {
+            match spawn(params.0, &params.1, params.2, params.3) {
                 Ok(mut proc) => {
                     let port = params.3;
                     // Give it the moment it takes to fail. A rotctld that cannot open the port
@@ -14083,30 +14613,39 @@ fn sync_rotctld_owned(
                             ),
                         );
                         *slot = Some((proc, params));
+                        owner.failing = None;
+                        RotctldSync::Started
                     } else {
                         // Hamlib's own words, chosen by the same ranker the CAT status pill
                         // uses. They name the actual cause — wrong model, port that is not
                         // there, port already open, a `-C` value it will not parse — and every
                         // one of them was being discarded.
-                        conn_log(
-                            "Rotator",
-                            "error",
-                            tempo_audio::service::with_daemon_error(
-                                format!(
-                                    "rotctld could not start for model {} on {} @ {} — the \
-                                     rotator will not answer. Check the port and that the baud \
-                                     matches what this model needs.",
-                                    params.0,
-                                    if params.1.is_empty() {
-                                        "(no port set)"
-                                    } else {
-                                        &params.1
-                                    },
-                                    params.2
+                        if report {
+                            conn_log(
+                                "Rotator",
+                                "error",
+                                tempo_audio::service::with_daemon_error(
+                                    format!(
+                                        "rotctld could not start for model {} on {} @ {} — the \
+                                         rotator will not answer. Is the controller switched on \
+                                         and plugged in? Nexus keeps trying every {} s. If it \
+                                         is, check the port and that the baud matches what this \
+                                         model needs.",
+                                        params.0,
+                                        if params.1.is_empty() {
+                                            "(no port set)"
+                                        } else {
+                                            &params.1
+                                        },
+                                        params.2,
+                                        ROTCTLD_RETRY.as_secs()
+                                    ),
+                                    &proc.said(),
                                 ),
-                                &proc.said(),
-                            ),
-                        );
+                            );
+                        }
+                        owner.failing = Some(params);
+                        RotctldSync::StartFailed { reported: report }
                     }
                 }
                 Err(e) => {
@@ -14115,11 +14654,15 @@ fn sync_rotctld_owned(
                     // directory (os error 2)" — no cause, no cure — while the rig's rigctld
                     // twin had long named "brew install hamlib" for the identical fault
                     // (mac QA audit, 2026-08-17).
-                    conn_log(
-                        "Rotator",
-                        "error",
-                        tempo_audio::rigctld_proc::hamlib_missing("rotctld", &e),
-                    );
+                    if report {
+                        conn_log(
+                            "Rotator",
+                            "error",
+                            tempo_audio::rigctld_proc::hamlib_missing("rotctld", &e),
+                        );
+                    }
+                    owner.failing = Some(params);
+                    RotctldSync::StartFailed { reported: report }
                 }
             }
         }
@@ -14134,19 +14677,357 @@ fn sync_rotctld_owned(
             };
             conn_log("Rotator", "info", why);
             *g = None;
+            owner.failing = None;
+            RotctldSync::Stopped
         }
-        (None, false) => {}
+        (None, false) => {
+            owner.failing = None;
+            RotctldSync::Idle
+        }
     }
 }
 
-/// Point the antenna rotator at an absolute azimuth (degrees) via rotctld.
+#[cfg(test)]
+mod rotctld_supervisor_tests {
+    //! A rotator controller switched on after Nexus comes online on its own (a tester's report,
+    //! 2026-09-29: macOS, an ARCO Junior on USB, "Error 61" on every command until a Settings
+    //! save). Driven with the REAL rotctld (the dummy model, which needs no serial port): holding
+    //! its TCP port makes the daemon exit at once, exactly as it does when a switched-off
+    //! controller's serial port is missing, and letting the port go is the controller being
+    //! switched on — with no Settings change in between.
+    use super::*;
+    use std::cell::Cell;
+    use std::net::TcpListener;
+    use tempo_app::settings::RadioProfile;
+
+    /// Is there a rotctld to drive? On a box without Hamlib this test would prove nothing, so it
+    /// says so on the real stderr and skips; on GitHub Actions, whose test-tauri job installs
+    /// libhamlib-utils for exactly this, a missing daemon is a failure.
+    fn rotctld_here() -> bool {
+        let found = std::process::Command::new("rotctld")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !found {
+            assert!(
+                std::env::var_os("GITHUB_ACTIONS").is_none_or(|v| v.is_empty()),
+                "no rotctld on PATH, but CI installs libhamlib-utils so this suite is real"
+            );
+            use std::io::Write;
+            let _ = writeln!(
+                std::io::stderr(),
+                "!! NOT RUN, and NOT A PASS: the rotctld supervisor tests need rotctld on PATH"
+            );
+        }
+        found
+    }
+
+    /// A station whose integrated rotctld runs `model` on TCP `port`.
+    fn station(port: u16, model: u32) -> Settings {
+        Settings {
+            rotator_model: model,
+            rotator_host: String::new(),
+            rotator_port: String::new(),
+            active_radio: 0,
+            radios: vec![RadioProfile {
+                id: 0,
+                rotctld_port: port,
+                ..RadioProfile::default()
+            }],
+            ..Settings::default()
+        }
+    }
+
+    fn owner() -> RotctldOwner {
+        RotctldOwner {
+            daemon: None,
+            failing: None,
+        }
+    }
+
+    #[test]
+    fn a_controller_switched_on_later_comes_online_without_a_settings_save() {
+        if !rotctld_here() {
+            return;
+        }
+        let off = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = off.local_addr().expect("its port").port();
+        let st = station(port, 1);
+        let mut owner = owner();
+        let tries = Cell::new(0u32);
+        let spawn = |m: u32, p: &str, b: u32, t: u16| {
+            tries.set(tries.get() + 1);
+            tempo_audio::rigctld_proc::spawn_rotctld(m, p, b, t)
+        };
+
+        // Launch with the controller off: the start fails and the Connections log says so.
+        assert_eq!(
+            reconcile_rotctld(&mut owner, &st, spawn),
+            RotctldSync::StartFailed { reported: true }
+        );
+        // The supervisor tries again on its own — and quietly, once the episode is reported.
+        for _ in 0..2 {
+            assert_eq!(
+                rotctld_tick(&mut owner, &st, spawn),
+                Some(RotctldSync::StartFailed { reported: false })
+            );
+        }
+        assert_eq!(tries.get(), 3);
+
+        // The controller is switched on. The next tick brings the daemon up: same settings.
+        drop(off);
+        assert_eq!(
+            rotctld_tick(&mut owner, &st, spawn),
+            Some(RotctldSync::Started)
+        );
+        assert!(
+            tempo_audio::rotator::read_position(&format!("127.0.0.1:{port}")).is_ok(),
+            "the rotator answers now"
+        );
+        // A daemon that is running is left alone: no spawn, one liveness check.
+        assert_eq!(rotctld_tick(&mut owner, &st, spawn), None);
+        assert_eq!(tries.get(), 4);
+        assert!(owner.failing.is_none(), "the episode is over");
+    }
+
+    #[test]
+    fn a_rotator_unconfigured_or_overridden_stops_the_retries() {
+        if !rotctld_here() {
+            return;
+        }
+        let off = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = off.local_addr().expect("its port").port();
+        let mut owner = owner();
+        let tries = Cell::new(0u32);
+        let spawn = |m: u32, p: &str, b: u32, t: u16| {
+            tries.set(tries.get() + 1);
+            tempo_audio::rigctld_proc::spawn_rotctld(m, p, b, t)
+        };
+        assert_eq!(
+            reconcile_rotctld(&mut owner, &station(port, 1), spawn),
+            RotctldSync::StartFailed { reported: true }
+        );
+
+        // The operator removes the rotator in Settings while its controller is still off: the
+        // save's reconcile ends the episode, and the supervisor never tries again.
+        let removed = station(port, 0);
+        assert_eq!(
+            reconcile_rotctld(&mut owner, &removed, spawn),
+            RotctldSync::Idle
+        );
+        for _ in 0..3 {
+            assert_eq!(rotctld_tick(&mut owner, &removed, spawn), None);
+        }
+        // An external rotctld overriding the model is not the integrated daemon's to start.
+        let mut external = station(port, 1);
+        external.rotator_host = "10.0.0.5:4533".into();
+        assert_eq!(rotctld_tick(&mut owner, &external, spawn), None);
+        assert_eq!(tries.get(), 1, "no attempt after the first");
+
+        // A new failure after that is a new episode, and is reported again.
+        assert_eq!(
+            reconcile_rotctld(&mut owner, &station(port, 1), spawn),
+            RotctldSync::StartFailed { reported: true }
+        );
+        drop(off);
+    }
+
+    #[test]
+    fn a_command_that_reaches_no_rotctld_says_what_to_check() {
+        let gone = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let addr = gone.local_addr().expect("its address").to_string();
+        drop(gone);
+        let refused = || tempo_audio::rotator::stop(&addr).expect_err("nothing is listening");
+        let words = rotator_error(refused(), "");
+        assert!(
+            words.contains("switched on") && !words.contains("os error"),
+            "the integrated daemon's refusal is the controller, in plain words: {words}"
+        );
+        let words = rotator_error(refused(), "10.0.0.5:4533");
+        assert!(words.contains("10.0.0.5:4533"), "{words}");
+        // Any other failure keeps its own words, which already name their cause.
+        let silent =
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "the rotator did not answer");
+        assert_eq!(rotator_error(silent, ""), "the rotator did not answer");
+    }
+
+    #[test]
+    fn the_pane_can_tell_a_silent_controller_from_one_with_no_position() {
+        if !rotctld_here() {
+            return;
+        }
+        // A rotator that answers: its position.
+        let spot = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let port = spot.local_addr().expect("its port").port();
+        drop(spot);
+        let mut owner = owner();
+        assert_eq!(
+            sync_rotctld_owned(&mut owner, &station(port, 1)),
+            RotctldSync::Started
+        );
+        let answering = rotator_state(&format!("127.0.0.1:{port}"));
+        assert_eq!(answering.reading, "position");
+        assert!(answering.az_deg.is_some());
+        // Hamlib's dummy is an az/el rotator, 0–90°, and says so through the real daemon.
+        assert_eq!(answering.el_range, Some(Some([0.0, 90.0])));
+        assert!(answering.el_deg.is_some());
+        drop(owner);
+        // Nothing listening: the controller is off, or rotctld is not running.
+        assert_eq!(
+            rotator_state(&format!("127.0.0.1:{port}")),
+            RotatorStateDto {
+                az_deg: None,
+                reading: "notAnswering",
+                el_deg: None,
+                el_range: None,
+            }
+        );
+        // A backend with no position to give (the Hy-Gain DCU-1 answers every `p` this way)
+        // is not a silent controller: pointing and STOP still work there.
+        let addr = stand_in(|cmd| match cmd {
+            "\\dump_state" => DCU1_STATE,
+            _ => "RPRT -11\n",
+        });
+        assert_eq!(
+            rotator_state(&addr),
+            RotatorStateDto {
+                az_deg: None,
+                reading: "noPosition",
+                el_deg: None,
+                el_range: Some(None),
+            }
+        );
+    }
+
+    /// What real Hamlib backends answer `\dump_state` with (rotctld 4.5.5 over a pty): the
+    /// Yaesu GS-232B the G-5500 runs on (603), the Hy-Gain DCU-1 (403), the Green Heron RT-21 (405).
+    const GS232B_STATE: &str = "1\n603\nmin_az=-180.000000\nmax_az=450.000000\nmin_el=0.000000\n\
+                                max_el=180.000000\nsouth_zero=0\nrot_type=AzEl\ndone\n";
+    const DCU1_STATE: &str = "1\n403\nmin_az=0.000000\nmax_az=360.000000\nmin_el=0.000000\n\
+                              max_el=0.000000\nsouth_zero=0\nrot_type=Other\ndone\n";
+    const RT21_STATE: &str = "1\n405\nmin_az=0.000000\nmax_az=359.899994\nmin_el=0.000000\n\
+                              max_el=90.000000\nsouth_zero=0\nrot_type=Other\ndone\n";
+
+    /// A rotctld stand-in on loopback answering up to two connections, one command each, with
+    /// `answer(command)`. An empty answer is silence, held past the client's deadline.
+    fn stand_in(answer: fn(&str) -> &'static str) -> String {
+        let l = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let addr = l.local_addr().expect("its address").to_string();
+        l.set_nonblocking(true).expect("non-blocking accept");
+        std::thread::spawn(move || {
+            use std::io::{BufRead, Write};
+            let until = std::time::Instant::now() + std::time::Duration::from_secs(8);
+            let mut held = Vec::new();
+            while held.len() < 2 && std::time::Instant::now() < until {
+                let Ok((mut sock, _)) = l.accept() else {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                };
+                let _ = sock.set_nonblocking(false);
+                let mut line = String::new();
+                let _ =
+                    std::io::BufReader::new(sock.try_clone().expect("clone")).read_line(&mut line);
+                let _ = sock.write_all(answer(line.trim_end()).as_bytes());
+                held.push(sock);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        });
+        addr
+    }
+
+    #[test]
+    fn the_pane_learns_the_elevation_axis_from_what_the_backend_declares() {
+        // A G-5500 on its GS-232B at 123° / 45°: the elevation and the range to type one in.
+        let addr = stand_in(|cmd| match cmd {
+            "\\dump_state" => GS232B_STATE,
+            _ => "123.000000\n45.000000\n",
+        });
+        assert_eq!(
+            rotator_state(&addr),
+            RotatorStateDto {
+                az_deg: Some(123.0),
+                reading: "position",
+                el_deg: Some(45.0),
+                el_range: Some(Some([0.0, 180.0])),
+            }
+        );
+        // The RT-21 declares 0–90° for a second controller Nexus's daemon never has: the pane
+        // is told there is no elevation axis — `null` on the wire.
+        let addr = stand_in(|cmd| match cmd {
+            "\\dump_state" => RT21_STATE,
+            _ => "200.000000\n0.000000\n",
+        });
+        let rt21 = rotator_state(&addr);
+        assert_eq!(
+            rt21,
+            RotatorStateDto {
+                az_deg: Some(200.0),
+                reading: "position",
+                el_deg: None,
+                el_range: Some(None),
+            }
+        );
+        let wire = serde_json::to_value(&rt21).expect("json");
+        assert_eq!(wire.get("elRange"), Some(&serde_json::Value::Null));
+        // A busy rotctld leaves `\dump_state` unanswered: the position still comes back, and the
+        // range is ABSENT from the wire, never null, so the pane keeps the elevation it knew.
+        let addr = stand_in(|cmd| match cmd {
+            "\\dump_state" => "",
+            _ => "123.000000\n45.000000\n",
+        });
+        let busy = rotator_state(&addr);
+        assert_eq!(
+            busy,
+            RotatorStateDto {
+                az_deg: Some(123.0),
+                reading: "position",
+                el_deg: Some(45.0),
+                el_range: None,
+            }
+        );
+        let wire = serde_json::to_value(&busy).expect("json");
+        assert_eq!(wire.get("elRange"), None, "{wire}");
+    }
+}
+/// What an operator is told when a rotator command reaches no rotctld at all, in place of the
+/// socket's own words — "Connection refused (os error 61)" is what a tester read on macOS, with
+/// a controller that had been switched on after Nexus. For the integrated daemon a refusal is
+/// almost always that controller: rotctld exits without its port, and `supervise_rotctld` is
+/// starting it again. For an external rotctld nothing is listening at the address typed in
+/// Settings. Every other failure keeps its own words, which already name their cause.
+fn rotator_error(e: std::io::Error, external_host: &str) -> String {
+    if e.kind() != std::io::ErrorKind::ConnectionRefused {
+        return e.to_string();
+    }
+    match external_host.trim() {
+        "" => "The rotator controller isn't answering. Is it switched on and plugged in? Nexus \
+               keeps trying to reach it."
+            .to_string(),
+        host => format!("Nothing answers at {host}. Is the rotctld there running?"),
+    }
+}
+
+/// Point the antenna rotator at an absolute azimuth (degrees) via rotctld — keeping an az/el
+/// rotator's ELEVATION where it is (`tempo_audio::rotator::point_keeping`), unless `el_deg` gives
+/// the one to go with it: the Rotor pane sends it while an elevation it set is still on its way,
+/// so turning the beam does not stop that climb. It used to send `P <az> 0`, which drives the
+/// elevation to 0 on every move of the beam.
 #[tauri::command]
-async fn point_rotator(state: State<'_, SharedEngine>, az_deg: f64) -> Result<(), String> {
+async fn point_rotator(
+    state: State<'_, SharedEngine>,
+    az_deg: f64,
+    el_deg: Option<f64>,
+) -> Result<(), String> {
     #[cfg(feature = "radio")]
     {
-        let host = {
+        let (host, external) = {
             let eng = engine_lock(&state);
-            effective_rotator_addr(eng.settings())
+            (
+                effective_rotator_addr(eng.settings()),
+                eng.settings().rotator_host.clone(),
+            )
         };
         let Some(host) = host else {
             return Err(
@@ -14154,14 +15035,57 @@ async fn point_rotator(state: State<'_, SharedEngine>, az_deg: f64) -> Result<()
                     .to_string(),
             );
         };
-        tauri::async_runtime::spawn_blocking(move || tempo_audio::rotator::point(&host, az_deg))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())
+        tauri::async_runtime::spawn_blocking(move || {
+            tempo_audio::rotator::point_keeping(&host, Some(az_deg), el_deg)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| rotator_error(e, &external))
     }
     #[cfg(not(feature = "radio"))]
     {
-        let _ = (state, az_deg);
+        let _ = (state, az_deg, el_deg);
+        Err("radio support is not built into this binary".to_string())
+    }
+}
+
+/// Point an az/el rotator at an elevation (degrees above the horizon) — the Rotor pane's
+/// elevation box. The azimuth stays where the rotator reports it, unless `az_deg` gives the one
+/// to go with it (a bearing the pane sent that is still on its way). An elevation outside the
+/// range the rotator's backend declares, or a rotator with no elevation axis, is refused before
+/// anything is sent (`tempo_audio::rotator::manual_line`). Desktop only: Nexus Remote does not
+/// offer it.
+#[tauri::command]
+async fn point_rotator_elevation(
+    state: State<'_, SharedEngine>,
+    el_deg: f64,
+    az_deg: Option<f64>,
+) -> Result<(), String> {
+    #[cfg(feature = "radio")]
+    {
+        let (host, external) = {
+            let eng = engine_lock(&state);
+            (
+                effective_rotator_addr(eng.settings()),
+                eng.settings().rotator_host.clone(),
+            )
+        };
+        let Some(host) = host else {
+            return Err(
+                "Set up your rotator in Settings (pick a model + port; Nexus runs rotctld for you)."
+                    .to_string(),
+            );
+        };
+        tauri::async_runtime::spawn_blocking(move || {
+            tempo_audio::rotator::point_keeping(&host, az_deg, Some(el_deg))
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| rotator_error(e, &external))
+    }
+    #[cfg(not(feature = "radio"))]
+    {
+        let _ = (state, el_deg, az_deg);
         Err("radio support is not built into this binary".to_string())
     }
 }
@@ -14198,9 +15122,12 @@ async fn discover_flex() -> Result<Vec<FlexRadioDto>, String> {
 async fn stop_rotator(state: State<'_, SharedEngine>) -> Result<(), String> {
     #[cfg(feature = "radio")]
     {
-        let host = {
+        let (host, external) = {
             let eng = engine_lock(&state);
-            effective_rotator_addr(eng.settings())
+            (
+                effective_rotator_addr(eng.settings()),
+                eng.settings().rotator_host.clone(),
+            )
         };
         let Some(host) = host else {
             return Err(
@@ -14211,7 +15138,7 @@ async fn stop_rotator(state: State<'_, SharedEngine>) -> Result<(), String> {
         tauri::async_runtime::spawn_blocking(move || tempo_audio::rotator::stop(&host))
             .await
             .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())
+            .map_err(|e| rotator_error(e, &external))
     }
     #[cfg(not(feature = "radio"))]
     {
@@ -14220,21 +15147,131 @@ async fn stop_rotator(state: State<'_, SharedEngine>) -> Result<(), String> {
     }
 }
 
-/// Point the rotator at a callsign's DXCC entity — the great-circle bearing from your
-/// grid. Returns the bearing pointed to (degrees) for UI feedback.
+/// What a point-at-call took its bearing to — what the toast names, so the operator can tell a
+/// bearing to the station from one to its country.
+#[derive(Debug, Clone, PartialEq)]
+enum AimedAt {
+    /// A locator for the station itself.
+    Grid(String),
+    /// The position the station's callbook entry vouches for.
+    Position,
+    /// The centre of the station's DXCC entity: nothing closer is known.
+    Country(&'static str),
+}
+
+/// A point-at-call's short-path bearing (degrees true) and what it was taken to.
+#[derive(Debug, Clone, PartialEq)]
+struct Aim {
+    bearing: f64,
+    to: AimedAt,
+}
+
+/// Every place Nexus already knows `call`'s station to be, MOST TRUSTED FIRST — the order
+/// [`propagation::geo::best_fix`] refines within: the log form's grid, the grids the station sent
+/// this session, the callbook's answer (its locator, then the position it vouched for), the grid
+/// on its newest logged contact. The engine keeps them ([`tempo_app::engine::StationGrids`]);
+/// none of them asks the network.
+fn station_fixes(eng: &tempo_app::engine::Engine, call: &str) -> Vec<propagation::geo::StationFix> {
+    use propagation::geo::StationFix;
+    let grids = eng.station_grids(call);
+    let mut fixes = Vec::new();
+    fixes.extend(grids.log_form.map(StationFix::Grid));
+    fixes.extend(grids.heard.into_iter().map(StationFix::Grid));
+    if let Some(book) = grids.callbook {
+        fixes.extend(book.grid.map(StationFix::Grid));
+        fixes.extend(
+            book.position
+                .map(|(lat, lon)| StationFix::Position(lat, lon)),
+        );
+    }
+    fixes.extend(grids.logged.map(StationFix::Grid));
+    fixes
+}
+
+/// The bearing from the operator's own grid, at its full precision, to `call`'s station: to the
+/// best of `fixes` ([`station_fixes`]), and only when none is known to the centre of its DXCC
+/// entity.
+///
+/// ⭐ **The country centre was the only answer until 2026-09-29**, and it is 20° out from the
+/// Netherlands to Galicia: a tester at JO21EV was sent to 207° for EC1DD, whose own grid is at
+/// 227° (QRZ says 227), and to 299° for AA1AA, whose own is at 291°. Sicily matched only because
+/// it is an entity of its own.
+fn aim_at_call(
+    mygrid: &str,
+    call: &str,
+    fixes: Vec<propagation::geo::StationFix>,
+) -> Result<Aim, String> {
+    use propagation::geo::{bearing_deg, best_fix, maidenhead_to_latlon, StationFix};
+    let me = maidenhead_to_latlon(mygrid.trim())
+        .ok_or("Set your grid square in Settings so a bearing can be computed.")?;
+    if let Some(fix) = best_fix(fixes) {
+        if let Some(at) = fix.latlon() {
+            let to = match fix {
+                StationFix::Grid(g) => AimedAt::Grid(g.trim().to_ascii_uppercase()),
+                StationFix::Position(..) => AimedAt::Position,
+            };
+            return Ok(Aim {
+                bearing: bearing_deg(me, at),
+                to,
+            });
+        }
+    }
+    let info = propagation::dxcc::resolve(call)
+        .ok_or_else(|| format!("Couldn't locate {call} (unknown callsign)."))?;
+    Ok(Aim {
+        bearing: bearing_deg(me, (info.lat, info.lon)),
+        to: AimedAt::Country(info.entity),
+    })
+}
+
+/// What `point_rotator_at_call` pointed at: the bearing, and what it was taken to, so the toast
+/// can say whether that was the station or only its country.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PointedAtDto {
+    /// Degrees true, on the path asked for.
+    bearing: f64,
+    /// `"grid"` (the station's locator, in `grid`), `"position"` (its callbook's coordinates) or
+    /// `"country"` (the centre of the DXCC entity in `country`).
+    to: &'static str,
+    grid: Option<String>,
+    country: Option<String>,
+}
+
+impl PointedAtDto {
+    fn new(bearing: f64, to: AimedAt) -> Self {
+        let (to, grid, country) = match to {
+            AimedAt::Grid(g) => ("grid", Some(g), None),
+            AimedAt::Position => ("position", None, None),
+            AimedAt::Country(c) => ("country", None, Some(c.to_string())),
+        };
+        PointedAtDto {
+            bearing,
+            to,
+            grid,
+            country,
+        }
+    }
+}
+
+/// Point the rotator at a callsign's station — the great-circle bearing from your grid to the
+/// best location Nexus has for it ([`aim_at_call`]). Returns the bearing and what it was taken
+/// to, for the toast.
 #[tauri::command]
 async fn point_rotator_at_call(
     state: State<'_, SharedEngine>,
     call: String,
     long_path: Option<bool>,
-) -> Result<f64, String> {
+) -> Result<PointedAtDto, String> {
     #[cfg(feature = "radio")]
     {
-        let (host, mygrid) = {
+        let (host, external, mygrid, fixes) = {
             let eng = engine_lock(&state);
             (
                 effective_rotator_addr(eng.settings()),
+                eng.settings().rotator_host.clone(),
                 eng.settings().mygrid.clone(),
+                station_fixes(&eng, &call),
             )
         };
         let Some(host) = host else {
@@ -14243,11 +15280,8 @@ async fn point_rotator_at_call(
                     .to_string(),
             );
         };
-        let me = propagation::geo::maidenhead_to_latlon(mygrid.trim())
-            .ok_or("Set your grid square in Settings so a bearing can be computed.")?;
-        let info = propagation::dxcc::resolve(&call)
-            .ok_or_else(|| format!("Couldn't locate {call} (unknown callsign)."))?;
-        let short = propagation::geo::bearing_deg(me, (info.lat, info.lon));
+        let aim = aim_at_call(&mygrid, &call, fixes)?;
+        let short = aim.bearing;
         // ⭐ LONG PATH IS THE SAME GREAT CIRCLE THE OTHER WAY, so it is the reciprocal exactly
         // — no second computation and nothing to drift apart. `rem_euclid` rather than `%`
         // because `%` keeps the sign in Rust and a negative azimuth is not a heading.
@@ -14261,16 +15295,299 @@ async fn point_rotator_at_call(
         } else {
             short
         };
-        tauri::async_runtime::spawn_blocking(move || tempo_audio::rotator::point(&host, bearing))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(|e| e.to_string())?;
-        Ok(bearing)
+        // The elevation stays where it is, as for every manual azimuth move (`point_rotator`).
+        tauri::async_runtime::spawn_blocking(move || {
+            tempo_audio::rotator::point_keeping(&host, Some(bearing), None)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| rotator_error(e, &external))?;
+        Ok(PointedAtDto::new(bearing, aim.to))
     }
     #[cfg(not(feature = "radio"))]
     {
         let _ = (state, call, long_path);
         Err("radio support is not built into this binary".to_string())
+    }
+}
+
+/// The grid the log form holds for the call it is logging — typed, or filled in from the
+/// callbook — so the rotator's point-at-call aims at that station (`Engine::set_log_form_grid`).
+/// A blank grid forgets it for that call. Fire-and-forget, like `set_cw_peer_info`.
+#[tauri::command(async)]
+fn set_log_form_grid(
+    state: State<'_, SharedEngine>,
+    call: String,
+    grid: String,
+) -> Result<(), String> {
+    engine_lock(&state).set_log_form_grid(&call, &grid);
+    Ok(())
+}
+
+#[cfg(test)]
+mod point_at_call_tests {
+    //! The point-at-call bearing, on a tester's own numbers (2026-09-29, relayed by the
+    //! operator): from JO21EV, QRZ gives EC1DD 227°, IT9IJF 151° and AA1AA 291°; Nexus gave
+    //! 207°, 151° and 299° — the centres of Spain, Sicily and the United States. IN52TK (Galicia)
+    //! and FN42KH (Boston) stand in for "a known 6-character grid": they are where QRZ's own
+    //! bearings from JO21EV land (227.4° and 290.6°).
+    use super::*;
+    use tempo_app::engine::{CallbookFix, Engine};
+    use tempo_core::logbook::{Logbook, QsoRecord};
+
+    const ME: &str = "JO21EV";
+
+    /// The great-circle bearing from the tester's grid to `grid`'s centre, computed here.
+    fn bearing_to(grid: &str) -> f64 {
+        propagation::geo::bearing_deg(
+            propagation::geo::maidenhead_to_latlon(ME).unwrap(),
+            propagation::geo::maidenhead_to_latlon(grid).unwrap(),
+        )
+    }
+
+    /// Degrees between two bearings, the short way round.
+    fn apart(a: f64, b: f64) -> f64 {
+        ((a - b + 540.0).rem_euclid(360.0) - 180.0).abs()
+    }
+
+    fn aim(eng: &Engine, call: &str) -> Aim {
+        aim_at_call(ME, call, station_fixes(eng, call)).expect("a bearing")
+    }
+
+    fn logged(call: &str, grid: &str) -> QsoRecord {
+        let mut parsed = Logbook::new();
+        parsed.import_adif(&format!(
+            "<CALL:{}>{call}<BAND:3>20m<MODE:3>SSB<QSO_DATE:8>20260910<TIME_ON:6>104000\
+             <GRIDSQUARE:{}>{grid}<EOR>",
+            call.len(),
+            grid.len()
+        ));
+        let mut r = QsoRecord::clone(&parsed.records()[0]);
+        r.id = None;
+        r
+    }
+
+    #[test]
+    fn a_station_nexus_knows_nothing_about_is_aimed_at_its_country_as_before() {
+        let eng = Engine::new("KD9TAW", ME, 0);
+        for (call, country, tester_saw) in [
+            ("EC1DD", "Spain", 207.0),
+            ("IT9IJF", "Sicily", 151.0),
+            ("AA1AA", "United States", 299.0),
+        ] {
+            let a = aim(&eng, call);
+            assert_eq!(a.to, AimedAt::Country(country), "{call}");
+            assert!(
+                apart(a.bearing, tester_saw) < 1.0,
+                "{call}: {:.1}° is the bearing the tester saw ({tester_saw}°)",
+                a.bearing
+            );
+        }
+    }
+
+    #[test]
+    fn the_callbook_answer_the_log_form_showed_aims_at_the_station() {
+        // The tester's case: the Phone log form looked EC1DD up (QRZ filled in the grid), and
+        // the beam went to the centre of Spain anyway.
+        let mut eng = Engine::new("KD9TAW", ME, 0);
+        eng.note_callbook_fix(
+            "EC1DD",
+            CallbookFix {
+                grid: Some("IN52TK".into()),
+                position: None,
+            },
+        );
+        let a = aim(&eng, "EC1DD");
+        assert_eq!(a.to, AimedAt::Grid("IN52TK".into()));
+        assert!(
+            apart(a.bearing, bearing_to("IN52TK")) < 1.0,
+            "{:.1}°",
+            a.bearing
+        );
+        assert!(
+            apart(a.bearing, 227.0) < 1.0,
+            "QRZ's own 227°, not 207°: {:.1}°",
+            a.bearing
+        );
+    }
+
+    #[test]
+    fn a_grid_typed_into_the_log_form_aims_at_the_station() {
+        let mut eng = Engine::new("KD9TAW", ME, 0);
+        eng.set_log_form_grid("AA1AA", "FN42KH");
+        let a = aim(&eng, "AA1AA");
+        assert_eq!(a.to, AimedAt::Grid("FN42KH".into()));
+        assert!(
+            apart(a.bearing, 291.0) < 1.0,
+            "QRZ's 291°, not 299°: {:.1}°",
+            a.bearing
+        );
+        // Another call's form says nothing about this one.
+        assert_eq!(aim(&eng, "EC1DD").to, AimedAt::Country("Spain"));
+        // IT9IJF is unchanged: nothing is known for it but its entity, which is Sicily's.
+        assert_eq!(aim(&eng, "IT9IJF").to, AimedAt::Country("Sicily"));
+    }
+
+    #[test]
+    fn a_grid_logged_with_the_station_before_aims_at_it() {
+        let mut eng = Engine::new("KD9TAW", ME, 0);
+        eng.log_qso(logged("EC1DD", "IN52TK"));
+        assert_eq!(aim(&eng, "EC1DD").to, AimedAt::Grid("IN52TK".into()));
+    }
+
+    #[test]
+    fn the_callbook_position_sharpens_the_square_it_lies_in_and_nothing_else() {
+        let mut eng = Engine::new("KD9TAW", ME, 0);
+        let (lat, lon) = propagation::geo::maidenhead_to_latlon("IN52TK").unwrap();
+        eng.note_callbook_fix(
+            "EC1DD",
+            CallbookFix {
+                grid: Some("IN52TK".into()),
+                position: Some((lat + 0.01, lon + 0.02)),
+            },
+        );
+        assert_eq!(aim(&eng, "EC1DD").to, AimedAt::Position);
+        // The operator copied a different square off the air — the station is portable. What
+        // they typed wins over the callbook's home address, however much finer that is.
+        eng.set_log_form_grid("EC1DD", "IN73");
+        assert_eq!(aim(&eng, "EC1DD").to, AimedAt::Grid("IN73".into()));
+        // …and clearing the box hands the aim back to the callbook.
+        eng.set_log_form_grid("EC1DD", "");
+        assert_eq!(aim(&eng, "EC1DD").to, AimedAt::Position);
+    }
+
+    #[test]
+    fn the_long_path_is_the_reciprocal_of_the_station_bearing() {
+        let mut eng = Engine::new("KD9TAW", ME, 0);
+        eng.set_log_form_grid("AA1AA", "FN42KH");
+        let short = aim(&eng, "AA1AA").bearing;
+        let dto = PointedAtDto::new((short + 180.0).rem_euclid(360.0), aim(&eng, "AA1AA").to);
+        assert!(apart(dto.bearing, bearing_to("FN42KH") + 180.0) < 1e-9);
+        assert_eq!(
+            (dto.to, dto.grid.as_deref(), dto.country),
+            ("grid", Some("FN42KH"), None)
+        );
+    }
+}
+
+#[cfg(test)]
+mod manual_pointing_tests {
+    //! Every command that moves the rotator BY HAND keeps the axis it is not given where the
+    //! rotator reports it (`tempo_audio::rotator::point_keeping`, whose own tests drive Hamlib's
+    //! real GS-232B backend and dummy). The satellite pass's azimuth-only `rotator::point` sends
+    //! `P <az> 0`, which on an az/el mount is an ELEVATION of zero: every turn of the beam used
+    //! to lay a G-5500's antenna on the horizon. Source-scanned, like the registration tests:
+    //! which function a command calls is the property under test, and no type sees it.
+
+    /// The body of the top-level `async fn name(…)` in lib.rs.
+    fn body(src: &str, name: &str) -> String {
+        src.split_once(&format!("\nasync fn {name}("))
+            .unwrap_or_else(|| panic!("the command {name} must exist"))
+            .1
+            .split_once("\n}\n")
+            .expect("the end of the command")
+            .0
+            .to_string()
+    }
+
+    #[test]
+    fn a_manual_move_keeps_the_axis_it_was_not_given() {
+        let src = include_str!("lib.rs");
+        for name in [
+            "point_rotator",
+            "point_rotator_at_call",
+            "point_rotator_elevation",
+        ] {
+            let body = body(src, name);
+            assert!(
+                body.contains("tempo_audio::rotator::point_keeping("),
+                "{name} must keep the axis it is not given (point_keeping)"
+            );
+            assert!(
+                !body.contains("tempo_audio::rotator::point("),
+                "{name} sends `P <az> 0`, the elevation of zero, on every move"
+            );
+        }
+    }
+}
+
+/// Where the rotator is, and what the read found — the Rotor pane's poll, which has to tell
+/// three stations apart: a rotator that reported its position; one whose backend has none to
+/// give (the Hy-Gain DCU-1: pointing and STOP still work); and one where nothing answered at all
+/// (the controller is off or unplugged, or rotctld is not running), which the pane must not call
+/// "pointing still works". And, on a rotator with an elevation axis (the Yaesu G-5500 on its
+/// GS-232B), the elevation it reports and the range its backend declares, which is what puts the
+/// elevation in the pane at all.
+#[derive(Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RotatorStateDto {
+    /// Degrees, as the rotator reports them; `None` unless `reading` is `"position"`.
+    az_deg: Option<f64>,
+    /// `"position"`, `"noPosition"` or `"notAnswering"`.
+    reading: &'static str,
+    /// Degrees above the horizon, as the rotator reports them; `None` when it reports none, and
+    /// whenever its backend declares no elevation axis.
+    el_deg: Option<f64>,
+    /// The elevation range the backend declares (`[min, max]`; a G-5500 on a GS-232B `[0, 180]`),
+    /// from rotctld's own `\dump_state` (`tempo_audio::rotator::read_limits`, never the model's
+    /// name). `Some(None)` — `null` on the wire — when it has no elevation axis; ABSENT when the
+    /// question went unanswered this time, so the pane keeps what it last knew rather than
+    /// blinking the elevation out while a busy rotctld catches up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    el_range: Option<Option<[f64; 2]>>,
+}
+
+/// Read the rotator at `addr` for [`RotatorStateDto`]: its position first, and what its backend
+/// declares only when it answered, so a daemon that is not there costs one connection, as it
+/// always did.
+fn rotator_state(addr: &str) -> RotatorStateDto {
+    let (az_deg, el, reading) = match tempo_audio::rotator::read_position(addr) {
+        Ok((az, el)) => (Some(az), el, "position"),
+        Err(e) if e.kind() == std::io::ErrorKind::Unsupported => (None, None, "noPosition"),
+        Err(_) => {
+            return RotatorStateDto {
+                az_deg: None,
+                reading: "notAnswering",
+                el_deg: None,
+                el_range: None,
+            }
+        }
+    };
+    let el_range = tempo_audio::rotator::read_limits(addr)
+        .ok()
+        .map(|declared| {
+            declared
+                .as_ref()
+                .and_then(tempo_audio::rotator::Limits::elevation)
+                .map(|(lo, hi)| [lo, hi])
+        });
+    RotatorStateDto {
+        az_deg,
+        reading,
+        el_deg: el.filter(|_| el_range != Some(None)),
+        el_range,
+    }
+}
+
+/// The Rotor pane's poll ([`RotatorStateDto`]); `None` when no rotator is configured.
+#[tauri::command]
+async fn read_rotator_state(
+    state: State<'_, SharedEngine>,
+) -> Result<Option<RotatorStateDto>, String> {
+    #[cfg(feature = "radio")]
+    {
+        let host = with_engine(&state, |eng| effective_rotator_addr(eng.settings())).await?;
+        let Some(host) = host else {
+            return Ok(None);
+        };
+        tauri::async_runtime::spawn_blocking(move || Some(rotator_state(&host)))
+            .await
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(feature = "radio"))]
+    {
+        let _ = state;
+        Ok(None)
     }
 }
 
@@ -14648,6 +15965,15 @@ async fn get_aprs_health(
     with_engine(&state, |eng| eng.aprs_health()).await
 }
 
+/// Why what was queued for APRS was last dropped instead of sent (TX off, or outside the licence's
+/// privileges), for the cockpit's status line; `None` once a frame keys. A read of its own, polled
+/// beside the health: the other APRS reads are also the Remote's (`remote_service::aprs`), and the
+/// hosted page checks them against exact key lists.
+#[tauri::command]
+async fn get_aprs_tx_notice(state: State<'_, SharedEngine>) -> Result<Option<String>, String> {
+    with_engine(&state, |eng| eng.aprs_tx_notice().map(str::to_string)).await
+}
+
 /// The APRS STATION roster — what the map and the station list draw, plus the aging thresholds
 /// that produced it.
 ///
@@ -14963,6 +16289,13 @@ async fn get_js8_state(state: State<'_, SharedEngine>) -> Result<tempo_app::dto:
     with_engine(&state, |eng| eng.js8_state()).await
 }
 
+/// Why the JS8 gate would refuse the locator in Settings, or None when it would take it. The
+/// cockpit's "send my grid" follows this, the gate's own rule, rather than a copy of it.
+#[tauri::command]
+async fn js8_locator_refusal(state: State<'_, SharedEngine>) -> Result<Option<String>, String> {
+    with_engine(&state, |eng| eng.js8_locator_refusal().map(str::to_string)).await
+}
+
 /// Persist the engine's settings after a JS8 verb changed one of them (the engine holds
 /// settings, the command layer owns the file — the `purge_log` shape).
 fn js8_persist_settings(eng: &Engine) {
@@ -15068,12 +16401,32 @@ fn js8_cq_repeat(
     Ok(eng.js8_state())
 }
 
-/// Cancel the pending automatic reply (safe no-op when none).
+/// The operator's Yes or No to the automatic reply the dock asks about (JS8Call's
+/// AutoreplyConfirmation), named by the `display` and `fires_at_ms` it was shown with. A Yes puts
+/// it in the queue, where every TX gate applies when its period comes; a Yes to one no longer
+/// waiting is refused, so it can never send another reply.
 #[tauri::command(async)]
-fn js8_cancel(state: State<'_, SharedEngine>) -> Result<tempo_app::dto::Js8State, String> {
+fn js8_answer_reply(
+    state: State<'_, SharedEngine>,
+    yes: bool,
+    display: String,
+    fires_at_ms: u64,
+) -> Result<tempo_app::dto::Js8State, String> {
     let mut eng = engine_lock(&state);
-    eng.js8_cancel();
+    eng.js8_answer_reply(yes, display, fires_at_ms)?;
     Ok(eng.js8_state())
+}
+
+/// The native cockpit's compose box, both ways (polled with the state while JS8 is visible):
+/// whether it holds text and the id of the reply it took; answered with the reply waiting for
+/// the box (AUTO off, as JS8Call puts it in its compose box). Keys nothing.
+#[tauri::command]
+async fn js8_composer(
+    state: State<'_, SharedEngine>,
+    composing: bool,
+    taken: Option<u32>,
+) -> Result<Option<tempo_app::dto::Js8ComposerPrefill>, String> {
+    with_engine(&state, move |mut eng| eng.js8_composer(composing, taken)).await
 }
 
 /// Drop the outbox — a SENDER-class control, not a stop (Stop TX is `halt_tx`).
@@ -15234,6 +16587,13 @@ struct SstvStateDto {
     /// Seconds of key-down elapsed / total for the in-flight image.
     tx_elapsed_secs: f32,
     tx_total_secs: f32,
+    /// Why the last picture that waited for the transmitter was dropped instead of sent (TX off,
+    /// or outside the licence's privileges), or why the radio loop cut short the one going out
+    /// (`Engine::sstv_tx_cut`): the cockpit's warning line. Absent otherwise.
+    /// DESKTOP ONLY: the Remote strips it (`remote_service::application`), because the hosted
+    /// page reads this sample against an exact key list and refuses one with a key it lacks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tx_notice: Option<String>,
 }
 
 fn sstv_state_dto(eng: &Engine) -> SstvStateDto {
@@ -15264,6 +16624,7 @@ fn sstv_state_dto(eng: &Engine) -> SstvStateDto {
         tx_progress,
         tx_elapsed_secs,
         tx_total_secs,
+        tx_notice: eng.sstv_tx_notice().map(str::to_string),
     }
 }
 
@@ -16151,6 +17512,24 @@ fn get_cat_cw_unproven_rig_models() -> Vec<u32> {
     }
 }
 
+/// Models whose Hamlib CAT PTT can choose the radio's MIC or DATA input — the only ones the Rig &
+/// CAT settings offer "Transmit audio source (CAT PTT): Rear/Data" on (#381). See
+/// [`tempo_audio::rigmodels::PTT_MIC_DATA_RIGS`] for the measurement.
+///
+/// An empty result means "could not be determined" (built without the `radio` feature), and the
+/// form offers no choice, so every radio keys Front/Mic as it always has.
+#[tauri::command]
+fn get_ptt_mic_data_rig_models() -> Vec<u32> {
+    #[cfg(feature = "radio")]
+    {
+        tempo_audio::rigmodels::PTT_MIC_DATA_RIGS.to_vec()
+    }
+    #[cfg(not(feature = "radio"))]
+    {
+        Vec::new()
+    }
+}
+
 /// Ask a configured amplifier for one thing: `"bandDown"`, `"bandUp"` or `"operate"`.
 ///
 /// ⛔ THREE INTENTS, AND THE SET IS CLOSED. An unrecognised name is refused rather than
@@ -16545,6 +17924,25 @@ fn set_ptt(state: State<'_, SharedEngine>, on: bool) -> Result<AppSnapshot, Stri
     Ok(eng.snapshot())
 }
 
+/// A press on the Phone cockpit's PTT made through the Remote stream's picture (Space over it, or
+/// its PTT button): it ARMS the streamed operator's microphone over, and only their voice keys it
+/// (the audio design's M1; the operator's ruling "Arms your mic"). The shack's own microphone is
+/// never keyed from here. Every gate the page's own PTT meets applies: presence, Phone, TX armed,
+/// the licence, one owner. Returns whether an over is armed.
+#[tauri::command(async)]
+fn arm_stream_mic(state: State<'_, SharedEngine>) -> Result<bool, String> {
+    let mut eng = engine_lock(&state);
+    Ok(eng.arm_remote_mic(std::time::Instant::now()))
+}
+
+/// The cockpit let go of a press it armed through the stream: the over ends now.
+#[tauri::command(async)]
+fn release_stream_mic(state: State<'_, SharedEngine>) -> Result<(), String> {
+    let mut eng = engine_lock(&state);
+    eng.release_remote_mic();
+    Ok(())
+}
+
 /// Set RF output power as a 0.0–1.0 fraction; the radio loop applies it to the rig.
 #[tauri::command(async)]
 fn set_rf_power(state: State<'_, SharedEngine>, power: f32) -> Result<AppSnapshot, String> {
@@ -16850,7 +18248,8 @@ fn set_cw_keyer(
 // ----- Phone voice keyer: play / record / import recorded WAV messages -----
 
 /// Play a voice-keyer message: read the slot's WAV and queue it for the radio loop to
-/// transmit (PTT + audio). Errors if the slot has no recording.
+/// transmit (PTT + audio). Errors if the slot has no recording, or with the engine's reason
+/// when it refuses the send (TX off, outside the privileges), which the keyer's toast shows.
 #[tauri::command(async)]
 fn play_voice_message(state: State<'_, SharedEngine>, slot: u8) -> Result<AppSnapshot, String> {
     let file = {
@@ -16871,7 +18270,7 @@ fn play_voice_message(state: State<'_, SharedEngine>, slot: u8) -> Result<AppSna
         let samples = tempo_audio::voice::read_wav_12k(&file)
             .map_err(|e| format!("Could not read voice message: {e}"))?;
         let mut eng = engine_lock(&state);
-        eng.send_voice(samples);
+        eng.send_voice(samples)?;
         Ok(eng.snapshot())
     }
     #[cfg(not(feature = "radio"))]
@@ -17390,6 +18789,13 @@ fn panel_default_inner(slug: &str) -> (f64, f64) {
         // The POTA map pop-out: a bare MapView needs the same room the Operate cockpit
         // does, not the generic 760×660 — a cramped globe is the whole feature undersold.
         "operatemap" => (1140.0, 760.0),
+        // The Connect dashboard window. The generic 760 wide is under Connect's 768 px
+        // `xs` line, so it opened as the phone-style stack; 1600 is the `lg` class, where two
+        // 400 px side columns (the Dashboard layout's) leave the map 728 px (measured in
+        // Chrome; the grid's padding and gaps take the rest). 1000 tall fits a 1920×1080
+        // screen with its taskbar; a smaller screen gets the work area instead (the open path
+        // fits it with `prevent_overflow`). After the first close it reopens as it was left.
+        "connect" => (1600.0, 1000.0),
         "bandmapPhone" | "bandmapCw" => (420.0, 780.0),
         "fieldday" => (560.0, 760.0), // the scoreboard: operator + tiles + sections board
         // The club band board is set in glance type (it is watched across the tent, not
@@ -17454,14 +18860,17 @@ async fn open_panel_window(
     chains::openable(inst)?;
     let label = panel_label(&slug, inst);
     // Already open → just focus it (one window per SURFACE — distinct instances of the same
-    // panel are distinct windows).
+    // panel are distinct windows). Not one the operator asked to stay behind other windows:
+    // focus would move the keyboard to a window drawn underneath the one they are looking at.
     if let Some(w) = app.get_webview_window(&label) {
-        let _ = w.set_focus();
+        if !window_state::stays_behind(&w) {
+            let _ = w.set_focus();
+        }
         return Ok(());
     }
     // Friendly window title so multi-monitor users can tell torn-off windows apart.
     let title = match slug.as_str() {
-        "connect" => "RD-Nexus — Connect".to_string(),
+        "connect" => "RD-Nexus — Conditions (formerly Connect)".to_string(),
         "dxped" => "RD-Nexus — DXpeditions".to_string(),
         "needed" => "RD-Nexus — Needed".to_string(),
         "operate" => "RD-Nexus — Operate".to_string(),
@@ -17477,12 +18886,16 @@ async fn open_panel_window(
     };
     let is_bandmap = slug == "bandmapPhone" || slug == "bandmapCw";
     // The band map reopens where the operator left it (size + position), so a Windows-snapped
-    // vertical strip on the side survives restarts. Other pop-outs keep their fixed defaults.
+    // vertical strip on the side survives restarts. The Connect dashboard does too, through the
+    // main window's policy (`window_state`), not this dock-aware path. Other pop-outs keep their
+    // fixed defaults.
     let saved = if is_bandmap {
         load_bandmap_window(&slug, inst)
     } else {
         None
     };
+    let (min_w, min_h) = panel_min_inner(&slug);
+    let remembered = window_state::restore_panel(&app, &slug, inst, (min_w, min_h));
     // A docked window re-snaps to the CURRENT monitor work area AFTER build (so a resolution
     // change since last session can't strand it off-screen); a FREE window's rect is validated
     // against the live monitor list below. (It used to be replayed verbatim — un-docking was
@@ -17502,10 +18915,11 @@ async fn open_panel_window(
         (w, h)
     } else if let Some(g) = &saved {
         (g.w, g.h)
+    } else if let Some(r) = remembered.and_then(|p| p.rect) {
+        (r.w, r.h)
     } else {
         panel_default_inner(&slug)
     };
-    let (min_w, min_h) = panel_min_inner(&slug);
     // `instance` is a SEPARATE query parameter, never baked into the slug — the slug filter
     // would strip the separator and alias it. Appended only above `main`, so every window that
     // is openable today keeps the exact URL it has always had.
@@ -17532,6 +18946,24 @@ async fn open_panel_window(
             builder = builder.position(g.x, g.y);
         }
     }
+    if let Some(p) = remembered {
+        // `prevent_overflow` fits the OUTER window, title bar included, to the work area of the
+        // monitor it opens on: the restore above caps only the content box, and `center` does
+        // not clamp, so a box as tall as the screen would centre with its title bar above it.
+        builder = builder.prevent_overflow();
+        builder = match p.rect.and_then(|r| r.position) {
+            Some((x, y)) => builder.position(x, y),
+            // A first open, or a saved place on a monitor that is gone.
+            None => builder.center(),
+        };
+        if p.rect.is_some_and(|r| r.maximized) {
+            builder = builder.maximized(true);
+        }
+        if p.behind && window_state::behind_supported() {
+            // Opened behind, it does not take the keyboard either (see the focus note above).
+            builder = builder.always_on_bottom(true).focused(false);
+        }
+    }
     // Pop-outs are ordinary windows — the operator must be able to send them behind the
     // main UI (a tester couldn't hide the waterfall while it was pinned always-on-top). A
     // future "pin" toggle can call `window.set_always_on_top(true)` on demand.
@@ -17540,6 +18972,9 @@ async fn open_panel_window(
         // Re-pin to the edge of the current work area (best-effort; ignore if unmapped) so a
         // resolution change since last session can't strand it off-screen.
         let _ = snap_bandmap_to_edge(&win, &side);
+    }
+    if remembered.is_some() {
+        window_state::arm_panel_capture(&win);
     }
     Ok(())
 }
@@ -17939,12 +19374,20 @@ const LOG_ROW_GONE: &str =
 /// it on a runtime of its own; in the app both are the same runtime.
 ///
 /// On the 1.13 path (no store) there is nothing to wait for: the change was written inline.
+///
+/// A body whose change the store may turn back — another window changed a contact it read
+/// before the store wrote it — makes it through [`tempo_app::logwrite::until_written`], which
+/// makes it again on the log as it now stands; one turned back every time is not in the log.
 async fn durable_command<T: Send + 'static>(
     body: impl FnOnce() -> (Result<T, String>, tempo_app::logstore::Durability) + Send + 'static,
 ) -> Result<T, String> {
     tokio::task::spawn_blocking(move || {
         let (out, durability) = body();
         let out = out?;
+        // Turned back on every making: another window kept changing what it read. Not in the log.
+        if durability.turned_back(tempo_app::logstore::DURABLE_WAIT) {
+            return Err(tempo_app::station::LOG_BUSY.into());
+        }
         durability
             .wait(tempo_app::logstore::DURABLE_WAIT)
             .map_err(durability_failed)?;
@@ -18002,13 +19445,17 @@ async fn edit_qso(
         // Planned with the Engine lock released, made under it only while the contact is still the
         // version found (SPEC-2 v3 C19).
         let record: tempo_core::logbook::QsoRecord = record.into();
-        let (made, durability) = tempo_app::logwrite::update_row(
-            &engine,
-            id,
-            &found.edit_key,
-            |_| record.clone(),
-            |_, (_, after)| after.clone(),
-        );
+        // Made again, on the version found, when the store turns it back: another window changed
+        // the contact first, and the edit key then says so.
+        let (made, durability) = tempo_app::logwrite::until_written(|| {
+            tempo_app::logwrite::update_row(
+                &engine,
+                id,
+                &found.edit_key,
+                |_| record.clone(),
+                |_, (_, after)| after.clone(),
+            )
+        });
         (changed_row(seen_outcome(made)), durability)
     })
     .await
@@ -18070,8 +19517,10 @@ async fn mark_qsl_sent(
             Ok(found) => found,
             Err(e) => return (Err(e), Default::default()),
         };
-        let (after, durability) = change_found(&engine, &found, "mark_qsl_sent", |id| {
-            vec![tempo_app::logwrite::qsl_sent(id, via)]
+        let (after, durability) = tempo_app::logwrite::until_written(|| {
+            change_found(&engine, &found, "mark_qsl_sent", |id| {
+                vec![tempo_app::logwrite::qsl_sent(id, via)]
+            })
         });
         (changed_row(after), durability)
     })
@@ -18097,8 +19546,10 @@ async fn mark_qsl_card(
             Ok(found) => found,
             Err(e) => return (Err(e), Default::default()),
         };
-        let (after, durability) = change_found(&engine, &found, "mark_qsl_card", |id| {
-            vec![tempo_core::logbook::LogOp::MarkQslCard { id, received }]
+        let (after, durability) = tempo_app::logwrite::until_written(|| {
+            change_found(&engine, &found, "mark_qsl_card", |id| {
+                vec![tempo_core::logbook::LogOp::MarkQslCard { id, received }]
+            })
         });
         (changed_row(after), durability)
     })
@@ -18169,11 +19620,13 @@ async fn set_sat_tag(
             Ok(found) => found,
             Err(e) => return (Err(e), Default::default()),
         };
-        let (after, durability) = change_found(&engine, &found, "set_sat_tag", |id| {
-            vec![tempo_core::logbook::LogOp::SetSatTag {
-                id,
-                sat_name: name.clone(),
-            }]
+        let (after, durability) = tempo_app::logwrite::until_written(|| {
+            change_found(&engine, &found, "set_sat_tag", |id| {
+                vec![tempo_core::logbook::LogOp::SetSatTag {
+                    id,
+                    sat_name: name.clone(),
+                }]
+            })
         });
         (changed_row(after), durability)
     })
@@ -18203,8 +19656,10 @@ async fn delete_qso(
             Ok(found) => found,
             Err(e) => return (Err(e), Default::default()),
         };
-        let (gone, durability) = change_found(&engine, &found, "delete_qso", |id| {
-            vec![tempo_core::logbook::LogOp::Delete(id)]
+        let (gone, durability) = tempo_app::logwrite::until_written(|| {
+            change_found(&engine, &found, "delete_qso", |id| {
+                vec![tempo_core::logbook::LogOp::Delete(id)]
+            })
         });
         let answer = gone.and_then(|after| match after {
             None => Ok(engine_lock(&engine).snapshot()),
@@ -19280,7 +20735,8 @@ async fn import_adif(state: State<'_, SharedEngine>, text: String) -> Result<Imp
     // Planned with the Engine lock released and made under it (SPEC-2 v3 C19): the rows of the
     // file's calls are read off the store, never under the lock.
     durable_command(move || {
-        let (made, durability) = tempo_app::logwrite::import_adif(&engine, &text);
+        let (made, durability) =
+            tempo_app::logwrite::until_written(|| tempo_app::logwrite::import_adif(&engine, &text));
         let made = made.map(|(added, skipped, updated, total)| ImportStats {
             added,
             skipped,
@@ -19313,7 +20769,9 @@ async fn sync_lotw_report(
         {
             let engine = Arc::clone(&state);
             durable_command(move || {
-                let (summary, durability) = tempo_app::logwrite::merge_lotw_report(&engine, &text);
+                let (summary, durability) = tempo_app::logwrite::until_written(|| {
+                    tempo_app::logwrite::merge_lotw_report(&engine, &text)
+                });
                 (summary.map(Into::into), durability)
             })
             .await
@@ -20303,7 +21761,8 @@ fn cloudlog_stamp(class: propagation::live::cloudlog::CloudlogFailure) -> ConnDe
     match class {
         F::NotConfigured => conn_detail!(
             "nothing was sent — the Cloudlog instance URL, API key or station profile id is \
-             missing, or the URL is not https://. Set them in Settings ▸ Connectors."
+             missing, or the URL is not https:// (plain http:// is for an address on your own \
+             network only). Set them in Settings ▸ Connectors."
         ),
         F::Unreachable => conn_detail!(
             "the upload never reached the instance — check the URL and the network, and \
@@ -21255,7 +22714,9 @@ fn download_lotw_report_impl(state: &SharedEngine) -> Result<LotwSyncResult, Str
     //
     // The merge is planned with the Engine lock released and made under it (SPEC-2 v3 C19); the
     // cursor is advanced once it is made.
-    let (summary, merged) = tempo_app::logwrite::merge_lotw_report(state, &body);
+    // Made again when the store turns it back: another window changed a contact it read first.
+    let (summary, merged) =
+        tempo_app::logwrite::until_written(|| tempo_app::logwrite::merge_lotw_report(state, &body));
     let mut result: LotwSyncResult = summary?.into();
     let rows = {
         let mut eng = engine_lock(state);
@@ -21319,8 +22780,10 @@ fn download_lotw_report_impl(state: &SharedEngine) -> Result<LotwSyncResult, Str
         match own_body {
             Ok(b) if tempo_core::lotw::is_lotw_adif(&b) => {
                 // Planned with the Engine lock released and made under it (SPEC-2 v3 C19).
-                let (promoted, echoed) =
-                    tempo_app::logwrite::merge_lotw_own_echo(state, &b, now_unix());
+                let now = now_unix();
+                let (promoted, echoed) = tempo_app::logwrite::until_written(|| {
+                    tempo_app::logwrite::merge_lotw_own_echo(state, &b, now)
+                });
                 match promoted {
                     Ok(promoted) => {
                         result.promoted = promoted;
@@ -21603,15 +23066,19 @@ fn lotw_upload_batch_with(
         Some(outcome) => {
             // By id, planned with the Engine lock released (SPEC-2 v3 C19): each contact read off
             // the store, and stamped under the lock only while it is still the one TQSL signed.
-            let (done, durable) = tempo_app::logwrite::stamp_lotw_batch(
-                state,
-                &signed,
-                &tempo_core::logbook::UploadStatus {
-                    outcome,
-                    when_unix: now_unix(),
-                    detail: stamped,
-                },
-            );
+            let status = tempo_core::logbook::UploadStatus {
+                outcome,
+                when_unix: now_unix(),
+                detail: stamped,
+            };
+            let stamp = || tempo_app::logwrite::stamp_lotw_batch(state, &signed, &status);
+            // The Logbook button makes the stamps again when the store turns them back (another
+            // window changed one of the contacts first); the six-hourly run leaves that to its next.
+            let (done, durable) = if wait {
+                tempo_app::logwrite::until_written(stamp)
+            } else {
+                stamp()
+            };
             if done.unrecorded > 0 {
                 conn_log(
                     "LoTW",
@@ -21773,7 +23240,8 @@ fn download_eqsl_report_impl(state: &SharedEngine) -> Result<LotwSyncResult, Str
     //
     // The merge is planned with the Engine lock released and made under it (SPEC-2 v3 C19); the
     // cursor is advanced once it is made.
-    let (summary, merged) = tempo_app::logwrite::merge_eqsl_report(state, &body);
+    let (summary, merged) =
+        tempo_app::logwrite::until_written(|| tempo_app::logwrite::merge_eqsl_report(state, &body));
     let summary: LotwSyncResult = summary?.into();
     {
         let mut eng = engine_lock(state);
@@ -21965,7 +23433,14 @@ fn sync_qrz_since(
         return Err(qrz_fetch_refused(fetched.reason));
     }
     // Planned with the Engine lock released and made under it (SPEC-2 v3 C19).
-    let (made, merged) = tempo_app::logwrite::merge_qrz_report(engine, &fetched.adif);
+    let merge = || tempo_app::logwrite::merge_qrz_report(engine, &fetched.adif);
+    // The operator's sync makes it again when the store turns it back (another window changed
+    // a contact it read first); the hourly one leaves that to its next run.
+    let (made, merged) = if wait {
+        tempo_app::logwrite::until_written(merge)
+    } else {
+        merge()
+    };
     let (added, summary) = made.map_err(|e| QrzSyncFailure {
         detail: QRZ_SYNC_NOT_MERGED,
         message: ScreenReason::new(e),
@@ -22358,6 +23833,24 @@ fn note_lookup_name(engine: &SharedEngine, call: &str, dto: &tempo_app::dto::Qrz
     }
 }
 
+/// The same lookup's location, for the rotator's point-at-call (`Engine::note_callbook_fix`), so
+/// pointing at a station the operator just looked up aims at the station rather than its
+/// country — and never makes a lookup of its own. The locator only when it IS one: QRZ answers
+/// the field with whatever the station typed into its profile ("EN52/EN53", free text).
+fn note_lookup_fix(engine: &SharedEngine, call: &str, dto: &tempo_app::dto::QrzLookupDto) {
+    let grid = dto
+        .grid
+        .as_deref()
+        .map(str::trim)
+        .filter(|g| propagation::geo::is_logged_grid(g))
+        .map(str::to_string);
+    let fix = tempo_app::engine::CallbookFix {
+        grid,
+        position: dto.lat.zip(dto.lon),
+    };
+    engine_lock(engine).note_callbook_fix(call, fix);
+}
+
 /// Look up a callsign, enriching with name / grid / QTH / state. QRZ is tried first
 /// (its paid tier carries grid/state); when QRZ is **unconfigured** (no username or
 /// no stored password) or has **no match**, the lookup falls through to the FREE
@@ -22440,6 +23933,7 @@ async fn qrz_lookup(
                 }
                 if let QrzOutcome::Found(dto, _) = attempt.map_err(|f| f.message.into_string())? {
                     note_lookup_name(&state, &call, &dto);
+                    note_lookup_fix(&state, &call, &dto);
                     return Ok(*dto);
                 }
             }
@@ -22465,6 +23959,7 @@ async fn qrz_lookup(
                 };
                 if let Some(dto) = attempt? {
                     note_lookup_name(&state, &call, &dto);
+                    note_lookup_fix(&state, &call, &dto);
                     return Ok(dto);
                 }
                 // HamQTH was queried and answered — a genuine miss for THIS candidate. Only the
@@ -22949,16 +24444,27 @@ fn qrz_push_qso_impl(
     //
     // Planned with the Engine lock released (SPEC-2 v3 C19): the row the push names is read off
     // the store, and stamped under the lock only while it is still that row.
-    let (_, stamped) = tempo_app::logwrite::stamp_push(
-        engine,
-        &stamp_subject(named.as_deref(), &rec),
-        tempo_core::logbook::UploadService::Qrz,
-        tempo_core::logbook::UploadStatus {
-            outcome: push.result.to_upload_outcome(),
-            when_unix: now_unix(),
-            detail: push.result.to_upload_detail(),
-        },
-    );
+    let subject = stamp_subject(named.as_deref(), &rec);
+    let status = tempo_core::logbook::UploadStatus {
+        outcome: push.result.to_upload_outcome(),
+        when_unix: now_unix(),
+        detail: push.result.to_upload_detail(),
+    };
+    let stamp = || {
+        tempo_app::logwrite::stamp_push(
+            engine,
+            &subject,
+            tempo_core::logbook::UploadService::Qrz,
+            status.clone(),
+        )
+    };
+    // The push button makes the stamp again when the store turns it back (another window
+    // changed the contact first); the worker's next push makes it.
+    let (_, stamped) = if wait {
+        tempo_app::logwrite::until_written(stamp)
+    } else {
+        stamp()
+    };
     // The operator's push button waits for the stamp to reach the disk; the upload worker
     // does not (a stamp it loses is re-derived: a re-push answers Duplicate).
     if wait {
@@ -23571,16 +25077,25 @@ fn clublog_push_qso_impl(
     // `tempo_core::logbook::UploadDetail`.
     if let Some(outcome) = push.result.to_upload_outcome() {
         // Planned with the Engine lock released (SPEC-2 v3 C19), as QRZ's.
-        let (_, stamped) = tempo_app::logwrite::stamp_push(
-            engine,
-            &stamp_subject(named.as_deref(), &rec),
-            tempo_core::logbook::UploadService::Clublog,
-            tempo_core::logbook::UploadStatus {
-                outcome,
-                when_unix: now_unix(),
-                detail: push.result.to_upload_detail(),
-            },
-        );
+        let subject = stamp_subject(named.as_deref(), &rec);
+        let status = tempo_core::logbook::UploadStatus {
+            outcome,
+            when_unix: now_unix(),
+            detail: push.result.to_upload_detail(),
+        };
+        let stamp = || {
+            tempo_app::logwrite::stamp_push(
+                engine,
+                &subject,
+                tempo_core::logbook::UploadService::Clublog,
+                status.clone(),
+            )
+        };
+        let (_, stamped) = if wait {
+            tempo_app::logwrite::until_written(stamp)
+        } else {
+            stamp()
+        };
         // The push button waits for the stamp; the upload worker does not (see QRZ's).
         if wait {
             stamped
@@ -23697,16 +25212,25 @@ fn eqsl_push_qso_impl(
         }),
         Some(outcome) => {
             // Planned with the Engine lock released (SPEC-2 v3 C19), as QRZ's.
-            let (_, stamped) = tempo_app::logwrite::stamp_push(
-                engine,
-                &stamp_subject(named.as_deref(), &rec),
-                tempo_core::logbook::UploadService::Eqsl,
-                tempo_core::logbook::UploadStatus {
-                    outcome,
-                    when_unix: now_unix(),
-                    detail: None,
-                },
-            );
+            let subject = stamp_subject(named.as_deref(), &rec);
+            let status = tempo_core::logbook::UploadStatus {
+                outcome,
+                when_unix: now_unix(),
+                detail: None,
+            };
+            let stamp = || {
+                tempo_app::logwrite::stamp_push(
+                    engine,
+                    &subject,
+                    tempo_core::logbook::UploadService::Eqsl,
+                    status.clone(),
+                )
+            };
+            let (_, stamped) = if wait {
+                tempo_app::logwrite::until_written(stamp)
+            } else {
+                stamp()
+            };
             // The push button waits for the stamp; the upload worker does not (see QRZ's).
             if wait {
                 stamped
@@ -23893,8 +25417,8 @@ async fn cloudlog_station_info(
     let key = cloudlog_keychain()?
         .get_password()
         .map_err(|_| "No Cloudlog/Wavelog API key stored — set it in Settings.".to_string())?;
-    // Blocking HTTP off the async executor (the push impls' rule). The key moves in and dies
-    // with the closure.
+    // Blocking HTTP off the async executor (the push impls' rule), and the destination check
+    // with it: for a plain-http name it is a lookup. The key moves in and dies with the closure.
     let found = tauri::async_runtime::spawn_blocking(move || {
         if key.trim().starts_with("wl2_") {
             wavelog_v2::stations(&url, &key).map(|list| {
@@ -23909,7 +25433,10 @@ async fn cloudlog_station_info(
                     .collect::<Vec<_>>()
             })
         } else {
-            propagation::live::cloudlog::fetch_station_info(&url, &key)
+            let dest =
+                propagation::live::cloudlog::Destination::check(&url).map_err(|e| e.message)?;
+            warn_cloudlog_cleartext(&dest);
+            propagation::live::cloudlog::fetch_station_info(&dest, &key)
                 .map(|list| {
                     list.into_iter()
                         .map(|s| CloudlogStationDto {
@@ -23997,7 +25524,40 @@ fn cloudlog_push_qso_impl(
         });
     }
     let adif = tempo_core::logbook::adif_record(&rec);
-    propagation::live::cloudlog::upload(&url, &key, &station_id, &adif)
+    let dest = propagation::live::cloudlog::Destination::check(&url)?;
+    warn_cloudlog_cleartext(&dest);
+    propagation::live::cloudlog::upload(&dest, &key, &station_id, &adif)
+}
+
+/// #378: where this session has already been told that its Cloudlog/Wavelog API key travels
+/// unencrypted. One line per place, the first time, is the warning; a line per contact would
+/// bury every other line in the log.
+static CLOUDLOG_CLEARTEXT_WARNED: Mutex<std::collections::BTreeSet<String>> =
+    Mutex::new(std::collections::BTreeSet::new());
+
+/// #378: say in the Connections log, once a session for each place it goes, that the API key is
+/// about to travel unencrypted. Plain http is accepted only on the operator's own network
+/// (`Destination` refused everything else before this is reached), and this is the half of
+/// that ruling the operator sees: the key is readable to anything on that network that
+/// listens. Nothing for https.
+fn warn_cloudlog_cleartext(dest: &propagation::live::cloudlog::Destination) {
+    let Some(to) = dest.cleartext_to() else {
+        return;
+    };
+    let first = CLOUDLOG_CLEARTEXT_WARNED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(to.clone());
+    if first {
+        conn_log(
+            "Cloudlog",
+            "warn",
+            format!(
+                "plain http: the API key travels unencrypted to {to}, on your own network. Use \
+                 https:// to keep it encrypted"
+            ),
+        );
+    }
 }
 
 /// Reconcile the whole local logbook with Wavelog API v2. Legacy v1 keys remain upload-only.
@@ -24781,6 +26341,7 @@ fn tv_rpc(cmd: &str, args: &str) -> tempo_app::connect_web::RpcOutcome {
             "get_satellites" => ok(get_satellites(app.state()).await),
             "get_ota_map_spots" => ok(get_ota_map_spots(app.state(), app.state()).await),
             "get_kp_forecast" => ok(get_kp_forecast(app.state()).await),
+            "get_solar_indices" => ok(get_solar_indices(app.state()).await),
             "get_band_outlook" => ok(get_band_outlook(app.state(), app.state()).await),
             "get_path_outlook" => {
                 let grid = v
@@ -25448,12 +27009,13 @@ async fn download_parks(parks: State<'_, SharedParks>) -> Result<usize, String> 
 
 // ── Radio programming ("Program" section): repeater search, projects, exports ──────────────────
 //
-// Location → repeater directory → picked channels → CHIRP/generic CSV. Pure logic lives in
-// propagation::{repeaters, memchan, chirp}; the live fetchers in propagation::live::{repeaterbook,
-// hearham, geocode}. This shell owns: the RepeaterBook token (OS keychain), the per-user disk
-// cache with TTL (compliance: per-user, on-demand, never bundled/redistributed), per-state fetch
-// throttling, source fallback (no token / non-US / RB failure → hearham), and the saved
-// programming projects in radioprog.json beside settings.json.
+// Location → repeater directories → picked channels → CHIRP/generic CSV. Pure logic lives in
+// propagation::{repeaters, memchan, chirp}; the live fetchers in propagation::live::{rsgb,
+// repeaterbook, hearham, geocode}. This shell owns: the RepeaterBook token (OS keychain), the
+// per-user disk cache with TTL (compliance: per-user, on-demand, never bundled/redistributed),
+// per-query fetch throttling, which directories a search reads (RSGB for a UK origin,
+// RepeaterBook for a US one, hearham always; merged into one row per machine) and their
+// fallbacks, and the saved programming projects in radioprog.json beside settings.json.
 
 /// Saved programming projects (channel lists) — sidecar file so hours of curation survive webview
 /// storage clears and stay reachable for future direct-programming paths.
@@ -25465,8 +27027,9 @@ fn radioprog_path() -> PathBuf {
         .join("radioprog.json")
 }
 
-/// Per-source repeater-directory cache dir (rb_<state_id>.json / hearham.json), beside
-/// settings.json. Losing it is harmless (re-fetch); it is never exported or shipped.
+/// Per-source repeater-directory cache dir (rb_<state_id>.json / rsgb_<square>.json /
+/// hearham.json), beside settings.json. Losing it is harmless (re-fetch); it is never exported
+/// or shipped.
 fn radioprog_cache_dir() -> PathBuf {
     settings_path()
         .parent()
@@ -25515,7 +27078,7 @@ struct RepeaterCacheFile {
 /// well inside RepeaterBook's "minimize load, no offline database" posture (age is shown in the
 /// UI and Refresh is explicit).
 const RADIOPROG_TTL_SECS: i64 = 7 * 24 * 3600;
-/// Manual-refresh throttle per RepeaterBook state export.
+/// Retry throttle per directory query: a RepeaterBook state export, an RSGB square.
 const RB_STATE_THROTTLE_SECS: i64 = 900;
 
 fn read_repeater_cache(name: &str) -> Option<RepeaterCacheFile> {
@@ -25536,193 +27099,878 @@ fn write_repeater_cache(name: &str, body: &str) {
     }
 }
 
-/// Last fetch attempt per RB state (unix secs) — the per-state refresh throttle.
+/// Last fetch attempt per directory query (unix secs) — the refresh throttle. Keyed by the
+/// query: a RepeaterBook state id ("17"), an RSGB square's cache name ("rsgb_IO83.json").
 static RB_LAST_TRY: std::sync::Mutex<Option<std::collections::HashMap<String, i64>>> =
     std::sync::Mutex::new(None);
 
-fn rb_throttle_ok(state_id: &str, now: i64) -> bool {
+fn directory_throttle_ok(query: &str, now: i64) -> bool {
     let mut g = RB_LAST_TRY.lock().unwrap_or_else(|e| e.into_inner());
     let map = g.get_or_insert_with(std::collections::HashMap::new);
-    let ok = now - map.get(state_id).copied().unwrap_or(0) >= RB_STATE_THROTTLE_SECS;
+    let ok = now - map.get(query).copied().unwrap_or(0) >= RB_STATE_THROTTLE_SECS;
     if ok {
-        map.insert(state_id.to_string(), now);
+        map.insert(query.to_string(), now);
     }
     ok
 }
 
-/// One search row: the directory record (display: distance/bearing/mode flags/status) plus the
-/// ready-to-add memory channel derived from it (propagation::repeaters::to_channel — duplex,
-/// offset and tone mapping stay in the tested Rust domain, never re-derived in TS).
+/// One search row: one MACHINE after the merge (propagation::repeaters::merge_nearby), as the
+/// record Program displays (distance/bearing/mode flags/status) plus the ready-to-add memory
+/// channel derived from it (propagation::repeaters::to_channel — duplex, offset and tone mapping
+/// stay in the tested Rust domain, never re-derived in TS).
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RepeaterSearchRow {
     record: propagation::repeaters::RepeaterRecord,
     channel: propagation::memchan::Channel,
+    /// Every directory row behind this machine, the one it programs from first, each with its
+    /// channel id, so a channel saved from any of them still finds the machine.
+    sources: Vec<propagation::repeaters::SourceRef>,
+    /// Fields those rows disagree on: shown on the row, never silently resolved.
+    disagreements: Vec<propagation::repeaters::Disagreement>,
+    /// On a route search: how far along the route the machine is, km from the start. Its record's
+    /// distance and bearing are then from its nearest point of the route.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    along_km: Option<f64>,
+    /// Where Program's map puts the machine: its hearham row's own place and words, never the
+    /// record's (propagation::repeaters::MapPoint). Absent when no hearham row lists it: the map
+    /// is hearham's alone (the operator, 2026-09-30), so the machine is left off it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    map: Option<propagation::repeaters::MapPoint>,
 }
 
-/// A repeater search result: which source answered, how old the data is, and the rows inside
-/// the radius (distance/bearing filled, nearest first).
+/// One directory a search read, and how old its list is.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-struct RepeaterSearchResult {
-    /// "repeaterbook" | "hearham".
-    source: String,
-    /// Oldest payload timestamp behind these records (unix secs) — the UI's "as of" stamp.
+struct ListStamp {
+    source: propagation::repeaters::RepeaterSource,
+    /// Oldest payload timestamp behind this directory's rows (unix secs): the "as of" stamp, and
+    /// the date a row with none of its own shows.
     fetched_utc: i64,
     /// True when a fetch failed/was rate-limited and stale cache was served instead.
     stale: bool,
+}
+
+/// A repeater search result: the directories that answered, and the machines inside the radius
+/// (distance/bearing filled, nearest first), or along the route (in route order).
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RepeaterSearchResult {
+    /// A route search: the rows are the corridor's, in order along the route.
+    route: bool,
+    /// Every directory this search read, in precedence order (RSGB, RepeaterBook, hearham).
+    lists: Vec<ListStamp>,
     /// A major band this source lists nothing on here, when it lists something —
     /// hearham has real holes in rural country (no 2 m at all around Bozeman MT),
     /// and a channel list missing a whole band reads as complete when it isn't.
-    /// Only set on the hearham path, where adding a RepeaterBook token is the fix.
+    /// Only set when the list is hearham's alone, where adding a RepeaterBook token is the fix.
     coverage_gap: Option<&'static str>,
     /// States this search PLANNED to read but heard nothing from (2-letter codes), so
     /// a short list can say which directory is absent instead of reading as "there are
     /// no repeaters near you" (#241). Empty on a complete search and on the hearham
     /// path, which is one global feed rather than per-state exports.
     missing_states: Vec<String>,
+    /// A UK origin whose RSGB list could not be read (a failure, or a payload in a shape this
+    /// build cannot read: the endpoint is a BETA). The rows are hearham's alone, and the panel
+    /// says so in plain words; it is never an empty list.
+    rsgb_unavailable: bool,
+    /// Locator squares the radius reaches that RSGB was not asked about (at most nine are, per
+    /// search), so the rows there are hearham's alone.
+    rsgb_beyond: Vec<String>,
+    /// States a route's corridor crosses that RepeaterBook was not asked about (2-letter codes):
+    /// a route asks about the nine it reaches first, no more than a radius search can. Empty on a
+    /// radius search, and when RepeaterBook answered nothing.
+    rb_beyond: Vec<String>,
+    /// The hearham list could not be read for this search (its fetch failed with no list on this
+    /// PC, or it sent something that is not the list) while another directory answered: the rows
+    /// are that directory's alone, and the panel says so. With no other directory the search is an
+    /// error instead, never an empty list.
+    hearham_unavailable: bool,
     rows: Vec<RepeaterSearchRow>,
 }
 
-fn search_rows(records: Vec<propagation::repeaters::RepeaterRecord>) -> Vec<RepeaterSearchRow> {
-    records
+/// Everything a repeater search reaches outside itself: the operator's stored token, the cache
+/// beside settings.json, the per-query retry throttle and the three directories over the network.
+/// The app's is [`LiveDirectories`]; a test's answers from fixtures, so a search runs end to end
+/// (cache, fetch, parse, merge) on a real-shaped list without the network.
+trait RepeaterDirectories {
+    /// The operator's own RepeaterBook token (`rbuapp_…`), or "" when none is stored.
+    fn token(&self) -> String;
+    fn cached(&self, name: &str) -> Option<RepeaterCacheFile>;
+    fn store(&self, name: &str, body: &str);
+    /// May this directory query be fetched now? Asking records the attempt.
+    fn may_fetch(&self, query: &str, now: i64) -> bool;
+    /// One state's export through the Nexus proxy (no token on this side).
+    fn repeaterbook_proxy(&self, state_id: &str) -> Result<String, String>;
+    /// One state's export straight from RepeaterBook, under the operator's own token.
+    fn repeaterbook(&self, token: &str, state_id: &str) -> Result<String, String>;
+    fn rsgb(&self, square: &str) -> Result<String, String>;
+    fn hearham(&self) -> Result<String, String>;
+}
+
+/// The directories as the app reaches them: the OS keychain, `radioprog_cache/`, the shared
+/// retry throttle and the `live` fetchers.
+struct LiveDirectories;
+
+impl RepeaterDirectories for LiveDirectories {
+    fn token(&self) -> String {
+        repeaterbook_keychain()
+            .ok()
+            .and_then(|e| e.get_password().ok())
+            .unwrap_or_default()
+    }
+    fn cached(&self, name: &str) -> Option<RepeaterCacheFile> {
+        read_repeater_cache(name)
+    }
+    fn store(&self, name: &str, body: &str) {
+        write_repeater_cache(name, body)
+    }
+    fn may_fetch(&self, query: &str, now: i64) -> bool {
+        directory_throttle_ok(query, now)
+    }
+    fn repeaterbook_proxy(&self, state_id: &str) -> Result<String, String> {
+        propagation::live::repeaterbook::fetch_state_proxy(state_id)
+    }
+    fn repeaterbook(&self, token: &str, state_id: &str) -> Result<String, String> {
+        propagation::live::repeaterbook::fetch_state(token, state_id)
+    }
+    fn rsgb(&self, square: &str) -> Result<String, String> {
+        propagation::live::rsgb::fetch_square(square)
+    }
+    fn hearham(&self) -> Result<String, String> {
+        propagation::live::hearham::fetch_all()
+    }
+}
+
+fn search_rows(machines: Vec<propagation::repeaters::Machine>) -> Vec<RepeaterSearchRow> {
+    machines
         .into_iter()
-        .map(|r| RepeaterSearchRow {
-            channel: propagation::repeaters::to_channel(&r),
-            record: r,
+        .map(|m| RepeaterSearchRow {
+            channel: propagation::repeaters::to_channel(&m.record),
+            record: m.record,
+            sources: m.sources,
+            disagreements: m.disagreements,
+            along_km: m.along_km,
+            map: m.map,
         })
         .collect()
 }
 
-/// Search repeaters within `radius_km` of a point. Source resolution for a US origin: RepeaterBook
-/// state exports — through the operator's own token when one is stored, else through the Nexus
-/// proxy (rb.hamradiotools.io, the centralized model: the app token lives server-side only).
-/// Cached TTL 7d, per-state throttle, stale cache on failure/429. When RepeaterBook is
-/// unreachable/dormant with no cache (or the origin is non-US) → hearham, same cache discipline.
+/// Search repeaters within `radius_km` of a point, merged from every directory that covers it
+/// into one row per machine (propagation::repeaters::merge_nearby: field by field the RSGB list,
+/// then RepeaterBook, then hearham; every source id kept; disagreements shown).
+///
+/// - **RSGB** (UK origins): one request per locator square the radius reaches, at most nine,
+///   each cached 7d on this PC behind the per-query retry throttle. Any square that yields
+///   nothing, or a payload in a shape this build cannot read, drops the RSGB list for this
+///   search: the rows are hearham's alone and `rsgb_unavailable` says so.
+/// - **RepeaterBook** (US origins): state exports — through the operator's own token when one
+///   is stored, else through the Nexus proxy (rb.hamradiotools.io, the centralized model: the
+///   app token lives server-side only). Cached TTL 7d, per-state throttle, stale cache on
+///   failure/429. Its rows stay on this PC: they reach this panel and nothing else.
+/// - **hearham**: every search (one global feed, cached 7d), the floor under the others. Only a
+///   payload that reads as its list is cached ([`hearham_list`]); when it cannot be read while
+///   another directory answered, `hearham_unavailable` says so.
+///
+/// **A route** (`to_lat`/`to_lon` given): the machines within `radius_km` of the line from the
+/// origin to there, in order along it (propagation::repeaters::merge_route). It asks each
+/// directory about what the corridor crosses, in route order and under the same caps and cache
+/// as a radius search: the nine RepeaterBook states it reaches first (no more than a radius search
+/// can plan), each through the same per-state cache and retry throttle below, and the nine RSGB
+/// squares it reaches first; the rest are named in the result.
+///
 /// All network + parsing off the main thread.
 #[tauri::command]
 async fn repeater_search(
     lat: f64,
     lon: f64,
     radius_km: f64,
+    to_lat: Option<f64>,
+    to_lon: Option<f64>,
 ) -> Result<RepeaterSearchResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        use propagation::repeaters as rpt;
-        let origin = (lat, lon);
-        let radius = radius_km.clamp(1.0, 500.0);
-        let token = repeaterbook_keychain()
-            .ok()
-            .and_then(|e| e.get_password().ok())
-            .unwrap_or_default();
-        let states = rpt::plan_states(origin, radius);
-        let now = now_unix();
-
-        if !states.is_empty() {
-            // One entry per PLANNED state, whether or not it answered — a state that
-            // yields nothing has to survive as far as the result, or the search reports
-            // itself complete while a whole state's repeaters are absent (#241).
-            let mut fetches: Vec<rpt::StateFetch> = Vec::new();
-            let mut last_err = String::new();
-            for st in &states {
-                let cache_name = format!("rb_{st}.json");
-                let cached = read_repeater_cache(&cache_name);
-                let fresh = cached
-                    .as_ref()
-                    .is_some_and(|c| now - c.fetched_utc < RADIOPROG_TTL_SECS);
-                let body = if fresh {
-                    cached
-                        .as_ref()
-                        .map(|c| (c.body.clone(), c.fetched_utc, false))
-                } else if rb_throttle_ok(st, now) {
-                    // A stored personal token goes straight to RepeaterBook; otherwise the
-                    // Nexus proxy (which holds the app token server-side + an edge cache).
-                    let fetched = if token.is_empty() {
-                        propagation::live::repeaterbook::fetch_state_proxy(st)
-                    } else {
-                        propagation::live::repeaterbook::fetch_state(&token, st)
-                    };
-                    match fetched {
-                        Ok(b) => {
-                            write_repeater_cache(&cache_name, &b);
-                            Some((b, now, false))
-                        }
-                        Err(e) => {
-                            last_err = e;
-                            // Failure/429/dormant proxy → serve whatever cache exists, stale.
-                            cached
-                                .as_ref()
-                                .map(|c| (c.body.clone(), c.fetched_utc, true))
-                        }
-                    }
-                } else {
-                    cached
-                        .as_ref()
-                        .map(|c| (c.body.clone(), c.fetched_utc, true))
-                };
-                let (body, fetched_utc, was_stale) = match body {
-                    Some((b, at, s)) => (Some(b), at, s),
-                    None => (None, 0, false),
-                };
-                fetches.push(rpt::StateFetch {
-                    state_id: st.clone(),
-                    body,
-                    fetched_utc,
-                    stale: was_stale,
-                });
-            }
-            let cov = rpt::fold_state_fetches(&fetches);
-            if cov.any_served() {
-                return Ok(RepeaterSearchResult {
-                    source: "repeaterbook".into(),
-                    fetched_utc: cov.oldest_utc,
-                    stale: cov.stale,
-                    coverage_gap: None,
-                    missing_states: cov.missing,
-                    rows: search_rows(rpt::filter_sort(&cov.records, origin, radius)),
-                });
-            }
-            // Every state failed with no cache (e.g. the proxy is dormant pre-approval) — fall
-            // through to hearham, but log the RB reason for the Connections panel.
-            if !last_err.is_empty() {
-                conn_log("RepeaterBook", "info", &last_err);
-            }
-        }
-
-        // hearham: the no-token default, the non-US path, and the RB fallback.
-        let cached = read_repeater_cache("hearham.json");
-        let fresh = cached
-            .as_ref()
-            .is_some_and(|c| now - c.fetched_utc < RADIOPROG_TTL_SECS);
-        let (body, at, stale) = if fresh {
-            let c = cached.as_ref().unwrap();
-            (c.body.clone(), c.fetched_utc, false)
-        } else {
-            match propagation::live::hearham::fetch_all() {
-                Ok(b) => {
-                    write_repeater_cache("hearham.json", &b);
-                    (b, now, false)
-                }
-                Err(e) => match cached.as_ref() {
-                    Some(c) => (c.body.clone(), c.fetched_utc, true),
-                    None => return Err(e),
-                },
-            }
-        };
-        let records = rpt::parse_hearham_json(&body);
-        // Judged on what's inside the radius, not the whole global feed.
-        let in_radius = rpt::filter_sort(&records, origin, radius);
-        Ok(RepeaterSearchResult {
-            source: "hearham".into(),
-            fetched_utc: at,
-            stale,
-            coverage_gap: rpt::missing_major_band(&in_radius),
-            // hearham is ONE global feed, not per-state exports — no state can go missing.
-            missing_states: Vec::new(),
-            rows: search_rows(in_radius),
-        })
+        search_directories(
+            &LiveDirectories,
+            now_unix(),
+            (lat, lon),
+            radius_km,
+            to_lat.zip(to_lon),
+        )
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// [`repeater_search`]'s search, with what it reaches outside itself named (`dirs`) and the clock
+/// given (`now`), so a test runs the whole of it on fixtures.
+fn search_directories(
+    dirs: &impl RepeaterDirectories,
+    now: i64,
+    origin: (f64, f64),
+    radius_km: f64,
+    to: Option<(f64, f64)>,
+) -> Result<RepeaterSearchResult, String> {
+    use propagation::repeaters::{self as rpt, RepeaterSource};
+    let radius = radius_km.clamp(1.0, 500.0);
+    let route = to.map(|to| rpt::Route {
+        from: origin,
+        to,
+        corridor_km: radius,
+    });
+    let token = dirs.token();
+    let (states, mut rb_beyond) = match &route {
+        Some(r) => {
+            let plan = rpt::plan_route_states(r);
+            (plan.ask, plan.beyond)
+        }
+        None => (rpt::plan_states(origin, radius), Vec::new()),
+    };
+    let mut lists: Vec<ListStamp> = Vec::new();
+    let mut missing_states = Vec::new();
+
+    let mut rb_records = Vec::new();
+    if !states.is_empty() {
+        // One entry per PLANNED state, whether or not it answered — a state that
+        // yields nothing has to survive as far as the result, or the search reports
+        // itself complete while a whole state's repeaters are absent (#241).
+        let mut fetches: Vec<rpt::StateFetch> = Vec::new();
+        let mut last_err = String::new();
+        for st in &states {
+            let cache_name = format!("rb_{st}.json");
+            let cached = dirs.cached(&cache_name);
+            let fresh = cached
+                .as_ref()
+                .is_some_and(|c| now - c.fetched_utc < RADIOPROG_TTL_SECS);
+            let body = if fresh {
+                cached
+                    .as_ref()
+                    .map(|c| (c.body.clone(), c.fetched_utc, false))
+            } else if dirs.may_fetch(st, now) {
+                // A stored personal token goes straight to RepeaterBook; otherwise the
+                // Nexus proxy (which holds the app token server-side + an edge cache).
+                let fetched = if token.is_empty() {
+                    dirs.repeaterbook_proxy(st)
+                } else {
+                    dirs.repeaterbook(&token, st)
+                };
+                match fetched {
+                    Ok(b) => {
+                        dirs.store(&cache_name, &b);
+                        Some((b, now, false))
+                    }
+                    Err(e) => {
+                        last_err = e;
+                        // Failure/429/dormant proxy → serve whatever cache exists, stale.
+                        cached
+                            .as_ref()
+                            .map(|c| (c.body.clone(), c.fetched_utc, true))
+                    }
+                }
+            } else {
+                cached
+                    .as_ref()
+                    .map(|c| (c.body.clone(), c.fetched_utc, true))
+            };
+            let (body, fetched_utc, was_stale) = match body {
+                Some((b, at, s)) => (Some(b), at, s),
+                None => (None, 0, false),
+            };
+            fetches.push(rpt::StateFetch {
+                state_id: st.clone(),
+                body,
+                fetched_utc,
+                stale: was_stale,
+            });
+        }
+        let cov = rpt::fold_state_fetches(&fetches);
+        if cov.any_served() {
+            lists.push(ListStamp {
+                source: RepeaterSource::Repeaterbook,
+                fetched_utc: cov.oldest_utc,
+                stale: cov.stale,
+            });
+            missing_states = cov.missing;
+            rb_records = cov.records;
+        } else {
+            // No RepeaterBook list at all, so nothing to say about the states it was not
+            // asked about.
+            rb_beyond.clear();
+            if !last_err.is_empty() {
+                // Every state failed with no cache (e.g. the proxy is dormant pre-approval):
+                // hearham carries the search; log the RB reason for the Connections panel.
+                conn_log("RepeaterBook", "info", &last_err);
+            }
+        }
+    }
+
+    // RSGB: the UK coordinator's list, one square at a time. A payload that does not read
+    // as the RSGB shape is never cached, so it cannot replace a good list with one this
+    // build cannot read; a stale good list is served instead, as for the other sources.
+    let plan = match &route {
+        Some(r) => rpt::plan_rsgb_route(r),
+        None => rpt::plan_rsgb_squares(origin, radius),
+    };
+    let mut rsgb_records = Vec::new();
+    let mut rsgb_unavailable = false;
+    if !plan.ask.is_empty() {
+        let mut fetches: Vec<rpt::SquareFetch> = Vec::new();
+        let mut last_err = String::new();
+        for sq in &plan.ask {
+            let cache_name = format!("rsgb_{sq}.json");
+            let (fetch, err) = rsgb_square(
+                sq,
+                now,
+                dirs.cached(&cache_name),
+                || dirs.may_fetch(&cache_name, now),
+                |square| dirs.rsgb(square),
+                |body| dirs.store(&cache_name, body),
+            );
+            if let Some(e) = err {
+                last_err = e;
+            }
+            fetches.push(fetch);
+        }
+        if !last_err.is_empty() {
+            conn_log("RSGB", "info", &last_err);
+        }
+        match rpt::fold_rsgb_squares(&fetches) {
+            Ok(layer) => {
+                lists.push(ListStamp {
+                    source: RepeaterSource::Rsgb,
+                    fetched_utc: layer.oldest_utc,
+                    stale: layer.stale,
+                });
+                rsgb_records = layer.records;
+            }
+            Err(why) => {
+                conn_log(
+                    "RSGB",
+                    "info",
+                    format!("the RSGB list was not used for this search: {why}"),
+                );
+                rsgb_unavailable = true;
+            }
+        }
+    }
+
+    // hearham: every search, the no-token default and the floor under the other two.
+    let mut hearham_unavailable = false;
+    let hh_records = match hearham_list(dirs, now) {
+        Ok((records, at, stale)) => {
+            lists.push(ListStamp {
+                source: RepeaterSource::Hearham,
+                fetched_utc: at,
+                stale,
+            });
+            records
+        }
+        // Nothing answered at all: the error is the result, as it always was.
+        Err(e) if lists.is_empty() => return Err(e),
+        // The others answered, so their machines are listed. hearham is the floor under them, so
+        // its absence is said: unsaid, it read as fewer repeaters, or none (2026-10-02).
+        Err(e) => {
+            conn_log("hearham", "info", &e);
+            hearham_unavailable = true;
+            Vec::new()
+        }
+    };
+
+    let layers: [&[rpt::RepeaterRecord]; 3] = [&rsgb_records, &rb_records, &hh_records];
+    let machines = match &route {
+        Some(r) => rpt::merge_route(&layers, r),
+        None => rpt::merge_nearby(&layers, origin, radius),
+    };
+    // Judged on what's inside the radius, and only for a list that is hearham's alone.
+    let coverage_gap = if lists.iter().all(|l| l.source == RepeaterSource::Hearham) {
+        let records: Vec<rpt::RepeaterRecord> = machines.iter().map(|m| m.record.clone()).collect();
+        rpt::missing_major_band(&records)
+    } else {
+        None
+    };
+    lists.sort_by_key(|l| l.source);
+    Ok(RepeaterSearchResult {
+        route: route.is_some(),
+        lists,
+        coverage_gap,
+        missing_states,
+        rsgb_beyond: if rsgb_unavailable {
+            Vec::new()
+        } else {
+            plan.beyond
+        },
+        rsgb_unavailable,
+        rb_beyond,
+        hearham_unavailable,
+        rows: search_rows(machines),
+    })
+}
+
+/// The hearham list for a search, read: the cache while it is fresh; else a fetch, `store`d only
+/// when it reads as the list ([`propagation::repeaters::parse_hearham_json`]), so a payload that is
+/// not the list never replaces one that is; else, when the fetch fails or sends something else,
+/// the cache, stale. A cache that does not read is no list, fresh or not: until 2026-10-02 whatever
+/// hearham's address answered was stored, an error page included, and read as "no repeaters" for
+/// the rest of its week. It is fetched again at once instead. `Err` says why there is no list.
+fn hearham_list(
+    dirs: &impl RepeaterDirectories,
+    now: i64,
+) -> Result<(Vec<propagation::repeaters::RepeaterRecord>, i64, bool), String> {
+    use propagation::repeaters::parse_hearham_json as read;
+    let cached = dirs.cached("hearham.json");
+    if let Some(c) = cached
+        .as_ref()
+        .filter(|c| now - c.fetched_utc < RADIOPROG_TTL_SECS)
+    {
+        if let Ok(records) = read(&c.body) {
+            return Ok((records, c.fetched_utc, false));
+        }
+    }
+    let why = match dirs
+        .hearham()
+        .and_then(|body| read(&body).map(|records| (body, records)))
+    {
+        Ok((body, records)) => {
+            dirs.store("hearham.json", &body);
+            return Ok((records, now, false));
+        }
+        Err(why) => why,
+    };
+    cached
+        .and_then(|c| {
+            read(&c.body)
+                .ok()
+                .map(|records| (records, c.fetched_utc, true))
+        })
+        .ok_or(why)
+}
+
+/// One planned RSGB square for a search: the cache while it is fresh; else, when the retry
+/// throttle allows (`may_fetch`, asked only then, since asking records the attempt), a fetch,
+/// whose payload is `store`d only when it reads as the RSGB shape, so a payload this build cannot
+/// read never replaces a good list; else, or when the fetch fails or is unreadable, the stale
+/// cache; else nothing. The `String` says why a fetch was not used, for the connection log.
+fn rsgb_square(
+    square: &str,
+    now: i64,
+    cached: Option<RepeaterCacheFile>,
+    may_fetch: impl FnOnce() -> bool,
+    fetch: impl FnOnce(&str) -> Result<String, String>,
+    store: impl FnOnce(&str),
+) -> (propagation::repeaters::SquareFetch, Option<String>) {
+    let mut err = None;
+    let fresh = cached
+        .as_ref()
+        .is_some_and(|c| now - c.fetched_utc < RADIOPROG_TTL_SECS);
+    let got = if fresh {
+        cached
+            .as_ref()
+            .map(|c| (c.body.clone(), c.fetched_utc, false))
+    } else {
+        let fetched = if may_fetch() {
+            match fetch(square) {
+                Ok(b) => match propagation::repeaters::parse_rsgb_json(&b) {
+                    Ok(_) => {
+                        store(&b);
+                        Some((b, now, false))
+                    }
+                    Err(e) => {
+                        err = Some(format!("{e} ({square})"));
+                        None
+                    }
+                },
+                Err(e) => {
+                    err = Some(e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        fetched.or_else(|| {
+            cached
+                .as_ref()
+                .map(|c| (c.body.clone(), c.fetched_utc, true))
+        })
+    };
+    let (body, fetched_utc, stale) = match got {
+        Some((b, at, s)) => (Some(b), at, s),
+        None => (None, 0, false),
+    };
+    (
+        propagation::repeaters::SquareFetch {
+            square: square.to_string(),
+            body,
+            fetched_utc,
+            stale,
+        },
+        err,
+    )
+}
+
+#[cfg(test)]
+mod rsgb_square_tests {
+    use super::*;
+
+    const GOOD: &str = r#"{"data":[{"id":1,"type":"AV","status":"OPERATIONAL","repeater":"GB3XX","town":"X","modeCodes":["A"],"tx":145600000,"rx":145000000,"ctcss":77,"txbw":12.5,"locator":"IO83LP"}]}"#;
+    const NOW: i64 = 1_800_000_000;
+    const WEEK: i64 = 7 * 24 * 3600;
+
+    fn cache(body: &str, age_secs: i64) -> Option<RepeaterCacheFile> {
+        Some(RepeaterCacheFile {
+            fetched_utc: NOW - age_secs,
+            body: body.into(),
+        })
+    }
+
+    /// The RSGB endpoint is a BETA. Should it start answering in another shape, the good list
+    /// this PC holds must survive: the unreadable payload is never stored, the old list is served
+    /// (marked stale) and the reason goes to the log.
+    #[test]
+    fn an_unreadable_payload_never_replaces_the_cached_list() {
+        let mut stored = None;
+        let (f, err) = rsgb_square(
+            "IO83",
+            NOW,
+            cache(GOOD, WEEK + 1),
+            || true,
+            |_| Ok("<html>502 Bad Gateway</html>".into()),
+            |b| stored = Some(b.to_string()),
+        );
+        assert_eq!(
+            stored, None,
+            "the unreadable payload was cached over the good list"
+        );
+        assert_eq!(f.body.as_deref(), Some(GOOD), "the good list is served");
+        assert!(f.stale);
+        assert!(err.is_some_and(|e| e.contains("IO83")));
+        // With nothing cached there is nothing to serve: the square gives nothing, the RSGB layer
+        // drops (fold_rsgb_squares) and the search shows hearham's rows alone, saying so.
+        let (f, _) = rsgb_square(
+            "IO83",
+            NOW,
+            None,
+            || true,
+            |_| Ok("[]".into()),
+            |_| panic!("stored"),
+        );
+        assert_eq!(f.body, None);
+    }
+
+    #[test]
+    fn a_readable_payload_is_stored_and_served_fresh() {
+        let mut stored = None;
+        let (f, err) = rsgb_square(
+            "IO83",
+            NOW,
+            cache(r#"{"data":[]}"#, WEEK + 1),
+            || true,
+            |sq| {
+                assert_eq!(sq, "IO83");
+                Ok(GOOD.into())
+            },
+            |b| stored = Some(b.to_string()),
+        );
+        assert_eq!(stored.as_deref(), Some(GOOD));
+        assert_eq!(
+            (f.body.as_deref(), f.fetched_utc, f.stale, err),
+            (Some(GOOD), NOW, false, None)
+        );
+    }
+
+    #[test]
+    fn a_fresh_cache_asks_nothing_and_a_throttled_or_failed_fetch_serves_the_stale_one() {
+        let (f, _) = rsgb_square(
+            "IO83",
+            NOW,
+            cache(GOOD, 60),
+            || panic!("asked the throttle"),
+            |_| panic!("fetched"),
+            |_| panic!("stored"),
+        );
+        assert_eq!((f.body.as_deref(), f.stale), (Some(GOOD), false));
+        let (f, err) = rsgb_square(
+            "IO83",
+            NOW,
+            cache(GOOD, WEEK + 1),
+            || false,
+            |_| panic!("fetched while throttled"),
+            |_| panic!("stored"),
+        );
+        assert_eq!((f.body.as_deref(), f.stale, err), (Some(GOOD), true, None));
+        let (f, err) = rsgb_square(
+            "IO83",
+            NOW,
+            cache(GOOD, WEEK + 1),
+            || true,
+            |_| Err("RSGB: server returned HTTP 503".into()),
+            |_| panic!("stored"),
+        );
+        assert_eq!((f.body.as_deref(), f.stale), (Some(GOOD), true));
+        assert_eq!(err.as_deref(), Some("RSGB: server returned HTTP 503"));
+        let (f, _) = rsgb_square(
+            "IO83",
+            NOW,
+            None,
+            || true,
+            |_| Err("down".into()),
+            |_| panic!("stored"),
+        );
+        assert_eq!(f.body, None, "nothing to serve");
+    }
+}
+
+#[cfg(test)]
+mod repeater_search_tests {
+    //! A search end to end, as the Program panel runs it: the cache, the fetches, the parse and the
+    //! merge, on real directory rows. Only the disk and the network are stood in for
+    //! ([`Fixture`]), so what is asserted is what the panel is sent.
+    use super::*;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    /// hearham's own rows within 92 km of EN52's centre (the 50 mi radius and the merge's margin),
+    /// read from its whole list on 2026-10-02 with their free text blanked: the list Program
+    /// searched when it showed no repeaters. Repeater data from hearham.com.
+    const HEARHAM_EN52: &str = include_str!("../tests/fixtures/hearham-en52-2026-10-02.json");
+    /// Real RepeaterBook export rows near EN52 (IL and WI), as the direct path returns them.
+    const RB_EXPORT: &str =
+        include_str!("../../crates/propagation/tests/fixtures/repeaterbook_export.json");
+    /// Real hearham rows around Manchester, for the UK path.
+    const HEARHAM_MANCHESTER: &str =
+        include_str!("../../crates/propagation/tests/fixtures/hearham_uk_sample.json");
+    const NOW: i64 = 1_800_000_000;
+    const DAY: i64 = 24 * 3600;
+    const EN52: (f64, f64) = (42.5, -89.0);
+    const IO83: (f64, f64) = (53.5, -3.0);
+    const MI50: f64 = 50.0 * 1.609344;
+    /// What hearham's whole list gives within 50 mi of EN52 (2026-10-02, measured on the full
+    /// 9.49 MB list through this search): the trimmed fixture must give the same.
+    const EN52_MACHINES: usize = 25;
+    /// What a proxy or a server answers as a success when it is not the list.
+    const ERROR_PAGE: &str = "<html><body>502 Bad Gateway</body></html>";
+
+    /// One PC's directories: what its cache holds, and what each directory answers.
+    struct Fixture {
+        token: String,
+        cache: RefCell<HashMap<String, (i64, String)>>,
+        hearham: Result<String, String>,
+        repeaterbook: Result<String, String>,
+        proxy: Result<String, String>,
+        rsgb: Result<String, String>,
+        /// Every directory query fetched, in order.
+        fetched: RefCell<Vec<String>>,
+    }
+
+    impl Fixture {
+        /// No token, an empty cache, and hearham answering `hearham`; RepeaterBook's proxy as this
+        /// build has it (no client key), RSGB not reachable.
+        fn new(hearham: Result<&str, &str>) -> Self {
+            Fixture {
+                token: String::new(),
+                cache: RefCell::new(HashMap::new()),
+                hearham: hearham.map(str::to_string).map_err(str::to_string),
+                repeaterbook: Err("RepeaterBook: not asked in this test".into()),
+                proxy: Err("RepeaterBook: this build has no proxy client key".into()),
+                rsgb: Err("RSGB: not reachable in this test".into()),
+                fetched: RefCell::new(Vec::new()),
+            }
+        }
+        fn cache(self, name: &str, age_secs: i64, body: &str) -> Self {
+            self.cache
+                .borrow_mut()
+                .insert(name.into(), (NOW - age_secs, body.into()));
+            self
+        }
+        fn stored(&self, name: &str) -> Option<String> {
+            self.cache.borrow().get(name).map(|(_, b)| b.clone())
+        }
+        fn search(&self, origin: (f64, f64)) -> Result<serde_json::Value, String> {
+            search_directories(self, NOW, origin, MI50, None)
+                .map(|r| serde_json::to_value(r).expect("the result serializes"))
+        }
+    }
+
+    impl RepeaterDirectories for Fixture {
+        fn token(&self) -> String {
+            self.token.clone()
+        }
+        fn cached(&self, name: &str) -> Option<RepeaterCacheFile> {
+            self.cache
+                .borrow()
+                .get(name)
+                .map(|(at, body)| RepeaterCacheFile {
+                    fetched_utc: *at,
+                    body: body.clone(),
+                })
+        }
+        fn store(&self, name: &str, body: &str) {
+            self.cache
+                .borrow_mut()
+                .insert(name.into(), (NOW, body.into()));
+        }
+        fn may_fetch(&self, _query: &str, _now: i64) -> bool {
+            true
+        }
+        fn repeaterbook_proxy(&self, state_id: &str) -> Result<String, String> {
+            self.fetched.borrow_mut().push(format!("proxy {state_id}"));
+            self.proxy.clone()
+        }
+        fn repeaterbook(&self, token: &str, state_id: &str) -> Result<String, String> {
+            assert_eq!(token, self.token, "the stored token, as stored");
+            self.fetched.borrow_mut().push(format!("rb {state_id}"));
+            self.repeaterbook.clone()
+        }
+        fn rsgb(&self, square: &str) -> Result<String, String> {
+            self.fetched.borrow_mut().push(format!("rsgb {square}"));
+            self.rsgb.clone()
+        }
+        fn hearham(&self) -> Result<String, String> {
+            self.fetched.borrow_mut().push("hearham".into());
+            self.hearham.clone()
+        }
+    }
+
+    fn rows(r: &serde_json::Value) -> usize {
+        r["rows"].as_array().map_or(0, Vec::len)
+    }
+    fn lists(r: &serde_json::Value) -> Vec<(String, bool)> {
+        r["lists"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|l| {
+                (
+                    l["source"].as_str().unwrap_or("?").to_string(),
+                    l["stale"].as_bool().unwrap_or(false),
+                )
+            })
+            .collect()
+    }
+
+    /// The search the operator ran: no token, their grid, today's list. Every machine hearham
+    /// lists inside the radius reaches the panel, and the list is kept for the week.
+    #[test]
+    fn todays_list_finds_the_machines_around_en52() {
+        let pc = Fixture::new(Ok(HEARHAM_EN52));
+        let r = pc.search(EN52).expect("a search");
+        assert_eq!(rows(&r), EN52_MACHINES);
+        assert_eq!(lists(&r), [("hearham".to_string(), false)]);
+        assert_ne!(r["hearhamUnavailable"], true);
+        assert_eq!(pc.stored("hearham.json").as_deref(), Some(HEARHAM_EN52));
+        // The planned states went to the proxy, which this build cannot use; hearham carried it.
+        assert!(pc.fetched.borrow().iter().any(|q| q.starts_with("proxy ")));
+    }
+
+    /// THE REPORT (2026-10-02): a list on this PC that is not hearham's list, an error page some
+    /// server answered as a success, was read as "no repeaters" for the rest of its week. It is
+    /// fetched again at once instead, and the good list replaces it.
+    #[test]
+    fn a_cached_payload_that_is_not_the_list_is_fetched_again_never_read_as_no_repeaters() {
+        let pc = Fixture::new(Ok(HEARHAM_EN52)).cache("hearham.json", DAY, ERROR_PAGE);
+        let r = pc.search(EN52).expect("a search");
+        assert_eq!(rows(&r), EN52_MACHINES, "the machines, not an empty list");
+        assert_eq!(
+            pc.fetched.borrow().last().map(String::as_str),
+            Some("hearham")
+        );
+        assert_eq!(pc.stored("hearham.json").as_deref(), Some(HEARHAM_EN52));
+    }
+
+    /// The same payload fetched is never stored, so it cannot become the week's list; with no other
+    /// list the search is an error the panel shows, never an empty list.
+    #[test]
+    fn a_fetched_payload_that_is_not_the_list_is_never_stored_and_says_so() {
+        let pc = Fixture::new(Ok(ERROR_PAGE));
+        let err = pc.search(EN52).expect_err("not an empty list");
+        assert!(err.starts_with("hearham: the list it sent"), "{err}");
+        assert_eq!(pc.stored("hearham.json"), None);
+    }
+
+    /// With a list on this PC, a fetch that sends something else keeps it (marked stale), and the
+    /// list it has is not written over.
+    #[test]
+    fn a_payload_that_is_not_the_list_never_replaces_the_list_this_pc_has() {
+        let pc = Fixture::new(Ok(ERROR_PAGE)).cache("hearham.json", 8 * DAY, HEARHAM_EN52);
+        let r = pc.search(EN52).expect("a search");
+        assert_eq!(rows(&r), EN52_MACHINES);
+        assert_eq!(lists(&r), [("hearham".to_string(), true)]);
+        assert_eq!(pc.stored("hearham.json").as_deref(), Some(HEARHAM_EN52));
+    }
+
+    /// hearham is the floor under the other directories, so when it cannot be read while one of
+    /// them answered, the panel is told: the machines are that directory's alone. Before, it was
+    /// dropped without a word, and a directory that answered with nothing gave an empty list.
+    #[test]
+    fn hearham_failing_behind_repeaterbook_is_said_never_dropped() {
+        for (rb, machines) in [(RB_EXPORT, 4), (r#"{"count":0,"results":[]}"#, 0)] {
+            let mut pc = Fixture::new(Err("hearham: server returned HTTP 502"));
+            pc.token = "rbuapp_test".into();
+            pc.repeaterbook = Ok(rb.into());
+            let r = pc.search(EN52).expect("a search");
+            assert_eq!(rows(&r), machines, "RepeaterBook's machines: {rb}");
+            assert_eq!(lists(&r), [("repeaterbook".to_string(), false)]);
+            assert_eq!(r["hearhamUnavailable"], true, "{rb}");
+        }
+    }
+
+    /// The RepeaterBook paths: no token (the proxy, which this build cannot use) and a stored
+    /// token RepeaterBook refuses both fall back to hearham's machines; a token that works merges
+    /// its rows with hearham's, one row per machine.
+    #[test]
+    fn every_repeaterbook_path_still_lists_hearhams_machines() {
+        let none = Fixture::new(Ok(HEARHAM_EN52));
+        let r = none.search(EN52).expect("no token");
+        assert_eq!(rows(&r), EN52_MACHINES);
+        assert_eq!(lists(&r), [("hearham".to_string(), false)]);
+
+        let mut refused = Fixture::new(Ok(HEARHAM_EN52));
+        refused.token = "rbuapp_refused".into();
+        refused.repeaterbook =
+            Err("RepeaterBook: token rejected — check the token in Settings ▸ Integrations".into());
+        let r = refused.search(EN52).expect("a refused token");
+        assert_eq!(rows(&r), EN52_MACHINES);
+        assert_eq!(lists(&r), [("hearham".to_string(), false)]);
+        assert!(refused
+            .fetched
+            .borrow()
+            .iter()
+            .any(|q| q.starts_with("rb ")));
+        assert!(!refused
+            .fetched
+            .borrow()
+            .iter()
+            .any(|q| q.starts_with("proxy ")));
+
+        let mut works = Fixture::new(Ok(HEARHAM_EN52));
+        works.token = "rbuapp_works".into();
+        works.repeaterbook = Ok(RB_EXPORT.into());
+        let r = works.search(EN52).expect("a working token");
+        assert_eq!(
+            rows(&r),
+            EN52_MACHINES + 4,
+            "hearham's 25 and RepeaterBook's own 4"
+        );
+        assert_eq!(
+            lists(&r),
+            [
+                ("repeaterbook".to_string(), false),
+                ("hearham".to_string(), false)
+            ]
+        );
+        assert_ne!(r["hearhamUnavailable"], true);
+    }
+
+    /// A UK search asks RSGB first; when its list cannot be read, hearham's machines are listed and
+    /// the panel says why, as before.
+    #[test]
+    fn a_uk_search_lists_hearhams_machines_when_rsgb_cannot_be_read() {
+        let pc = Fixture::new(Ok(HEARHAM_MANCHESTER));
+        let r = pc.search(IO83).expect("a search");
+        assert!(rows(&r) > 0);
+        assert_eq!(r["rsgbUnavailable"], true);
+        assert_ne!(r["hearhamUnavailable"], true);
+        assert!(pc.fetched.borrow().iter().any(|q| q.starts_with("rsgb ")));
+    }
 }
 
 /// City-name search via OSM Nominatim (explicit Search click only — the UI never queries per
@@ -25770,12 +28018,108 @@ struct RadioProgProject {
     channels: Vec<propagation::memchan::Channel>,
 }
 
-fn load_radioprog() -> RadioProgFile {
-    std::fs::read_to_string(radioprog_path())
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+/// The `version` this build writes, and the newest it reads.
+const RADIOPROG_VERSION: u32 = 1;
+
+/// `radioprog.json` read strictly: `Ok(None)` when there is no file, `Err` when there is one this
+/// build cannot use (unreadable, not JSON, a value or a `version` it does not know).
+///
+/// A field this build does not know is NOT a failure: serde ignores it, so a file from a newer
+/// Nexus that only ADDED fields reads as it always has.
+fn radioprog_read(path: &Path) -> Result<Option<RadioProgFile>, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+    };
+    let file: RadioProgFile = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    if file.version > RADIOPROG_VERSION {
+        return Err(format!(
+            "version {} is newer than this Nexus reads",
+            file.version
+        ));
+    }
+    Ok(Some(file))
 }
+
+/// What Program tells the operator about a projects file it could not read.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RadioProgFileNotice {
+    /// Where that file is now: the name it was moved aside to, or its own path when it could not
+    /// be moved.
+    path: String,
+    /// The move failed, so the file is still `radioprog.json` and no save writes over it.
+    kept_in_place: bool,
+}
+
+/// This run's notice about the projects file, for [`radioprog_file_notice`]. It stays for the
+/// session; the file it names stays for good.
+static RADIOPROG_NOTICE: Mutex<Option<RadioProgFileNotice>> = Mutex::new(None);
+
+fn remember_radioprog_notice(notice: &Option<RadioProgFileNotice>) {
+    if let (Some(n), Ok(mut slot)) = (notice, RADIOPROG_NOTICE.lock()) {
+        *slot = Some(n.clone());
+    }
+}
+
+/// `radioprog.json` for Program, and whether anything about it has to be said.
+///
+/// A file that is there but cannot be read is NEVER treated as an empty one. That was this
+/// loader's old shape (`from_str(..).ok().unwrap_or_default()`), and the empty result was the next
+/// save's input: the working list saves itself moments after any change, so a corrupt file, one
+/// cut short, or one from a newer Nexus lost every project. Instead the file is moved aside to a
+/// new timestamped name beside it, never deleted, and a fresh one starts. If it cannot be moved,
+/// it stays where it is and `writable` is false, so no save writes over it.
+struct RadioProgOpened {
+    file: RadioProgFile,
+    notice: Option<RadioProgFileNotice>,
+}
+
+impl RadioProgOpened {
+    fn writable(&self) -> bool {
+        !self.notice.as_ref().is_some_and(|n| n.kept_in_place)
+    }
+}
+
+fn radioprog_open(path: &Path, now: i64) -> RadioProgOpened {
+    let reason = match radioprog_read(path) {
+        Ok(file) => {
+            return RadioProgOpened {
+                file: file.unwrap_or_default(),
+                notice: None,
+            }
+        }
+        Err(reason) => reason,
+    };
+    // The shared name (`radioprog.unreadable-YYYYMMDD-HHMMSS.json`, `-2` … when taken). Program
+    // keeps its own notice, at the top of the section, rather than the shell's.
+    let moved = tempo_core::keep_aside::aside_path(path, now)
+        .filter(|aside| std::fs::rename(path, aside).is_ok());
+    eprintln!(
+        "tempo: {} could not be read ({reason}); {}",
+        path.display(),
+        match &moved {
+            Some(aside) => format!("kept as {}", aside.display()),
+            None => "could not move it aside, so Program will not save over it".to_string(),
+        }
+    );
+    RadioProgOpened {
+        file: RadioProgFile::default(),
+        notice: Some(RadioProgFileNotice {
+            path: moved
+                .as_deref()
+                .unwrap_or(path)
+                .to_string_lossy()
+                .into_owned(),
+            kept_in_place: moved.is_none(),
+        }),
+    }
+}
+
+/// Why a save is refused while an unreadable projects file sits where it would be written.
+const RADIOPROG_NOT_SAVED: &str =
+    "radioprog.json could not be read and could not be moved aside, so it was not saved over";
 
 /// The ONE writer of `radioprog.json`. `path` is a parameter rather than `radioprog_path()` so a
 /// test can point it at a scratch file — the remote curation path (`remote_service::operations::
@@ -25785,34 +28129,334 @@ fn store_radioprog(path: &Path, f: &RadioProgFile) -> Result<(), String> {
     std::fs::write(path, json).map_err(|e| format!("couldn't save programming projects: {e}"))
 }
 
-/// All saved programming projects.
-#[tauri::command]
-fn radioprog_list_projects() -> Result<Vec<RadioProgProject>, String> {
-    Ok(load_radioprog().projects)
+/// The projects at `path`, and the notice when the file there could not be read.
+fn radioprog_list_at(
+    path: &Path,
+    now: i64,
+) -> (Vec<RadioProgProject>, Option<RadioProgFileNotice>) {
+    let opened = radioprog_open(path, now);
+    (opened.file.projects, opened.notice)
 }
 
-/// Create/update one project (upsert by id; stamps updatedUtc, and createdUtc on first save).
-#[tauri::command]
-fn radioprog_save_project(mut project: RadioProgProject) -> Result<(), String> {
-    let mut f = load_radioprog();
-    f.version = 1;
-    project.updated_utc = now_unix();
+/// Upsert one project into the file at `path` (stamps updatedUtc, and createdUtc on first save).
+fn radioprog_save_at(
+    path: &Path,
+    mut project: RadioProgProject,
+    now: i64,
+) -> (Result<(), String>, Option<RadioProgFileNotice>) {
+    let opened = radioprog_open(path, now);
+    if !opened.writable() {
+        return (Err(RADIOPROG_NOT_SAVED.into()), opened.notice);
+    }
+    let mut f = opened.file;
+    f.version = RADIOPROG_VERSION;
+    project.updated_utc = now;
     if let Some(existing) = f.projects.iter_mut().find(|p| p.id == project.id) {
         project.created_utc = existing.created_utc;
         *existing = project;
     } else {
-        project.created_utc = now_unix();
+        project.created_utc = now;
         f.projects.push(project);
     }
-    store_radioprog(&radioprog_path(), &f)
+    (store_radioprog(path, &f), opened.notice)
+}
+
+/// Drop one project from the file at `path` (a missing id is a no-op success).
+fn radioprog_delete_at(
+    path: &Path,
+    id: &str,
+    now: i64,
+) -> (Result<(), String>, Option<RadioProgFileNotice>) {
+    let opened = radioprog_open(path, now);
+    if !opened.writable() {
+        return (Err(RADIOPROG_NOT_SAVED.into()), opened.notice);
+    }
+    let mut f = opened.file;
+    f.projects.retain(|p| p.id != id);
+    (store_radioprog(path, &f), opened.notice)
+}
+
+/// All saved programming projects.
+#[tauri::command]
+fn radioprog_list_projects() -> Result<Vec<RadioProgProject>, String> {
+    let (projects, notice) = radioprog_list_at(&radioprog_path(), now_unix());
+    remember_radioprog_notice(&notice);
+    Ok(projects)
+}
+
+/// Create/update one project (upsert by id; stamps updatedUtc, and createdUtc on first save).
+#[tauri::command]
+fn radioprog_save_project(project: RadioProgProject) -> Result<(), String> {
+    let (saved, notice) = radioprog_save_at(&radioprog_path(), project, now_unix());
+    remember_radioprog_notice(&notice);
+    saved
 }
 
 /// Delete one project by id (missing id is a no-op success).
 #[tauri::command]
 fn radioprog_delete_project(id: String) -> Result<(), String> {
-    let mut f = load_radioprog();
-    f.projects.retain(|p| p.id != id);
-    store_radioprog(&radioprog_path(), &f)
+    let (deleted, notice) = radioprog_delete_at(&radioprog_path(), &id, now_unix());
+    remember_radioprog_notice(&notice);
+    deleted
+}
+
+/// This run's notice about `radioprog.json`, when Program found it unreadable: Program shows it,
+/// naming where the file is.
+#[tauri::command]
+fn radioprog_file_notice() -> Option<RadioProgFileNotice> {
+    RADIOPROG_NOTICE.lock().ok().and_then(|n| n.clone())
+}
+
+#[cfg(test)]
+mod radioprog_file_tests {
+    //! `radioprog.json` on the desktop's own load and save path, the one the Program commands
+    //! run: an unreadable file is kept byte for byte and never saved over, and the notice names
+    //! where it is; a file that only ADDS fields reads as it always has; no file is a first run.
+    use super::*;
+
+    /// 2026-09-30 14:22:33 UTC.
+    const NOW: i64 = 1_790_778_153;
+    const ASIDE: &str = "radioprog.unreadable-20260930-142233.json";
+
+    /// A unique scratch directory; the name carries the test's own label.
+    fn scratch(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("nexus-radioprog-{label}-{nanos}"));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    fn project(id: &str, channels: usize) -> RadioProgProject {
+        RadioProgProject {
+            id: id.into(),
+            name: "My channels".into(),
+            channels: (0..channels)
+                .map(|i| propagation::memchan::Channel {
+                    id: format!("manual:{i}"),
+                    name: format!("CH{i}"),
+                    rx_mhz: 146.94,
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// A file as this build writes it.
+    fn file_bytes(projects: Vec<RadioProgProject>) -> Vec<u8> {
+        serde_json::to_vec(&RadioProgFile {
+            version: 1,
+            projects,
+        })
+        .unwrap()
+    }
+
+    /// Every file in `dir` whose bytes are exactly `bytes`.
+    fn holding(dir: &Path, bytes: &[u8]) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| std::fs::read(p).ok().as_deref() == Some(bytes))
+            .collect();
+        found.sort();
+        found
+    }
+
+    fn ids(projects: &[RadioProgProject]) -> Vec<&str> {
+        projects.iter().map(|p| p.id.as_str()).collect()
+    }
+
+    /// Two projects, as this build writes them, for the unreadable files below to start from.
+    fn two_projects() -> String {
+        String::from_utf8(file_bytes(vec![
+            project("working", 3),
+            project("denver-trip", 2),
+        ]))
+        .unwrap()
+    }
+
+    /// A file that is there but cannot be read is kept, byte for byte, under a new name beside
+    /// it; the save that follows (the working list saves itself moments after any change) starts
+    /// a new file and does not touch the kept one; and the notice names where the kept file is.
+    fn assert_kept_and_never_saved_over(what: &str, bytes: Vec<u8>) {
+        let dir = scratch("unreadable");
+        let path = dir.join("radioprog.json");
+        std::fs::write(&path, &bytes).unwrap();
+
+        let (projects, notice) = radioprog_list_at(&path, NOW);
+        let (saved, _) = radioprog_save_at(&path, project("working", 1), NOW + 1);
+        assert!(saved.is_ok(), "{what}: the new list saves: {saved:?}");
+
+        let kept = holding(&dir, &bytes);
+        assert_eq!(
+            kept,
+            vec![dir.join(ASIDE)],
+            "{what}: the unreadable file must survive the save, byte for byte, moved aside"
+        );
+        assert_eq!(
+            notice,
+            Some(RadioProgFileNotice {
+                path: dir.join(ASIDE).to_string_lossy().into_owned(),
+                kept_in_place: false,
+            }),
+            "{what}: Program is told where the file is"
+        );
+        assert!(projects.is_empty(), "{what}: nothing is read out of it");
+        let (after, again) = radioprog_list_at(&path, NOW + 2);
+        assert_eq!((ids(&after), again), (vec!["working"], None), "{what}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_projects_file_cut_short_is_kept_and_never_saved_over() {
+        let whole = two_projects().into_bytes();
+        assert_kept_and_never_saved_over("cut short", whole[..whole.len() * 3 / 5].to_vec());
+    }
+
+    /// A value this build does not know: a tone mode from a later build.
+    #[test]
+    fn a_projects_file_with_a_value_this_build_does_not_know_is_kept_and_never_saved_over() {
+        let unknown_value =
+            two_projects().replacen("\"toneMode\":\"none\"", "\"toneMode\":\"dtcsrx\"", 1);
+        assert!(
+            unknown_value.contains("dtcsrx"),
+            "the fixture must carry the unknown value"
+        );
+        assert_kept_and_never_saved_over("an unknown value", unknown_value.into_bytes());
+    }
+
+    #[test]
+    fn a_projects_file_from_a_newer_version_is_kept_and_never_saved_over() {
+        let newer_version = two_projects().replacen("\"version\":1", "\"version\":2", 1);
+        assert!(newer_version.contains("\"version\":2"));
+        assert_kept_and_never_saved_over("a newer version", newer_version.into_bytes());
+    }
+
+    /// A newer Nexus that only ADDED fields writes a file this build still reads: the fields are
+    /// ignored, nothing is moved, and there is nothing to say.
+    #[test]
+    fn a_file_whose_only_news_is_fields_reads_as_it_always_has() {
+        let dir = scratch("added-fields");
+        let path = dir.join("radioprog.json");
+        let bytes = String::from_utf8(file_bytes(vec![project("working", 2), project("trip", 1)]))
+            .unwrap()
+            .replacen("\"projects\":", "\"aFileField\":7,\"projects\":", 1)
+            .replacen("\"radiusKm\":", "\"aProjectField\":true,\"radiusKm\":", 1)
+            .replacen("\"rxMhz\":", "\"aChannelField\":\"x\",\"rxMhz\":", 1)
+            .into_bytes();
+        std::fs::write(&path, &bytes).unwrap();
+        let (projects, notice) = radioprog_list_at(&path, NOW);
+        assert_eq!(
+            (ids(&projects), notice),
+            (vec!["working", "trip"], None),
+            "read as it always has, with nothing to say"
+        );
+        assert_eq!(
+            holding(&dir, &bytes),
+            vec![path.clone()],
+            "left where it is"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// No file at all is a first run: nothing to show, nothing to say, and the first save makes it.
+    #[test]
+    fn no_file_is_a_first_run() {
+        let dir = scratch("first-run");
+        let path = dir.join("radioprog.json");
+        let (projects, notice) = radioprog_list_at(&path, NOW);
+        assert!(
+            projects.is_empty() && notice.is_none(),
+            "no file: nothing to show and nothing to say"
+        );
+        let (saved, notice) = radioprog_save_at(&path, project("working", 1), NOW);
+        assert!(saved.is_ok() && notice.is_none(), "the first save makes it");
+        let (projects, _) = radioprog_list_at(&path, NOW);
+        assert_eq!(ids(&projects), vec!["working"]);
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            1,
+            "no file set aside"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A file that cannot be moved aside (its folder refuses the rename) stays where it is, and
+    /// then every save and delete REFUSES rather than write over it; the notice says so.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_be_moved_aside_is_never_saved_over() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("stuck");
+        let path = dir.join("radioprog.json");
+        let bytes = b"{ this is not json".to_vec();
+        std::fs::write(&path, &bytes).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        // CONTROL: a user the permissions do not bind (root) could rename anyway; the premise of
+        // this test would not hold, so say so instead of passing on nothing.
+        if std::fs::write(dir.join("probe"), b"").is_ok() {
+            let _ = std::fs::remove_file(dir.join("probe"));
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::remove_dir_all(&dir).unwrap();
+            eprintln!("skipped: this user can write a read-only folder, so no rename fails here");
+            return;
+        }
+        let (projects, listed) = radioprog_list_at(&path, NOW);
+        let (saved, _) = radioprog_save_at(&path, project("working", 1), NOW + 1);
+        let (deleted, _) = radioprog_delete_at(&path, "working", NOW + 2);
+        let after = std::fs::read(&path).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(after, bytes, "the unreadable file must never be saved over");
+        assert_eq!(
+            (saved, deleted),
+            (
+                Err(RADIOPROG_NOT_SAVED.into()),
+                Err(RADIOPROG_NOT_SAVED.into())
+            )
+        );
+        assert_eq!(
+            listed,
+            Some(RadioProgFileNotice {
+                path: path.to_string_lossy().into_owned(),
+                kept_in_place: true,
+            })
+        );
+        assert!(projects.is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A second unreadable file never replaces one set aside earlier: the new one takes the next
+    /// free name (a rename onto an existing file would replace it).
+    #[test]
+    fn a_second_unreadable_file_never_replaces_the_first_one_kept() {
+        let dir = scratch("second");
+        let path = dir.join("radioprog.json");
+        let first = b"{ the first unreadable file".to_vec();
+        let second = b"{ the second one".to_vec();
+        std::fs::write(dir.join(ASIDE), &first).unwrap();
+        std::fs::write(&path, &second).unwrap();
+        let (_, notice) = radioprog_list_at(&path, NOW);
+        let next = dir.join("radioprog.unreadable-20260930-142233-2.json");
+        assert_eq!(
+            holding(&dir, &second),
+            vec![next.clone()],
+            "the second one kept, beside it"
+        );
+        assert_eq!(
+            holding(&dir, &first),
+            vec![dir.join(ASIDE)],
+            "the first one untouched"
+        );
+        assert_eq!(
+            notice.map(|n| n.path),
+            Some(next.to_string_lossy().into_owned()),
+            "the notice names the second one"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
 
 /// Render a channel list to an export format: "chirp" (the CHIRP generic CSV, analog rows only)
@@ -26564,6 +29208,64 @@ struct UpdateInfo {
     download_url: String,
 }
 
+/// Whether the signed self-updater can replace THIS install, judged by the package the bundler
+/// stamped into the binary (`tauri::utils::platform::bundle_type`).
+///
+/// ⚠️ THE PACKAGE DECIDES, NOT WHETHER A CHECK SUCCEEDS. The manifest (`latest.json`, built in
+/// release.yml) carries three installers: the NSIS setup under `windows-x86_64`, the AppImage
+/// under `linux-x86_64` and the macOS app under `darwin-aarch64`. The plugin looks up
+/// `linux-x86_64-deb` and then the bare `linux-x86_64`, so on a PC's .deb the check found the
+/// AppImage, downloaded it, and Install failed every time: the plugin installs over a .deb only
+/// from a .deb (`InvalidUpdaterFormat`). The .deb packages (the PC one and both Pi ones) are
+/// apt's to replace, so they keep the notice that opens the download page. An MSI install (Nexus
+/// publishes none) would be handed the NSIS setup, a different installer from the one that put
+/// it there, and a build run straight from cargo reports no package at all; both keep the notice
+/// too. macOS reports its app bundle for every build, a dev build included, because the bundler
+/// stamps nothing there.
+fn self_updates(bundle: Option<&tauri::utils::config::BundleType>) -> bool {
+    use tauri::utils::config::BundleType;
+    matches!(
+        bundle,
+        Some(BundleType::Nsis | BundleType::AppImage | BundleType::App)
+    )
+}
+
+/// How this install takes an update: see [`update_route`].
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateRoute {
+    /// True where the signed self-updater can replace this install ([`self_updates`]).
+    self_update: bool,
+    /// The download page, for the way out when a self-update fails.
+    download_page: String,
+}
+
+/// How this install takes an update: the self-updater's Install button, or the notice whose
+/// Download button opens the download page. The frontend asks before its first self-update
+/// check, so a .deb never downloads an AppImage it cannot install. Logged, because the plugin's
+/// own checks write nothing to the diagnostic log.
+#[tauri::command]
+fn update_route() -> UpdateRoute {
+    let bundle = tauri::utils::platform::bundle_type();
+    let self_update = self_updates(bundle.as_ref());
+    tempo_core::applog::info(
+        "updater",
+        &format!(
+            "package {}: {}",
+            bundle.map_or_else(|| "none".to_string(), |b| b.to_string()),
+            if self_update {
+                "updates install themselves"
+            } else {
+                "updates are announced with the download page"
+            }
+        ),
+    );
+    UpdateRoute {
+        self_update,
+        download_page: DOWNLOAD_PAGE_URL.to_string(),
+    }
+}
+
 /// Blocking GET of a text/JSON URL — mirrors the propagation crate's reqwest usage (rustls, short
 /// timeout, a UA). Returns the raw body; call it via `spawn_blocking` from the command.
 fn fetch_text(url: &str) -> Result<String, String> {
@@ -26783,7 +29485,9 @@ async fn import_pota_log(
     let engine = Arc::clone(&state);
     // Planned with the Engine lock released and made under it (SPEC-2 v3 C19).
     durable_command(move || {
-        let (made, durability) = tempo_app::logwrite::import_pota_log(&engine, &text);
+        let (made, durability) = tempo_app::logwrite::until_written(|| {
+            tempo_app::logwrite::import_pota_log(&engine, &text)
+        });
         let made = made.map(|(stamped, already, unmatched)| PotaStampResult {
             stamped,
             already,
@@ -26975,6 +29679,10 @@ fn quit_cleanup(app_handle: &tauri::AppHandle) {
     // The last settings change, still on its way to `settings.json` on the writer's thread. On
     // every quit, attached or not: it is only what the operator changed, written late.
     flush_settings();
+    // Tauri's managed-state destructors are not the quit contract: explicit cleanup covers
+    // Cmd+Q, window close and self-restart while the companion watchdogs cover forced exits.
+    neural_dx::stop(&app_handle.state::<neural_dx::NeuralDxState>());
+    openhamclock::stop(&app_handle.state::<openhamclock::OpenHamClockState>());
     if attached {
         persist_journals(app_handle);
     } else {
@@ -27024,10 +29732,11 @@ fn stop_the_radio() {
     }
 }
 
-/// Snapshot the main window's box and every band-map pop-out's, while they still exist.
+/// Snapshot the main window's box, every band-map pop-out's and the Connect dashboard's,
+/// while they still exist.
 ///
 /// On the Cmd+Q path (the reason this exists) every window is alive; on a window-close quit
-/// they are already destroyed and both captures no-op — `CloseRequested` snapshotted them
+/// they are already destroyed and the captures no-op — `CloseRequested` snapshotted them
 /// before the teardown.
 fn capture_all_window_geometry(app_handle: &tauri::AppHandle) {
     if QUIT_SKIP_GEOMETRY.load(std::sync::atomic::Ordering::SeqCst) {
@@ -27036,9 +29745,10 @@ fn capture_all_window_geometry(app_handle: &tauri::AppHandle) {
     window_state::capture_now(app_handle);
     for (label, w) in app_handle.webview_windows() {
         if label != "main" {
-            // No-op for anything that is not a band-map window, and skips minimized windows
+            // Each is a no-op for any window it does not own, and skips a minimized window
             // itself — safe to sweep the whole map.
             capture_bandmap_window(&w);
+            window_state::capture_panel(&w);
         }
     }
 }
@@ -27679,6 +30389,14 @@ pub fn run() {
             .find(|r| r.id == settings.active_radio)
             .map(|r| r.icom_data_mode)
             .unwrap_or(settings.icom_data_mode),
+        // …and its transmit audio source for CAT PTT (#381), from the same profile, so the
+        // startup transport keys as the one every tick after it derives from settings.
+        tx_audio_source: settings
+            .radios
+            .iter()
+            .find(|r| r.id == settings.active_radio)
+            .map(|r| r.tx_audio_source.clone())
+            .unwrap_or_else(|| settings.tx_audio_source.clone()),
         rig_model: settings.rig_model,
         // The operator's name for the active radio, so the STARTUP CAT line names it. Without
         // this the first line of every log said "model 1042" while every later line said
@@ -27827,8 +30545,10 @@ pub fn run() {
     // The APRS-IS feed is independent of the APRS RF decoder's arm state by design, so it comes
     // up here with the other network feeds rather than when the APRS view is entered.
     sync_aprs_is_feed(&engine);
-    // Integrated rotator: launch the bundled rotctld when a model is configured.
+    // Integrated rotator: launch the bundled rotctld when a model is configured, and keep it
+    // running — a controller switched on later comes online on its own (`supervise_rotctld`).
     sync_rotctld(&engine);
+    supervise_rotctld(engine.clone());
     if region_enabled {
         start_pskr_region_feed(&region_paths, &cluster_call, &region_grid);
     }
@@ -28082,15 +30802,12 @@ fn start_on_the_logbook(
                 *OPENINGS_LOG.lock().unwrap_or_else(|e| e.into_inner()) = eps;
             }
         }
-        // Assistance journal: restore the record, then stamp the launch. Stamping
-        // unconditionally (force) is deliberate — a restart mid-contest must leave no window
-        // the record is silent about what was running. (The atomic was mirrored earlier, before
-        // any feed could spawn.)
-        if let Ok(text) = std::fs::read_to_string(assistance_journal_path()) {
-            if let Ok(rows) = serde_json::from_str::<Vec<AssistanceEvent>>(&text) {
-                *ASSISTANCE_JOURNAL.lock().unwrap_or_else(|e| e.into_inner()) = rows;
-            }
-        }
+        // Assistance journal: restore the record (one this build cannot read is kept aside, and
+        // the screen says where), then stamp the launch. Stamping unconditionally (force) is
+        // deliberate — a restart mid-contest must leave no window the record is silent about
+        // what was running. (The atomic was mirrored earlier, before any feed could spawn.)
+        *ASSISTANCE_JOURNAL.lock().unwrap_or_else(|e| e.into_inner()) =
+            restore_assistance_journal(&assistance_journal_path(), now_unix());
         journal_assistance(eng.settings(), "Nexus started", true);
         eng.set_grid_rarity_resolver(propagation::gridrarity::effective_tier_u8);
         // FCC callsign→state index: load the cached copy into the resolver, then auto-refresh in
@@ -28192,35 +30909,28 @@ fn start_on_the_logbook(
         eng.set_fd_log_path(fd_path);
         // A contact left in the confirm-before-log popup by a previous session (crash, power
         // loss, or a quit with the popup open) is a REAL QSO — the other station logged it.
-        // Restore the hold so the operator can still log it. Best-effort: a missing or corrupt
-        // journal just means there was nothing pending.
+        // Restore the hold so the operator can still log it. A missing journal means nothing
+        // was pending; one this build cannot read is kept aside, and the screen says where.
         eng.set_pending_qso_path(pending_qso_path());
-        if let Ok(text) = std::fs::read_to_string(pending_qso_path()) {
-            eng.load_pending_qso_json(&text);
-        }
+        eng.restore_pending_qso_journal(now_unix());
         // Saved RX-period WAVs (settings.save_wav) land beside the QSO recordings.
         eng.set_periods_dir(&recordings_dir().join("periods").to_string_lossy());
         // Restore the store-and-forward outbound queue BEFORE the conversation
         // threads: each restored bubble's held-vs-abandoned decision reads the live
         // queue (a held message whose journal entry survived stays "waiting to send"
-        // and transmits when its peer is next heard). Best-effort like the others.
+        // and transmits when its peer is next heard). A queue this build cannot read is kept
+        // aside, and the screen says where.
         eng.set_pending_msgs_path(pending_msgs_path());
-        if let Ok(text) = std::fs::read_to_string(pending_msgs_path()) {
-            eng.load_pending_msgs(&text);
-        }
-        // JS8 store-and-forward inbox: same contract as the Tempo journal above —
-        // best-effort, a missing or corrupt file yields an empty station.
+        eng.restore_pending_msgs(now_unix());
+        // JS8 store-and-forward inbox: a missing file is an empty station; one this build cannot
+        // read is kept aside, and the screen says where.
         eng.set_js8_journal_path(js8_station_path());
-        if let Ok(text) = std::fs::read_to_string(js8_station_path()) {
-            eng.js8_load_journal(&text);
-        }
+        eng.restore_js8_journal(now_unix());
         // Restore persisted Tempo conversation threads so chat history (and the `*`
-        // band feed) survives an app restart. Best-effort: a missing/corrupt file
-        // just yields an empty roster of threads.
-        if let Ok(text) = std::fs::read_to_string(conversations_path()) {
-            if let Ok(convs) = serde_json::from_str::<Vec<tempo_app::dto::Conversation>>(&text) {
-                eng.load_conversations(convs);
-            }
+        // band feed) survives an app restart. A missing file is an empty roster of threads;
+        // one this build cannot read is kept aside, and the screen says where.
+        if let Some(convs) = restore_conversations(&conversations_path(), now_unix()) {
+            eng.load_conversations(convs);
         }
         if persisted_source == SourceKind::Companion {
             if let Err(e) = eng.set_source(SourceKind::Companion) {
@@ -29429,6 +32139,7 @@ fn finish_launch(handle: tauri::AppHandle, d: BuildDeps, rest: LaunchRest) {
         &d,
         handle.state::<remote_monitor::Publisher>().inner().clone(),
         handle.state::<LogTallies>().needs.clone(),
+        &handle,
     ));
     // DX Chaser supervisor. The pure engine evaluates once per radio slot and is inert while
     // disabled; this thread owns no transport and can only act through the existing Engine.
@@ -29738,6 +32449,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         .manage(d.connect_web)
         .manage(SharedOpeningTracker::default())
         .manage(SharedWxHistory::default())
+        .manage(SolarIndicesCache::default())
         .manage(LogTallies::default())
         .manage(SharedQrzSession::default())
         .manage(SharedHamQthSession::default())
@@ -29844,7 +32556,9 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             detect_rigs,
             probe_cat_ports,
             point_rotator,
+            point_rotator_elevation,
             stop_rotator,
+            set_log_form_grid,
             discover_flex,
             get_sat_schedule,
             get_sat_pass_needs,
@@ -29858,6 +32572,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             sat_track_status,
             point_rotator_at_call,
             read_rotator,
+            read_rotator_state,
             cw_decode,
             set_ai_cw,
             set_unassisted_mode,
@@ -29871,6 +32586,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             aprs_auto_arm,
             get_aprs_heard,
             get_aprs_health,
+            get_aprs_tx_notice,
             get_aprs_is_status,
             get_aprs_stations,
             aprs_send_beacon,
@@ -29893,6 +32609,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             get_psk_state,
             js8_enter,
             get_js8_state,
+            js8_locator_refusal,
             js8_set_speed,
             js8_set_rx_speeds,
             js8_send,
@@ -29900,7 +32617,8 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             js8_call_cq,
             js8_arm,
             js8_cq_repeat,
-            js8_cancel,
+            js8_answer_reply,
+            js8_composer,
             js8_drop_queue,
             js8_inbox_mark,
             js8_inbox_delete,
@@ -29923,6 +32641,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             get_all_rig_models,
             get_portless_rig_models,
             get_cat_cw_unproven_rig_models,
+            get_ptt_mic_data_rig_models,
             amp_command,
             get_band_plan,
             set_license_class,
@@ -29978,6 +32697,8 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             stop_cw,
             set_cw_keyer,
             set_ptt,
+            arm_stream_mic,
+            release_stream_mic,
             set_rf_power,
             set_mic_gain,
             set_nr_level,
@@ -30076,6 +32797,8 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             open_panel_window,
             close_panel_window,
             dock_bandmap_window,
+            window_state::get_window_behind,
+            window_state::set_window_behind,
             set_area,
             qso_resend,
             qso_freetext,
@@ -30119,6 +32842,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             qrz_lookup,
             check_for_update,
             open_download_page,
+            update_route,
             set_qrz_logbook_key,
             clear_qrz_logbook_key,
             set_cloudlog_key,
@@ -30141,6 +32865,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             get_ota_spots,
             get_ota_map_spots,
             get_kp_forecast,
+            get_solar_indices,
             connect_web_status,
             search_parks,
             parks_count,
@@ -30156,6 +32881,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             radioprog_list_projects,
             radioprog_save_project,
             radioprog_delete_project,
+            radioprog_file_notice,
             export_channels,
             set_activation,
             clear_activation,
@@ -30301,6 +33027,21 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         .build(tauri::generate_context!())
 }
 
+/// The `main` window's operating-system handle, the one a streamed session captures.
+#[cfg(windows)]
+fn main_window_handle(app: &tauri::AppHandle) -> Option<isize> {
+    app.get_webview_window("main")?
+        .hwnd()
+        .ok()
+        .map(|hwnd| hwnd.0 as isize)
+}
+
+/// No window capture outside Windows yet: a stream is answered unavailable.
+#[cfg(not(windows))]
+fn main_window_handle(_: &tauri::AppHandle) -> Option<isize> {
+    None
+}
+
 /// The Remote service, built — and so started — once the launch has attached the log.
 ///
 /// Not in [`build_app`], because it goes to work as it is built: when Remote was on at the last
@@ -30312,7 +33053,26 @@ fn remote_service_for(
     d: &BuildDeps,
     publisher: remote_monitor::Publisher,
     needs: NeedsKept,
+    handle: &tauri::AppHandle,
 ) -> remote_service::Service {
+    // Remote as a stream: a streamed operator's input goes to THIS app's main window, as a DOM
+    // event its own page dispatches, and nowhere else. There is no OS input call on this path.
+    let window = handle.clone();
+    let input: remote_service::stream::InputSink =
+        Arc::new(move |input: &tempo_stream::protocol::WebviewInput| {
+            use tauri::Emitter;
+            let _ = window.emit_to(
+                "main",
+                tempo_stream::protocol::WEBVIEW_INPUT_EVENT,
+                input.clone(),
+            );
+        });
+    // …and the picture is of that same window, and of nothing else (security test A1). Looked up
+    // when a stream is offered, not now: the window's handle is the operating system's, and this
+    // way a window that is not up yet, or is gone, reads as none instead of a stale handle.
+    let app = handle.clone();
+    let main_window: remote_service::stream::WindowHandle =
+        Arc::new(move || main_window_handle(&app));
     remote_service::Service::new(
         d.engine.clone(),
         publisher,
@@ -30344,6 +33104,15 @@ fn remote_service_for(
         // advertised and no browser is ever offered the control.
         #[cfg(feature = "radio")]
         Some(d.receive_audio.clone()),
+        remote_service::stream::Host {
+            input: Some(input),
+            ptt: Default::default(),
+            mic: Default::default(),
+            window: Some(main_window),
+            awake: tempo_stream::keep_awake::KeepAwake::system(Arc::new(|line: &str| {
+                tempo_core::applog::warn("remote", line)
+            })),
+        },
     )
 }
 
@@ -31232,6 +34001,38 @@ mod tests {
         assert_eq!(F::ALL.len(), 2 + refused.len());
     }
 
+    /// #378: plain http to the operator's own network sends the API key unencrypted, and the
+    /// Connections log says so: once a session for each place the key goes, and never for https.
+    #[test]
+    fn plain_http_to_the_lan_is_said_once_in_the_connections_log() {
+        use propagation::live::cloudlog::Destination;
+        // A loopback address no other test uses, so the session-wide set is this test's own.
+        let lan = Destination::check("http://127.0.0.37:8086")
+            .expect("a loopback address is on the operator's own network");
+        let lines = |needle: &str| {
+            super::get_connection_log()
+                .into_iter()
+                .filter(|e| e.connector == "Cloudlog" && e.message.contains(needle))
+                .map(|e| (e.level, e.message))
+                .collect::<Vec<_>>()
+        };
+        super::warn_cloudlog_cleartext(&lan);
+        super::warn_cloudlog_cleartext(&lan);
+        let said = lines("127.0.0.37");
+        assert_eq!(
+            said.len(),
+            1,
+            "once a session, not once a contact: {said:?}"
+        );
+        assert_eq!(said[0].0, "warn", "{said:?}");
+        assert!(said[0].1.contains("unencrypted"), "{}", said[0].1);
+        // Control: https is not plain http, and there is nothing to say about it.
+        let https =
+            Destination::check("https://cloudlog-n35.example.org").expect("an https destination");
+        super::warn_cloudlog_cleartext(&https);
+        assert!(lines("cloudlog-n35.example.org").is_empty());
+    }
+
     /// ⭐ **The country file the CONTEST SCORER actually gets** — the one assertion that
     /// cannot be made in `tempo-core`, because the crate that owns `cty.dat` depends on it.
     ///
@@ -31702,6 +34503,70 @@ mod tests {
         );
     }
 
+    /// A press made through the stream's picture reaches the microphone over only if both commands
+    /// the Phone cockpit invokes are DEFINED and REGISTERED, and they go through the engine's own
+    /// arm and release, never the desktop's PTT: a streamed press must not key the shack's own
+    /// microphone (the operator's ruling "Arms your mic").
+    #[test]
+    fn the_stream_mic_commands_are_registered_and_never_key_the_shack_mic() {
+        let src = include_str!("lib.rs");
+        for (name, verb) in [
+            ("arm_stream_mic", "arm_remote_mic("),
+            ("release_stream_mic", "release_remote_mic("),
+        ] {
+            let body = src
+                .split_once(&format!("\nfn {name}("))
+                .unwrap_or_else(|| panic!("{name} must exist"))
+                .1
+                .split_once("\n}\n")
+                .expect("the end of the command")
+                .0;
+            assert!(body.contains(verb), "{name} must go through Engine::{verb}");
+            assert!(
+                !body.contains("set_ptt("),
+                "{name} keys the shack's own microphone"
+            );
+            let list = src
+                .split_once("tauri::generate_handler![")
+                .expect("the handler list")
+                .1
+                .split_once("])")
+                .expect("the end of the handler list")
+                .0;
+            assert!(
+                list.lines().any(|l| l.trim() == format!("{name},")),
+                "{name} is not registered: a press through the picture would fail at runtime"
+            );
+        }
+    }
+
+    /// The Rotor pane's elevation box reaches the rotator only if `point_rotator_elevation` is
+    /// DEFINED and REGISTERED — `ui/src/api.ts` invokes it, and a name missing from
+    /// `generate_handler!` fails at runtime with nothing at compile time to catch it: the box
+    /// would take a typed elevation and move nothing. Source-scanned, like the auto-arm test
+    /// below, because registration is the property under test and no type sees it.
+    #[test]
+    fn the_rotor_elevation_command_the_pane_calls_is_defined_and_registered() {
+        let src = include_str!("lib.rs");
+        // Column zero, not `contains`: this test's own text is in `src` too.
+        assert!(
+            src.lines()
+                .any(|l| l.starts_with("async fn point_rotator_elevation(")),
+            "the command the Rotor pane invokes must exist"
+        );
+        let list = src
+            .split_once("tauri::generate_handler![")
+            .expect("the handler list")
+            .1
+            .split_once("])")
+            .expect("the end of the handler list")
+            .0;
+        assert!(
+            list.lines().any(|l| l.trim() == "point_rotator_elevation,"),
+            "point_rotator_elevation is not registered — the elevation box would fail at runtime"
+        );
+    }
+
     /// The RTTY view-entry auto-arm reaches the frontend only if the command is DEFINED and
     /// REGISTERED — `ui/src/api.ts` already calls `invoke('rtty_auto_arm')`, and a name that
     /// is not in `generate_handler!` fails at runtime with nothing at compile time to catch
@@ -31792,6 +34657,59 @@ mod tests {
         assert!(
             !body.contains("unwrap_or_default"),
             "a defaulted name would turn the removal into a refused empty name"
+        );
+    }
+
+    /// THE CONNECT DASHBOARD'S WINDOW IS WIRED END TO END. What makes the pop-out
+    /// reopen where it was left, and stay behind when asked, runs through wiring no type sees:
+    /// the dashboard bar's two commands must be REGISTERED (an unregistered name fails only at
+    /// runtime, and the toggle would do nothing), the open path must ask `window_state` how a
+    /// remembered pop-out opens and arm its save-on-close, and the quit sweep must capture it
+    /// (macOS's Cmd+Q sends no close). Source-scanned, like the auto-arm test above.
+    #[test]
+    fn the_connect_dashboard_window_is_wired_end_to_end() {
+        let src = include_str!("lib.rs");
+        let list = src
+            .split_once("tauri::generate_handler![")
+            .expect("the handler list")
+            .1
+            .split_once("])")
+            .expect("the end of the handler list")
+            .0;
+        for name in [
+            "window_state::get_window_behind",
+            "window_state::set_window_behind",
+        ] {
+            assert!(
+                list.lines().any(|l| l.trim() == format!("{name},")),
+                "{name} is not registered — the Stay behind toggle would fail at runtime"
+            );
+        }
+        // The body of the top-level `sig`. The leading newline is the column-zero match: this
+        // test's own string literals are never at the start of a line.
+        let body = |sig: &str| {
+            let start = src
+                .find(&format!("\n{sig}"))
+                .unwrap_or_else(|| panic!("{sig} is defined"));
+            let rest = &src[start + 1..];
+            rest[..rest.find("\n}\n").expect("the end of the function")].to_string()
+        };
+        let open = body("async fn open_panel_window(");
+        assert!(
+            open.contains("window_state::restore_panel(&app, &slug, inst,"),
+            "the open path must ask how a remembered pop-out opens"
+        );
+        assert!(
+            open.contains("window_state::arm_panel_capture(&win);"),
+            "…and arm its save-on-close"
+        );
+        assert!(
+            open.contains(".prevent_overflow()"),
+            "a remembered box is fitted to the work area, title bar included"
+        );
+        assert!(
+            body("fn capture_all_window_geometry(").contains("window_state::capture_panel(&w);"),
+            "the quit sweep captures the dashboard too"
         );
     }
 
@@ -34428,7 +37346,7 @@ mod tests {
     /// #335: the engine-locking commands the UI POLLS — every one it asks at 2 s or faster, plus
     /// the propagation and need-alert polls. Each must reach the engine through `with_engine`,
     /// on the blocking pool, and never wait for the lock on a runtime worker.
-    const POLLED_ENGINE_COMMANDS: [&str; 16] = [
+    const POLLED_ENGINE_COMMANDS: [&str; 18] = [
         "get_snapshot",
         "cw_decode",
         "get_rtty_state",
@@ -34438,8 +37356,10 @@ mod tests {
         "get_settings",
         "get_sat_transponder",
         "read_rotator",
+        "read_rotator_state",
         "get_aprs_heard",
         "get_aprs_health",
+        "get_aprs_tx_notice",
         "get_aprs_stations",
         "get_aprs_is_status",
         "update_install_block",
@@ -34774,6 +37694,32 @@ mod tests {
             matches!(on_the_pool, Ok(Ok(Ok(())))),
             "the same client on the blocking pool starts cleanly"
         );
+    }
+
+    /// Every command the TV page's allowlist admits has its hand-written arm in `tv_rpc`. An
+    /// allowlisted name with no arm compiles, passes every other test, and reaches the TV as a
+    /// 500 ("allowlisted but has no dispatch arm") — found only by opening the page and noticing
+    /// a pane that never fills.
+    #[test]
+    fn every_tv_allowlisted_command_has_a_dispatch_arm() {
+        let src = include_str!("lib.rs");
+        let start = src
+            .find("fn tv_rpc(")
+            .expect("tv_rpc is defined in this file");
+        let body = &src[start..];
+        // The function ends at the first closing brace in column 0.
+        let body = &body[..body.find("\n}\n").expect("tv_rpc has a closing brace")];
+        let missing: Vec<&str> = tempo_app::connect_web::RPC_ALLOWLIST
+            .iter()
+            .copied()
+            .filter(|name| !body.contains(&format!("\"{name}\" =>")))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "allowlisted for the TV page with no arm in tv_rpc: {missing:?}"
+        );
+        // Control: the scan reads the real body, where the first arm lives.
+        assert!(body.contains("\"get_propagation\" =>"));
     }
 
     /// Each command body and each `async fn` in `src` that waits for a logbook change to reach
@@ -36359,6 +39305,26 @@ mod tests {
         // The operator acts on the first thing they read, so the most immediate hazard wins.
         let r = install_block_reason(true, true, Some("K1ABC"), true, true).expect("refuses");
         assert!(r.starts_with("Transmitting"), "got {r:?}");
+    }
+
+    /// ONE UPDATE PROMPT (2026-09-29). The self-updater is the prompt only where it can replace
+    /// this install: the three packages the manifest carries. Everything else keeps the notice
+    /// with the download page, the .deb above all, whose check used to find the AppImage.
+    #[test]
+    fn only_the_packages_the_manifest_carries_update_themselves() {
+        use tauri::utils::config::BundleType;
+        for (bundle, expected) in [
+            (Some(BundleType::Nsis), true),
+            (Some(BundleType::AppImage), true),
+            (Some(BundleType::App), true),
+            (Some(BundleType::Deb), false),
+            (Some(BundleType::Rpm), false),
+            (Some(BundleType::Msi), false),
+            (Some(BundleType::Dmg), false),
+            (None, false),
+        ] {
+            assert_eq!(super::self_updates(bundle.as_ref()), expected, "{bundle:?}");
+        }
     }
 
     #[test]

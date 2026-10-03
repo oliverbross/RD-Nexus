@@ -164,7 +164,7 @@ Thirteen panels tear off into their own OS window — see
   band, mode, year, hour, entity and confirmation.
 
 ### Propagation & satellites
-- **[Connect — map + propagation](connect.md)** — the shaded 3-D globe, greyline,
+- **[Conditions — map + propagation](connect.md)** — the shaded 3-D globe, greyline,
   live spots, aurora, MUF, moving satellites, the opening detector, and the
   assignable pane grid.
 - **[Satellites](satellites.md)** — pass predictions for your grid, favorites,
@@ -175,7 +175,7 @@ Thirteen panels tear off into their own OS window — see
   with Cabrillo and club interop, plus the POTA/SOTA hunter.
 
 ### System
-- **[Program](program.md)** — the radio-programming workbench: the repeaters
+- **[Repeaters](program.md)** — the radio-programming workbench: the repeaters
   around a location become a channel list, and the list becomes a CHIRP CSV.
 - **[Settings reference](settings-reference.md)** — a walk through every Settings
   tab, field by field.
@@ -253,11 +253,12 @@ them is the moment your hands are in a field. Those are called out below.
 | `PgUp` / `PgDn` | CW — **fire while typing too** | Nudge WPM ±2, with Shift ±4. |
 | `Space` (hold) | Phone | Push-to-talk. The press is ignored in a text field; the release always unkeys, wherever focus has moved. |
 | `F1`–`F6` | Phone, while the Voice keyer pane is on screen | Play that recorded message. Ignored while a recording is in progress. |
-| `Esc` | Phone, while the Voice keyer pane is on screen | Stop playback. |
+| `Esc` | Phone — **fires while typing too** | Halt TX, as the header's **Stop TX** does. With the Voice keyer pane on screen and the cursor outside a text field, it stops playback as well. |
 | `Esc` | RTTY / PSK / JS8 | Stop TX: drops the queue, drops the continuous-TX latch and unkeys. |
+| `Esc` | Tempo, SSTV, APRS, Satellites — **fires while typing too** | Halt TX, as **Stop TX** does (on Tempo, the top bar's). APRS and Satellites draw no Stop TX; this is their stop. |
 | `↑` `↓` `Home` `End` | List | Move between rows. The list is one Tab stop. |
 | `Enter` / `Space` | List | Work the focused row. |
-| `Esc` | Any open dialog, menu or station card | Close it. |
+| `Esc` | Any open dialog, menu or station card | Close it. On a screen where `Esc` halts TX, the same press halts it too. |
 
 **Mac keyboards eat bare F-keys as media keys.** Hold `fn`, or turn on "Use F1,
 F2, etc. as standard function keys" in macOS keyboard settings.
@@ -273,15 +274,15 @@ control sits on the panel's own header — **⧉ Pop out** in most places, **↗
 out** on Memories, **⧉ Pop out board** on the club band board, and a bare **⧉**
 on Operate and Satellites. Where a panel has no such control, it does not
 detach, and **most sections do not**: there is no pop-out for the logbook,
-awards, stats, Spots, Program, Settings, chat, or the Phone, CW, RTTY, PSK,
+awards, stats, Spots, Repeaters, Settings, chat, or the Phone, CW, RTTY, PSK,
 SSTV, APRS and JS8 cockpits.
 
 | Panel | Control | Notes |
 |---|---|---|
 | Operate cockpit | ⧉ in the cockpit header | The full cockpit, keyboard shortcuts included. |
 | Waterfall | ⧉ on the waterfall pane head, in Operate | The only pop-out that vacates its slot in the main window; closing it re-docks the pane. There is also a manual re-dock control if it does not. |
-| Map | **Map** in the Operate header | Opens with the Parks layer on, independent of the Connect map's layer picks. |
-| Connect | ⧉ Pop out, Connect header | The globe with its own pane grid. |
+| Map | **Map** in the Operate header | Opens with the Parks layer on, independent of the Conditions map's layer picks. |
+| Conditions | ⧉ Pop out, Conditions header | The globe with its own pane grid. |
 | Needed board | ⧉ Pop out, Needed header | A header checkbox, **open at launch**, force-opens it every start. |
 | DXpeditions | ⧉ Pop out, DXpeditions header | |
 | Satellites | ⧉ in the Satellites header | |

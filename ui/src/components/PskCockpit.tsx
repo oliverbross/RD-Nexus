@@ -8,12 +8,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AppSnapshot, BandChannel, KeyboardMacroProfile, PskState, Settings } from '../types'
 import { CockpitHeader } from './CockpitHeader'
+import { CockpitTxStrip } from './CockpitTxStrip'
 import { CockpitPaneFrame } from './panes/CockpitPaneFrame'
+import { PaneSeam } from './PaneSeam'
+import { WATERFALL_SPLIT_MAX, WATERFALL_SPLIT_MIN } from '../features/paneSeam'
 import { PanelsMenu } from './PanelsMenu'
 import { panelHost } from '../features/panelHost'
 import { PSK_PANEL_IDS, type PskPanelId, type PanelLayoutApi } from '../features/panelState'
 import { FrequencyControl } from './FrequencyControl'
 import { LogEntry } from './LogEntry'
+import { RotorStrip } from './RotorStrip'
+import { rotorPointAt } from './rotorPointAt'
 import { Waterfall } from './Waterfall'
 import {
   atuTune,
@@ -43,6 +48,7 @@ import { confidenceRuns } from '../transcript'
 import { PSK_MODES, PSK_MODE_BY_SLUG } from '../pskModes'
 import { t } from '../i18n'
 import { useStationCapability, useStationControl, useStationData } from '../stationAccess'
+import { useEscStop } from '../useEscStop'
 import { RemoteRecallEntry } from '../remote-web/RemoteRecall'
 import { PskMacroButton, PskMacroEditor, PskMacroSetSwitch, isEmptyPskSlot } from './PskMacroEditor'
 import {
@@ -89,6 +95,9 @@ interface Props {
   macros?: Settings['macros'] | null
   /** The engine saved the macro sets: here is the `macros` it now holds, for the mirror. */
   onMacrosSaved?: (macros: Settings['macros']) => void
+  /** Open Settings at a section id: the rotor strip's "configured but not answering" chip
+   *  opens the Rotator section through it, as it does in the Phone, CW and FT cockpits. */
+  onOpenSettings?: (target: string) => void
 }
 
 /** This cockpit's INVARIANT vocabulary — the mode's own technical tokens, gathered as
@@ -99,6 +108,9 @@ interface Props {
 const BAUD_SYMBOL = 'Bd'
 const RX_PLATE = 'RX ▼'
 const TX_PLATE = 'TX ▲'
+/** The grow a share of 1 stands for in the transcript | log strip pair (layout L6): the mean of
+ *  their stock weights, 1 and 1.5. */
+const STREAM_LOG_SPLIT = 1.25
 
 /** Display labels for the PSK removable panels (the ⊞ Panels menu). Resolved when the menu
  *  is BUILT — a module constant would freeze the first locale loaded. */
@@ -136,9 +148,9 @@ function fmtAfc(hz: number): string {
  * Mounted in a keep-alive host (like RTTY/SSTV) so the decoded stream keeps
  * accumulating while the operator is on another section.
  */
-export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetTxEnabled, theme = 'dark', wheelSensitivity, onOpenLogbook, panels, macros, onMacrosSaved }: Props) {
+export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetTxEnabled, theme = 'dark', wheelSensitivity, onOpenLogbook, panels, macros, onMacrosSaved, onOpenSettings }: Props) {
   const frequencyControl = useStationCapability('frequency')
-  const control = useStationControl(), receiverControl = useStationCapability('decoder')
+  const control = useStationControl(), receiverControl = useStationCapability('decoder'), rotatorControl = useStationCapability('rotator')
   const dataAvailable = useStationData()
   const host = panels
     ? panelHost(panels, { menu: PSK_PANEL_IDS, side: [], main: 'stream', labels: pskPanelLabels() })
@@ -146,6 +158,17 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
   const shown = (id: PskPanelId) => (host ? host.shown(id) : true)
   // The pane's own ✕ — the SAME setPanelState the ⊞ tick makes (panelHost.closeProps).
   const closeProps = (id: PskPanelId) => (host ? host.closeProps(id) : {})
+  // THE DIVIDER BETWEEN THE TRANSCRIPT AND THE LOG STRIP (layout L6) — RTTY's, for the same shell:
+  // a pair only while both render and there is a record to keep the split in; each then carries
+  // the operator's share and floors in proportion to it (CockpitPaneFrame `split`), grows of
+  // share × 1.25 keep the pair's stock total (weights 1 and 1.5), and only the transcript's share
+  // is stored — the log strip has no id in PSK's vocabulary, and the pair always sums to 2.
+  const streamFrameRef = useRef<HTMLElement>(null)
+  const logFrameRef = useRef<HTMLElement>(null)
+  // The waterfall strip, for the divider under it (its height).
+  const wfRef = useRef<HTMLDivElement>(null)
+  const streamLogPair = panels != null && snap != null && shown('stream')
+  const streamShare = streamLogPair ? panels?.layout.share.stream : undefined
 
   // Live decoder state — polled at 2 Hz while this is the visible view. The
   // backend ring keeps decoding while we're hidden; the first tick on
@@ -503,14 +526,20 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
     closeEditor,
     sendMacro,
   }
+  // Esc's stop (and the editor's exception) rides the shared capture listener (useEscStop,
+  // operator 2026-10-01), so no control on the screen can swallow it; this listener still cancels
+  // the key's default, as it always did.
+  useEscStop(control && active, () => {
+    const k = keys.current
+    if (k.editorOpen && !k.live) k.closeEditor()
+    else stop()
+  })
   useEffect(() => {
     if (!control || !active) return
     const onKey = (e: KeyboardEvent) => {
       const k = keys.current
       if (e.key === 'Escape') {
         e.preventDefault()
-        if (k.editorOpen && !k.live) k.closeEditor()
-        else stop()
         return
       }
       if (!/^F[1-8]$/.test(e.key) || e.altKey || e.ctrlKey || e.metaKey) return
@@ -544,9 +573,6 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
         <CockpitHeader
           snap={snap}
           onSnap={onSnap}
-          txActiveLabel="▲ PSK"
-          onStopTx={stop}
-          onSetTxEnabled={control ? onSetTxEnabled : undefined}
           power={{
             value: control ? power : dataAvailable && snap.radio.rfPower != null ? Math.round(snap.radio.rfPower * 100) : null,
             unit: '%',
@@ -564,19 +590,6 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
               powerDrag.current = false
             },
           }}
-          // TUNE — a steady carrier, which in PSK is how you set the drive above: key it,
-          // wind the power up until ALC just starts to move, back off. It is also a stop
-          // control (it stops the carrier it started), so it is on this cockpit's stop-line
-          // census and its sweep. The engine's MAX_TUNE_MS ceiling bounds it either way.
-          onTune={(on) => { if (control) void setTune(on).then((s) => onSnap?.(s)) }}
-          // The RIG's own ATU. Beside Tune because it keys the transmitter too — and the
-          // header renders it only when the rig actually reports a tuner. A refusal (TX off,
-          // outside privileges, no tuner) comes back as the backend's reason, not silence.
-          onAtuTune={() =>
-            control && void atuTune()
-              .then((s) => onSnap?.(s))
-              .catch((e) => pushToast(String(e), 'error'))
-          }
           modeIndicator={
             <>
               {/* The sub-mode NAME and its one-line hint come from `pskModes.ts` and move
@@ -663,16 +676,30 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
               />
             ) : undefined
           }
-        />
+        >
+          {/* THE ROTOR STRIP, RTTY's placement and wiring (see there): the header's own control
+              cluster, `active` because this cockpit stays mounted while hidden, and → CALL at the
+              dock's Call box, settled. Its ■ stops the rotator, never a transmission. */}
+          {control || rotatorControl ? <RotorStrip
+            active={active}
+            onOpenSettings={onOpenSettings}
+            targetCall={settledHisCall || null}
+            onPointAt={rotorPointAt(control)}
+          /> : <span className="dim" role="status" aria-label={t('remote.rotatorUnavailable')} title={t('remote.rotatorUnavailable')}>{t('rotor.strip.aria')} —</span>}
+        </CockpitHeader>
       )}
 
       {/* THE BAND WATERFALL — ⊞-hideable, the RTTY shape (`.psk-cockpit .waterfall-wrap`
           shares its strip CSS). It hosts no stop control and no sender: the single cursor
           marks where the decoder listens AND where TX transmits (the transceive
           convention), and a click NETS THE DECODER (pskNet — engine RX state), never the
-          rig. Hiding it hands its height to the stream frame, the shell's only grower. */}
+          rig. Its divider (layout L6, RTTY's) sits under it and sets its height, stored per
+          surface; hiding the strip takes the divider with it and hands the height to the pane
+          frames below, the shell's growers. */}
       {psk && shown('scope') && (
+        <>
         <Waterfall
+          stripRef={wfRef}
           {...closeProps('scope')}
           paneTitle={pskPanelLabels().scope}
           theme={theme}
@@ -690,6 +717,42 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
           hint={receiverControl ? t('psk.waterfall.hint') : t('remote.keyboardFollowsStation')}
           onTune={receiverControl ? (hz) => void pskNet(hz).then(setPsk).catch(() => {}) : undefined}
         />
+        {/* `--rtty-wf-h`: PSK's strip rides RTTY's rule (styles.css), and the variable is this
+            shell's own, so the one name serves both. */}
+        <PaneSeam
+          axis="y"
+          varName="--rtty-wf-h"
+          strip={wfRef}
+          storageKey="nexus.split.psk.waterfall"
+          min={WATERFALL_SPLIT_MIN}
+          max={WATERFALL_SPLIT_MAX}
+          defaultPct={25}
+          label={t('psk.waterfall.splitter.label')}
+        />
+        </>
+      )}
+
+      {/* THE TX STRIP — FT's cluster under the waterfall (2026-10-01): the TX-enable
+          latch, Tune, the rig's ATU and Stop TX, sticky so they never leave the window. A shell
+          child with no ⊞ id, so hiding the waterfall leaves it directly under the header.
+          TUNE — a steady carrier, which in PSK is how you set the drive in the header: key it,
+          wind the power up until ALC just starts to move, back off. It is also a stop control
+          (it stops the carrier it started), so it is on this cockpit's stop-line census and its
+          sweep; the engine's MAX_TUNE_MS ceiling bounds it either way. The rig's ATU renders
+          only when the rig reports a tuner, and a refusal comes back as the backend's reason. */}
+      {snap && (
+        <CockpitTxStrip
+          radio={snap.radio}
+          onSnap={onSnap}
+          onStopTx={stop}
+          onSetTxEnabled={control ? onSetTxEnabled : undefined}
+          onTune={(on) => { if (control) void setTune(on).then((s) => onSnap?.(s)) }}
+          onAtuTune={() =>
+            control && void atuTune()
+              .then((s) => onSnap?.(s))
+              .catch((e) => pushToast(String(e), 'error'))
+          }
+        />
       )}
 
       {psk?.keyerError && (
@@ -704,7 +767,14 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
           NO `weight`, deliberately: since #159 there is a second fill frame below it (the log
           strip), and the share that matters is declared THERE, measured. See that frame. */}
       {shown('stream') && (
-        <CockpitPaneFrame title={t('psk.pane.stream.title')} paneId="stream" {...closeProps('stream')}>
+        <CockpitPaneFrame
+          title={t('psk.pane.stream.title')}
+          paneId="stream"
+          split={streamLogPair ? STREAM_LOG_SPLIT : undefined}
+          share={streamShare != null ? streamShare * STREAM_LOG_SPLIT : undefined}
+          paneRef={streamFrameRef}
+          {...closeProps('stream')}
+        >
           <div className="cw-decode psk-stream" title={t('psk.stream.title')}>
             <div className="cw-decode-head">
               <span className="cw-decode-label">{RX_PLATE}</span>
@@ -817,8 +887,26 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
               and on screen, and nothing is trapped. Same at 175 % pinned zoom, except there the
               shell valve does engage — by design — and the dock still parks in the scrollport,
               so the stop line holds at magnification. */}
+      {streamLogPair && panels && (
+        <PaneSeam
+          above={streamFrameRef}
+          below={logFrameRef}
+          varName="--pane-share"
+          scale={STREAM_LOG_SPLIT}
+          onCommit={(stream) => panels.setShares({ stream })}
+          onReset={() => panels.setShares({ stream: null })}
+          label={t('psk.seam.streamLog.label')}
+        />
+      )}
       {snap && (
-        <CockpitPaneFrame title={t('psk.pane.log.title')} paneId="log" weight={1.5}>
+        <CockpitPaneFrame
+          title={t('psk.pane.log.title')}
+          paneId="log"
+          weight={1.5}
+          split={streamLogPair ? STREAM_LOG_SPLIT : undefined}
+          share={streamShare != null ? (2 - streamShare) * STREAM_LOG_SPLIT : undefined}
+          paneRef={logFrameRef}
+        >
           {!control ? psk && <RemoteRecallEntry snap={snap} mode={mode.name} onOpenLog={onOpenLogbook} /> : (
           <LogEntry
             onOpenLogbook={onOpenLogbook}
@@ -864,7 +952,7 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
       {/* TX DOCK — the macros (each a one-click transmit), the continuous-TX latch, Stop
           and the compose bar, pinned OUTSIDE any pane so nothing can scroll them out of
           reach. None of these has an id in the PSK panel vocabulary — for the Esc/Stop
-          macro and the header's Stop TX / TX-arm that is THE STOP LINE (they render
+          macro and the TX strip's Stop TX / TX-arm that is THE STOP LINE (they render
           outside every ⊞-removable pane; the sweep in stop-line.test.tsx drives it); for
           the macros and the compose bar it is this cockpit's own choice.
 
@@ -959,7 +1047,7 @@ export function PskCockpit({ snap, onSnap, active = true, onSetFrequency, onSetT
       </div>
 
       {/* THE EDITOR — out of flow, standing on the dock's top edge over the key it edits, so it
-          moves and covers no control in the dock; non-modal, so Stop TX in the header stays one
+          moves and covers no control in the dock; non-modal, so Stop TX in the TX strip stays one
           click away. Esc is decided by the cockpit's keyboard handler above, never here. */}
       {control && editing && (
         <PskMacroEditor

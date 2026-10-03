@@ -14,7 +14,7 @@ import type {
   LoggedQso,
 } from '../types'
 import { t } from '../i18n'
-import { contestEntryReset, contestIMoved, contestLogManual, contestLogSatellite, contestWorking, contestZoneHint, logQso, lookupPark, lookupParkLive, qrzLookup, resolveEntity, searchParks, setCwPeerInfo, type Park } from '../api'
+import { contestEntryReset, contestIMoved, contestLogManual, contestLogSatellite, contestWorking, contestZoneHint, logQso, lookupPark, lookupParkLive, qrzLookup, resolveEntity, searchParks, setCwPeerInfo, setLogFormGrid, type Park } from '../api'
 import { bandKey, modeKey } from '../features/callHistory'
 import { emptyAnswer } from '../features/logAnswers'
 import { useLogAnswer } from '../features/logSource'
@@ -31,6 +31,7 @@ import { locationWarningText } from '../features/contestLocation'
 import { contestDupe } from '../features/contestDupe'
 import { isFieldDay } from '../fdEvent'
 import { azimuthLabel, azimuthTo, isValidLoggedGrid } from '../grid'
+import { baseCall, sameCall } from '../callsign'
 import { RecallPanel } from './RecallPanel'
 import { RemoteCollectionsContext } from '../remote-web/collections'
 import { PARKS_COMMAND } from '../remote-web/application-query-protocol'
@@ -446,6 +447,26 @@ export function LogEntry({
   // POTA/SOTA park of the station worked (ota.their_*). Prefilled from a hunted spot; editable.
   const [logParkProgram, setLogParkProgram] = useState('POTA')
   const [logParkRef, setLogParkRef] = useState('')
+  // WHOSE park the box holds, and whether a hunt put it there. A prefill is bound to the hunted
+  // activator (`hunt: true`); a park the operator typed or picked is bound to the call in the box
+  // (`hunt: false`, and `call: ''` when there was no call yet), and follows that call while the
+  // operator types it, so a park typed before any call belongs to the first call TYPED after it
+  // (#383). Written wherever a park goes INTO the box and read only while one is there, so a clear
+  // leaves it alone. See the prefill below for why the value alone cannot say.
+  const parkForRef = useRef({ call: '', hunt: false })
+  // The park box as it stands, for the park prefill: the LAST value written to it. Every write
+  // goes through `setPark`, so this always has it, even before React renders it. The call-change
+  // effect runs just before the prefill and can empty the box in the same commit, while the
+  // rendered `logParkRef` still holds the value being erased. And it is NOT re-synced from a render
+  // (it was): a render can land ahead of a write still pending from a passive effect, and syncing
+  // from it put the box back to what that render saw. After a hunted log, the spent hunt's refill
+  // was such a write; the hunt's end rendered first, the prefill judged an empty box, and the
+  // refill then landed with nothing left to take it out (#383, N26).
+  const parkBoxRef = useRef('')
+  const setPark = (value: string) => {
+    parkBoxRef.current = value
+    setLogParkRef(value)
+  }
   // Local park-directory suggestions (POTA only) as the operator types the reference.
   const [parkHits, setParkHits] = useState<Park[]>([])
   const [parkPicked, setParkPicked] = useState(false)
@@ -618,12 +639,29 @@ export function LogEntry({
       setLogCountry('')
       setLogImage(null)
       setLogCoords(null)
-      setLogParkRef('') // the park was for the previous call
+      setPark('') // the park was for the previous call; the prefill below decides in this commit
       // The wiped name may have been the CW decoder's copy — un-latch so it can refill for the
       // new call (declared below; the effect callback runs after render, so it's initialized).
       cwNameFilled.current = false
     }
   }, [logCall])
+
+  // The grid this form holds for its call, typed or filled in from the callbook, handed to the
+  // engine so pointing the rotator at this call aims at the station rather than the centre of its
+  // country (a tester was sent 20° wide by the country centre). Only a real square, and a clear
+  // only for a call it was given a square for, so typing a call costs nothing. A browser's form
+  // tells the station nothing: the station resolves its own bearing.
+  const toldGridRef = useRef<{ call: string; grid: string } | null>(null)
+  useEffect(() => {
+    if (remoteMode) return
+    const call = logCall.trim().toUpperCase()
+    const typed = logGrid.trim().toUpperCase()
+    const grid = isValidLoggedGrid(typed) ? typed : ''
+    const told = toldGridRef.current
+    if (!call || (told?.call === call && told.grid === grid) || (!grid && told?.call !== call)) return
+    toldGridRef.current = { call, grid }
+    void setLogFormGrid(call, grid).catch(() => {})
+  }, [logCall, logGrid, remoteMode])
 
   // Prefill the park field from a hunted spot (snap.hunt = the activator's program+ref). Keyed on
   // the reference string so it fires when a NEW park is hunted, not on every snapshot poll.
@@ -634,25 +672,66 @@ export function LogEntry({
   // untestable (remove it and the record still comes out clean, because the latch was never
   // taken) which is how a load-bearing fix quietly dies. The two effects below carry their
   // own guards for their own reason: they reach the NETWORK.
+  //
+  // ⚠️ THE MATCH IS THE ENGINE'S `same_call`, through `sameCall`. It was `.split('/').pop()`, which
+  // made `KE7G/P` into `P`: a portable activator never matched the call logged for them, and any
+  // two `/P` stations matched each other.
+  //
+  // ⚠️ A PARK SET FOR ANOTHER STATION IS NOT AN OVERRIDE. The operator clicks a second hunted spot
+  // with the first activator's park still in the box. The new call lands one render after the
+  // new hunt, and in that render the call-change effect above clears the box while this effect
+  // reads it as rendered: still the first park, which it took for a park the operator had typed,
+  // so it skipped the fill. The clear then emptied the box, and nothing re-ran this effect (the
+  // operator's "why are some parks filled and not others": a hunt that lands a render after the
+  // call finds the box already cleared, and fills). With no callbook answer nothing clears the box
+  // at all, and the first park stayed, differing from the hunt, so it would have been logged as
+  // one the operator typed. So an override is a park the operator TYPED for this call
+  // (`parkForRef`), never merely a value that differs from the hunt. A park an earlier hunt put
+  // there is never one: the same activator re-spotted at another park takes the new park, where the
+  // earlier prefill used to hold the box and go out as a typed park. Nor is a park typed before any
+  // call, for a call that arrives by a click: it belongs to the first call the operator types
+  // (operator, 2026-09-29, #383), so a clicked spot for another park is a new station and fills
+  // its own. It used to count for whatever call came next, and with no callbook the clicked
+  // activator's contact went out at the typed park.
+  //
+  // ⚠️ THE BOX IS READ AS IT STANDS, NOT AS IT WAS RENDERED (`parkBoxRef`). The race above had a
+  // second door. The call-change effect empties the box in the commit this effect decides in, so
+  // a park it was erasing could still read as the operator's own: the fill was skipped and the box
+  // ended empty under a chip naming the park. A park typed before any call opened it, once the
+  // callbook had answered for the call typed after it.
+  //
+  // ⚠️ A HUNTED PARK LEAVES WITH ITS STATION. Once the call in the box is not the station a hunt
+  // bound the park to, the park goes, whatever the pending hunt now is (another activator's, or
+  // none) and whether or not a lookup ran. It used to go only when it equalled the CURRENT hunt,
+  // so with the hunt moved on and no callbook, a hand-typed third call was logged at the first
+  // activator's park. A park the operator typed never leaves this way: finishing a half-typed
+  // call (`W1XY` → `W1XYZ`) keeps it. Its binding still matters, to the override above: a park
+  // typed for W1XYZ does not stop the prefill when KE7G's spot is clicked next. With no call in
+  // the box there is no station to hold it, and it leaves with its hunt. Logging the hunted
+  // contact spends the hunt in the engine, but the snapshot here names it until the next poll, so
+  // the reset strip was filled again; when the hunt's end arrived nothing took the park out, and
+  // an empty strip showed the last contact's park.
   useEffect(() => {
     const h = snap.hunt
-    if (!h?.reference) return
-    const baseCall = (c: string) => c.trim().toUpperCase().split('/').pop() ?? ''
-    const callMatches = logCall.trim() !== '' && baseCall(h.call) === baseCall(logCall)
-    const ref = logParkRef.trim().toUpperCase()
-    const huntRef = h.reference.trim().toUpperCase()
-    if (callMatches || logCall.trim() === '') {
-      // Prefill (or keep) the hunted park — but only when the field is empty or still holds the
-      // prefill, so a manual override survives. `parkPicked` suppresses the search dropdown.
-      if (ref === '' || ref === huntRef) {
+    const call = logCall.trim()
+    const shown = parkBoxRef.current.trim().toUpperCase()
+    const huntRef = h?.reference?.trim().toUpperCase() ?? ''
+    const bound = parkForRef.current
+    if (h?.reference && (call === '' || sameCall(h.call, call))) {
+      // Prefill (or keep) the hunted park, unless the box holds the operator's own park for this
+      // call, so a manual override survives. `parkPicked` suppresses the search dropdown.
+      const override = shown !== '' && shown !== huntRef && !bound.hunt && bound.call === baseCall(call)
+      if (!override) {
         setParkPicked(true)
         setLogParkProgram(h.program)
-        setLogParkRef(h.reference)
+        setPark(h.reference)
+        parkForRef.current = { call: baseCall(h.call), hunt: true }
       }
-    } else if (ref === huntRef) {
-      // Call changed to a NON-matching one: the engine's auto-tag won't apply the park to this
-      // call, so drop the prefill rather than SHOW a park that won't be logged.
-      setLogParkRef('')
+    } else if (shown !== '' && (shown === huntRef || (bound.hunt && (call === '' || !sameCall(bound.call, call))))) {
+      // No hunted station is in the box: drop the pending hunt's own prefill, a park an earlier hunt
+      // bound to another station, and, with no call at all, one whose hunt is over, rather than
+      // SHOW (and log) a park that is not this call's.
+      setPark('')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snap.hunt?.reference, snap.hunt?.program, logCall])
@@ -1057,7 +1136,7 @@ export function LogEntry({
     setLogCountry('')
     setLogImage(null)
     setLogCoords(null)
-    setLogParkRef('')
+    setPark('')
     if (!remoteMode) void setCwPeerInfo('', '', '') // clear the {HISNAME}/{HISSTATE} tokens for the next contact
     // The entry line ended WITHOUT logging (the clear button, or moving on). The serial that
     // station copied stays bound to them — come back later and they get the same one — but the
@@ -1685,10 +1764,7 @@ export function LogEntry({
   // time — surface it so the operator SEES the park will be recorded (edit/manual entry is on the
   // dedicated park field). Matches when the logged call equals the hunted activator.
   const hunt = snap.hunt
-  const huntMatches =
-    hunt != null &&
-    logCall.trim() !== '' &&
-    hunt.call.trim().toUpperCase().split('/')[0] === logCall.trim().toUpperCase().split('/')[0]
+  const huntMatches = hunt != null && logCall.trim() !== '' && sameCall(hunt.call, logCall)
 
   return (
     <div className="log-entry" onChangeCapture={remoteMode ? rememberRemoteContext : undefined}>
@@ -1726,7 +1802,15 @@ export function LogEntry({
           value={logCall}
           onChange={(e) => {
             humanCallEditRef.current = true
-            setLogCall(e.target.value.toUpperCase())
+            const next = e.target.value.toUpperCase()
+            // #383: a park the operator typed follows the call as they type it. Typed before any
+            // call, it belongs to the first call typed after it; typed mid-call, to the call being
+            // finished. Only a keystroke here moves it, so a clicked spot is a new station.
+            const bound = parkForRef.current
+            if (!bound.hunt && (bound.call === '' || bound.call === baseCall(logCall))) {
+              parkForRef.current = { call: baseCall(next), hunt: false }
+            }
+            setLogCall(next)
           }}
           onBlur={onCallBlur}
           onKeyDown={onCallEnter}
@@ -1884,7 +1968,10 @@ export function LogEntry({
           <input
             className="settings-input mono le-park-ref"
             value={logParkRef}
-            onChange={(e) => setLogParkRef(e.target.value.toUpperCase())}
+            onChange={(e) => {
+              setPark(e.target.value.toUpperCase())
+              parkForRef.current = { call: baseCall(logCall), hunt: false }
+            }}
             onKeyDown={onEnter}
             onBlur={() => window.setTimeout(() => setParkHits([]), 150)}
             placeholder={
@@ -1905,7 +1992,8 @@ export function LogEntry({
                     onMouseDown={(e) => {
                       e.preventDefault() // pick before the input's onBlur clears the list
                       setParkPicked(true)
-                      setLogParkRef(p.reference)
+                      setPark(p.reference)
+                      parkForRef.current = { call: baseCall(logCall), hunt: false }
                       setParkHits([])
                     }}
                   >

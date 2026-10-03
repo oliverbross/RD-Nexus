@@ -30,9 +30,12 @@ for (const control of ['rig:setFreq', 'rig:setMode', 'rig:setPTT']) {
 }
 
 const supervisor = read('src-tauri/src/openhamclock.rs')
-for (const invariant of ['127.0.0.1', 'phase: "idle"', 'CREATE_NO_WINDOW', 'health_ready', 'openhamclock_ptt', 'PortHandshake', 'MAX_HEALTH_RESPONSE_BYTES', 'serde_json::from_slice', 'openhamclock_log_delta', 'log_changed_ids_since']) {
+for (const invariant of ['127.0.0.1', 'phase: "idle"', 'health_ready', 'openhamclock_ptt', 'PortHandshake', 'MAX_HEALTH_RESPONSE_BYTES', 'serde_json::from_slice', 'openhamclock_log_delta', 'log_changed_ids_since']) {
   assert.ok(supervisor.includes(invariant), 'supervisor invariant missing: ' + invariant)
 }
+assert.match(supervisor, /use tempo_core::process::command;/)
+assert.match(supervisor, /command\(bundled\)/)
+assert.match(read('crates/tempo-core/src/process.rs'), /creation_flags\(CREATE_NO_WINDOW\)/)
 assert.ok(!supervisor.includes('.env("WSJTX_ENABLED", "false")'), 'upstream WSJT-X must remain configurable')
 assert.ok(!supervisor.includes('.env("N1MM_UDP_ENABLED", "false")'), 'upstream N1MM must remain configurable')
 

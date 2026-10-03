@@ -37,7 +37,9 @@
 //                and broker PTT released. · Tune (CockpitHeader) → Engine::set_tune(false),
 //                which ends the tune carrier and only that. · the Space bar (window keyup) →
 //                the same setPtt(false) as PTT-release, and ONLY while `lock` is off: both
-//                Space handlers early-return in Lock (hands-free) mode.
+//                Space handlers early-return in Lock (hands-free) mode. · Esc (App's window
+//                keydown while Phone is shown, N71) → the same halt_tx as Stop TX; the voice
+//                keyer's own Esc still stops its playback.
 //     · CW     — Stop TX (CockpitHeader) → stopCw + haltTx. · Tune → set_tune (the carrier
 //                only). · Esc (window keydown) → the same abort() Stop TX calls.
 //     · Operate— Stop TX (.op-btn.stop in the merged .cockpit-qso strip) → onHaltTx →
@@ -74,12 +76,16 @@
 //                a real stop here for the same reason as RTTY: set_tx_enabled(false) drops
 //                sstv_tx and arms sstv_abort (engine.rs ~7124), which service.rs ~4174 turns
 //                into feed dropped + output flushed + unkey while an image is in flight.
+//                · Esc (App's window keydown while SSTV is shown, N71) → halt_tx, the halt the
+//                TX strip's Stop TX sends.
 //     · APRS   — a sixth cockpit with NO vocabulary at all: no ⊞ menu, nothing hideable, so
-//                the rule holds there by construction. Say what that does and does not buy:
-//                APRS renders NO stop control. Its TX On/Off is an arm latch —
-//                set_tx_enabled does not clear aprs_tx_queue (only halt_tx does, engine.rs
-//                ~6856) and arms no APRS abort; poll_aprs_tx merely HOLDS the queue while the
-//                latch is down. Nothing on that screen cuts a beacon already keying.
+//                the rule holds there by construction. Its one stop control is the TX On/Off
+//                latch, and from N71 Esc (App's window keydown while APRS is shown → halt_tx)
+//                is a stop there too. set_tx_enabled(false) arms no APRS abort, but the radio loop's TX-off
+//                cut (service.rs `tx_off_cut`) unkeys and flushes a beacon on the air once the
+//                latch is down (measured 2026-09-30), and set_tx_enabled(false) also drops
+//                what aprs_tx_queue still holds, with a notice (poll_aprs_tx drops it the same
+//                way on a refusal; halt_tx clears it).
 //   The app-wide TopBar TX cluster is NOT a backstop for any of them: App hides it in Operate
 //   (hideTxControls) and in Phone/CW/RTTY/SSTV/APRS (hideDigitalChrome). Every cockpit stands
 //   on its own controls.
@@ -101,7 +107,8 @@
 //                Abort is census-only: it renders only inside `{auto && seqState !== 'idle'}`
 //                and the sweep's fixture is auto:false / seqState:'idle', so there is nothing
 //                on screen to find.
-//     · SSTV   — swept: Stop, the TX-enable latch. An exact match, and the only one.
+//     · SSTV   — swept: Stop, the TX-enable latch. An exact match apart from Esc (keyboard-only,
+//                census-only), and the only one.
 //   A control that is KEYBOARD-ONLY or CONDITIONALLY RENDERED is outside both sweeps by
 //   construction. What is checkable in minutes is not list equality: it is that every swept
 //   list is a non-empty subset of its cockpit's census.
@@ -193,7 +200,7 @@
 //
 // WHAT HAS NO ID HERE, and therefore cannot be hidden: the dial, the band/mode pickers, the
 // Rx/Tx offset spinners, the QSO strip's TX On / Tune / Stop TX / Hold Tx, Phone's PTT row,
-// CW's F-key macros and send bar, RTTY's header Stop TX + TX latch and both dock aborts,
+// CW's F-key macros and send bar, RTTY's TX-strip Stop TX + TX latch and both dock aborts,
 // SSTV's Send/Stop bar. Recounted 2026-08-16: 28 entries across five vocabularies (20
 // distinct ids), of which six can start a transmission, TWO host a stop control of their own
 // (voiceKeyer, stream) and exactly one — voiceKeyer — has a hide that stops anything. The
@@ -232,22 +239,74 @@ import { useCallback, useMemo, useState } from 'react'
 import { durableGet, durableSet } from './durableStore'
 import { windowInstance } from './windowScope'
 import { SLOT_IDS, type SlotId } from './connectConfig'
+import { DASH_SLOT_IDS, type DashSlotId } from './dashRail'
+import {
+  coerceColumnOrder,
+  coercePlacement,
+  movePane as movePlacedPane,
+  type ArrangeSpec,
+  type PaneColumn,
+  type PaneMove,
+  type PanePlacement,
+} from './panelPlace'
 
 export type PanelState = 'docked' | 'popped' | 'removed'
 
 const PANEL_STATES = ['docked', 'popped', 'removed'] as const
 
 export interface PanelLayout<P extends string> {
-  v: 1
+  /** 2 since the grid cockpits' column dividers (layout L2) put `cols` in the record. A v1 record
+   *  reads as a v2 one with no columns stored; this build writes 2. */
+  v: 1 | 2
   /** Absent ⇒ the vocabulary's DEFAULT (`panelStateIn`): docked, unless the vocabulary lists
    *  the id in `defaultRemoved`. Partial is deliberate: a panel added in a later release ships
    *  at its default with no migration — visible, or hidden when its vocabulary says so, which
    *  is how a pane can be added without changing anybody's screen on update — and an explicit
    *  choice is always a STORED value, so it can never be confused with "new". */
   state: Partial<Record<P, PanelState>>
-  /** Flex/fr share within its region. Nothing writes it yet (seam resize is a later
-   *  step); it rides in the record from commit one so that step needs no version bump. */
+  /** Flex/fr share within its region: what a divider between two panes (PaneSeam) wrote. */
   share: Partial<Record<P, number>>
+  /** The COLUMN WIDTHS the operator set with the dividers between a grid cockpit's columns
+   *  (Phone, CW, JS8 — layout L2). Absent, or any one of them absent, is the sheet's default.
+   *
+   *  An older build reading this record copies only `state` and `share` (its coercion never reads
+   *  `cols`), so it opens on the default columns and loses nothing else. */
+  cols?: PanelCols
+  /** WHERE EACH PANE STANDS (layout L3, ⊞ Panels ▸ Arrange): its column and its place in it, for the
+   *  panes the vocabulary's `arrange` lists (features/panelPlace). Absent is the stock grouping, and
+   *  a pane it does not name stands at the end of its stock column. Same rule for older builds as
+   *  `cols`: their coercion copies only `state` and `share`, so they open on the stock grouping. */
+  place?: PanePlacement<P>
+  /** The columns' order on screen ("swap columns"): kept by the record, rendered by no cockpit yet
+   *  (see features/panelPlace). Absent is a | b | log. */
+  colOrder?: PaneColumn[]
+  /** A CONNECT BOX'S OWN TEXT SIZE (⋯ ▸ A− / A+), per slot: a factor on the app's Text size,
+   *  BOX_SCALE_MIN–BOX_SCALE_MAX (the section at the foot of this file). Absent, or 1, is the app's
+   *  size — so an older record, and every cockpit's (none writes one), reads exactly as before. An
+   *  older build's coercion copies none of it: every box opens at the app's size, nothing else lost. */
+  scale?: Partial<Record<P, number>>
+}
+
+/** A grid cockpit's column widths, as its column dividers write them (PanelLayout.cols):
+ *    · `a`, `b` — the two feed columns' fr shares at three columns: the divider between them
+ *      splits the pair the way a divider between two panes does (seamShares, summing to 2);
+ *    · `log` — the log column's width in CSS px at two and three columns (the width divider on its
+ *      left edge). The sheet caps it at half the region and floors it at 24em, so a width stored on
+ *      a wide window is clamped by the layout itself wherever it is read (features/paneColumns). */
+export interface PanelCols {
+  a?: number
+  b?: number
+  log?: number
+}
+export type PanelColId = keyof PanelCols
+
+/** A share, clamped into the writers' range [MIN_SHARE, 2 − MIN_SHARE]. */
+const clampShare = (v: number) => Math.min(2 - MIN_SHARE, Math.max(MIN_SHARE, v))
+
+/** One stored column value, or null for a value no writer could have produced. */
+function colValue(id: PanelColId, v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return null
+  return id === 'log' ? Math.round(v) : clampShare(v)
 }
 
 /** A view's panel vocabulary: its storage namespace plus the coercion whitelist. */
@@ -268,6 +327,9 @@ export interface PanelVocabulary<P extends string> {
    *  pane must also be one whose hide ENDS nothing, because Reset hides it with no note (THE
    *  PRACTICE, in the header). */
   readonly defaultRemoved?: readonly P[]
+  /** The panes ⊞ Panels ▸ Arrange may move, their stock columns and the pinned ones (layout L3).
+   *  Only a vocabulary with this may carry a `place` in its record. */
+  readonly arrange?: ArrangeSpec<P>
 }
 
 export function isPanelState(v: unknown): v is PanelState {
@@ -276,7 +338,7 @@ export function isPanelState(v: unknown): v is PanelState {
 
 /** Stock layout: nothing stored, so every panel is at its vocabulary's default. */
 export function emptyPanelLayout<P extends string>(): PanelLayout<P> {
-  return { v: 1, state: {}, share: {} }
+  return { v: 2, state: {}, share: {} }
 }
 
 /** A panel's state in a record: what is stored for it, else its vocabulary's default — docked,
@@ -305,6 +367,7 @@ export function panelStorageKey(view: string, instance?: string): string {
  * A valid record from any input. Unknown panel ids and unknown state strings are
  * dropped, a junk blob coerces to the stock layout, and a share that isn't a finite
  * positive number is discarded — one that is gets CLAMPED into the writers' own range.
+ * Column widths the same way (a v1 record has none, so it loads with the default columns).
  * Mirrors coercePlacement's "missing → safe default".
  */
 export function coercePanelLayout<P extends string>(
@@ -313,7 +376,7 @@ export function coercePanelLayout<P extends string>(
 ): PanelLayout<P> {
   const out = emptyPanelLayout<P>()
   if (!raw || typeof raw !== 'object') return out
-  const obj = raw as { state?: unknown; share?: unknown }
+  const obj = raw as { state?: unknown; share?: unknown; cols?: unknown; place?: unknown; colOrder?: unknown; scale?: unknown }
   if (obj.state && typeof obj.state === 'object') {
     const src = obj.state as Record<string, unknown>
     for (const id of spec.panelIds) {
@@ -333,6 +396,34 @@ export function coercePanelLayout<P extends string>(
         out.share[id] = Math.min(2 - MIN_SHARE, Math.max(MIN_SHARE, v))
       }
     }
+  }
+  if (obj.cols && typeof obj.cols === 'object') {
+    const src = obj.cols as Record<string, unknown>
+    const cols: PanelCols = {}
+    for (const id of ['a', 'b', 'log'] as const) {
+      const v = colValue(id, src[id])
+      if (v != null) cols[id] = v
+    }
+    if (Object.keys(cols).length > 0) out.cols = cols
+  }
+  // Placement (layout L3) only where the vocabulary arranges: an id outside its ArrangeSpec is
+  // dropped, a pinned pane is held in its column, the orders are re-numbered (features/panelPlace).
+  if (spec.arrange) {
+    const place = coercePlacement(spec.arrange, obj.place)
+    if (place) out.place = place
+    const colOrder = coerceColumnOrder(obj.colOrder)
+    if (colOrder) out.colOrder = colOrder
+  }
+  // A box's text size (Connect's A− / A+), clamped on read into the range the menu writes; a factor
+  // of 1 is no entry at all, and junk is dropped rather than guessed at.
+  if (obj.scale && typeof obj.scale === 'object') {
+    const src = obj.scale as Record<string, unknown>
+    const scale: Partial<Record<P, number>> = {}
+    for (const id of spec.panelIds) {
+      const v = boxScaleValue(src[id])
+      if (v != null) scale[id] = v
+    }
+    if (Object.keys(scale).length > 0) out.scale = scale
   }
   return out
 }
@@ -467,8 +558,22 @@ export interface PanelLayoutApi<P extends string> {
   /** Set one pane's flex share (clamped to at least MIN_SHARE). */
   setShare: (id: P, value: number) => void
   /** Set several panes' shares in ONE undoable step — a seam drag redistributes the two
-   *  adjacent panes it sits between atomically (a single save + one undo entry). */
-  setShares: (updates: Partial<Record<P, number>>) => void
+   *  adjacent panes it sits between atomically (a single save + one undo entry). A `null`
+   *  CLEARS a pane's share, so it goes back to its stock proportion: the sheet's default,
+   *  which the record never holds (Operate's Band Activity is 1.6 : 1) — a divider's reset. */
+  setShares: (updates: Partial<Record<P, number | null>>) => void
+  /** Set a grid cockpit's column widths in ONE undoable step — a column divider's release, key
+   *  or reset (components/panes/RegionColumnSeams). `a`/`b` are fr shares, `log` CSS px; a `null`
+   *  clears one back to the sheet's default. Optional: only the cockpits with column dividers
+   *  (Phone, CW, JS8) read it, and a host without them never needs it. usePanelLayout always
+   *  provides it. */
+  setCols?: (updates: Partial<Record<PanelColId, number | null>>) => void
+  /** Move one pane in the three-column placement (⊞ Panels ▸ Arrange, layout L3): up or down in its
+   *  column past the panes `shown` says are on screen, or into the column beside it. ONE undoable
+   *  step; a move that would change nothing (features/panelPlace `movePane` → null) is no step at
+   *  all, so it cannot spend the one Undo. Optional: only a vocabulary with `arrange` has a
+   *  placement. */
+  movePane?: (id: P, move: PaneMove, shown: (id: P) => boolean) => void
   /** Restore the layout as it was before the last change (one level deep). */
   undo: () => void
   canUndo: boolean
@@ -485,7 +590,7 @@ export interface PanelLayoutApi<P extends string> {
    *  nothing (see `defaultRemoved`). So Reset can only ever MOUNT a pane that ends something. */
   undoRemoves: readonly P[]
   /** Back to stock — every panel at its default (docked, or hidden for a pane the vocabulary
-   *  ships hidden), every share reset. Undoable like any change. */
+   *  ships hidden), every share and column width reset. Undoable like any change. */
   reset: () => void
 }
 
@@ -506,6 +611,12 @@ export function usePanelLayout<P extends string>(
    *  so an id outside the vocabulary cannot be written. Off PanelLayoutApi on purpose: cockpits
    *  receive that as a prop and have no presets to apply. */
   setLayout: (next: PanelLayout<P>) => void
+  /** A Connect box's text size (⋯ ▸ A− / A+): 1 unless the record holds one. Off PanelLayoutApi for
+   *  setLayout's reason — only Connect's boxes have one. */
+  scaleOf: (id: P) => number
+  /** Set a box's text size, clamped into BOX_SCALE_MIN–BOX_SCALE_MAX; 1 clears the entry. ONE
+   *  undoable step, like a split. */
+  setScale: (id: P, value: number) => void
 } {
   const key = useMemo(() => panelStorageKey(spec.view, instance), [spec.view, instance])
   // Current + previous in ONE state so the undo snapshot is taken by the same updater
@@ -544,15 +655,37 @@ export function usePanelLayout<P extends string>(
     [apply],
   )
   const setShares = useCallback(
-    (updates: Partial<Record<P, number>>) =>
+    (updates: Partial<Record<P, number | null>>) =>
       apply((cur) => {
         const share: Partial<Record<P, number>> = { ...cur.share }
         for (const [id, v] of Object.entries(updates)) {
-          if (typeof v === 'number' && Number.isFinite(v)) {
+          if (v === null) {
+            delete share[id as P]
+          } else if (typeof v === 'number' && Number.isFinite(v)) {
             share[id as P] = Math.max(MIN_SHARE, v)
           }
         }
         return { ...cur, share }
+      }),
+    [apply],
+  )
+  const setCols = useCallback(
+    (updates: Partial<Record<PanelColId, number | null>>) =>
+      apply((cur) => {
+        const cols: PanelCols = { ...cur.cols }
+        for (const [id, v] of Object.entries(updates) as [PanelColId, number | null | undefined][]) {
+          if (v === null) {
+            delete cols[id]
+          } else {
+            const c = colValue(id, v)
+            if (c != null) cols[id] = c
+          }
+        }
+        // Everything else in the record rides along (a placement, a column order); only `cols` changes.
+        const { cols: _was, ...rest } = cur
+        const next: PanelLayout<P> = { ...rest, v: 2 }
+        if (Object.keys(cols).length > 0) next.cols = cols
+        return next
       }),
     [apply],
   )
@@ -565,10 +698,40 @@ export function usePanelLayout<P extends string>(
       }),
     [key],
   )
+  const movePane = useCallback(
+    (id: P, move: PaneMove, shown: (id: P) => boolean) =>
+      setHist((h) => {
+        if (!spec.arrange) return h
+        // ◀ ▶ go to the neighbouring column ON SCREEN, and no cockpit renders a stored column order
+        // yet (features/panelPlace): the stock one is what the operator sees.
+        const place = movePlacedPane(spec.arrange, h.cur.place, undefined, id, move, shown)
+        if (!place) return h
+        const cur: PanelLayout<P> = { ...h.cur, v: 2, place }
+        savePanelLayout(key, cur)
+        return { cur, prev: h.cur }
+      }),
+    [key, spec],
+  )
   const reset = useCallback(() => apply(() => emptyPanelLayout<P>()), [apply])
   const setLayout = useCallback(
     (next: PanelLayout<P>) => apply(() => coercePanelLayout(spec, next)),
     [apply, spec],
+  )
+  const scaleOf = useCallback((id: P) => hist.cur.scale?.[id] ?? 1, [hist.cur])
+  const setScale = useCallback(
+    (id: P, value: number) =>
+      apply((cur) => {
+        const scale: Partial<Record<P, number>> = { ...cur.scale }
+        const v = boxScaleValue(value)
+        if (v == null) delete scale[id]
+        else scale[id] = v
+        // Everything else in the record rides along; only `scale` changes.
+        const { scale: _was, ...rest } = cur
+        const next: PanelLayout<P> = { ...rest }
+        if (Object.keys(scale).length > 0) next.scale = scale
+        return next
+      }),
+    [apply],
   )
   // Which panes the pending undo would UNMOUNT: removed in the snapshot, present now.
   // Computed from the same history the undo restores, so it cannot describe a different
@@ -588,11 +751,15 @@ export function usePanelLayout<P extends string>(
     shareOf,
     setShare,
     setShares,
+    setCols,
+    movePane: spec.arrange ? movePane : undefined,
     undo,
     canUndo: hist.prev != null,
     undoRemoves,
     reset,
     setLayout,
+    scaleOf,
+    setScale,
   }
 }
 
@@ -662,7 +829,7 @@ const SCOPE_PANEL_ID = 'scope'
 
 /** SSTV view's removable panels (Phase 3). The RX image stage and the TX bar
  *  (mode/Send/Stop/progress) and all header chrome are NOT panels — so SSTV's two stop
- *  controls, the TX bar's Stop and the header's TX-enable latch, are outside every
+ *  controls, the TX bar's Stop and the TX strip's TX-enable latch, are outside every
  *  ⊞-removable pane, which is THE STOP LINE. `txcompose` is the image chooser only; Send
  *  does not live in it.
  *
@@ -726,8 +893,9 @@ export const SSTV_PANELS: PanelVocabulary<SstvPanelId> = {
  *  drives Phone's case off `PHONE_PANEL_IDS` itself rather than a copy of it. */
 /*  ⭐ `spots` AND `needed` (#345, operator 2026-09-27) are the Spots and Needed boards as Phone
  *  FEEDS — "much empty real estate" was the tester's report, and a phone operator's band map is
- *  what fills it. They are the only two ids in the app that SHIP HIDDEN (`defaultRemoved`), by
- *  the operator's pick: "Hidden, add via ⊞ Panels — nobody's Phone screen changes on update."
+ *  what fills it. They were the first ids in the app to SHIP HIDDEN (`defaultRemoved`; CW's twins
+ *  below are the only others), by the operator's pick: "Hidden, add via ⊞ Panels — nobody's Phone
+ *  screen changes on update."
  *
  *  Under THE STOP LINE they are the plainest entries on the list. Neither holds a stop control;
  *  neither is a sender (working a row QSYs and opens a cockpit through the boards' own handlers,
@@ -752,6 +920,21 @@ export const PHONE_PANELS: PanelVocabulary<PhonePanelId> = {
   view: 'phone',
   panelIds: PHONE_PANEL_IDS,
   defaultRemoved: ['spots', 'needed'],
+  // ⊞ Arrange (layout L3): the pane region's stock grouping, as PhoneCockpit renders it — Band
+  // Activity, the voice keyer and Spots lead; the rig strips and Needed in the middle; the log form
+  // (no id) alone in the last column. The scope above the region and the meters in the dock are not
+  // the region's, so they are not here and can never be given a place. THE VOICE KEYER IS PINNED
+  // (D9): it transmits, and a pane that changes column is remounted, which would stop its over and
+  // discard its recording. Below three tracks the feeds follow the rig strips (`stockMerged`).
+  arrange: {
+    columns: {
+      a: ['bandActivity', 'voiceKeyer', 'spots'],
+      b: ['rigscope', 'receiver', 'transmitter', 'needed'],
+      log: [],
+    },
+    pinned: ['voiceKeyer'],
+    stockMerged: ['bandActivity', 'voiceKeyer', 'rigscope', 'receiver', 'transmitter', 'spots', 'needed'],
+  },
 }
 
 /** CW cockpit's removable panels (Phase 3) — the scope strip plus the panes under it. The
@@ -761,7 +944,14 @@ export const PHONE_PANELS: PanelVocabulary<PhonePanelId> = {
  *  THE SCOPE ITSELF IS ONE, since 2026-08-16 (see SCOPE_PANEL_ID) — the same correction as
  *  in the Phone twin: it was listed as unhideable "by TX-safety", and it hosts no stop
  *  control. `scopeCtl` is a different entry for a different thing (the controls that command
- *  the rig's own panadapter, in the region below), and both keep their own box. */
+ *  the rig's own panadapter, in the region below), and both keep their own box.
+ *
+ *  `spots` AND `needed` are Phone's two feeds (#345) in CW, the same boards with the same wiring
+ *  (plan piece H8, operator's pick "CW gets Phone's Spots/Needed panes"), and they ship the same
+ *  way: HIDDEN (`defaultRemoved`), one tick in ⊞ Panels, so nobody's CW screen changes on update.
+ *  Under THE STOP LINE they are Phone's plainest entries again: neither holds a stop control,
+ *  neither sends (a row QSYs through the board's own handler and keys nothing), and a hide ends
+ *  nothing, so neither carries a note — which is also what lets Reset hide them silently. */
 export const CW_PANEL_IDS = [
   SCOPE_PANEL_ID,
   'scopeCtl',
@@ -772,12 +962,33 @@ export const CW_PANEL_IDS = [
   'copilot',
   'decode',
   'sent',
+  'spots',
+  'needed',
 ] as const
 export type CwPanelId = (typeof CW_PANEL_IDS)[number]
 
 export const CW_PANELS: PanelVocabulary<CwPanelId> = {
   view: 'cw',
   panelIds: CW_PANEL_IDS,
+  defaultRemoved: ['spots', 'needed'],
+  // ⊞ Arrange (layout L3): the pane region's stock grouping, as CwCockpit renders it — the decode
+  // and the sent echo lead; Band Activity and the copilot in the middle, under the Rig controls
+  // frame; the log form (no id) alone in the last column. The three rig-control groups (`scopeCtl`,
+  // `dsp`, `rxdsp`) share ONE frame, which is not a vocabulary pane: it keeps its place at the head
+  // of the middle column, and is not listed. Nothing here is pinned (CW has no voice keyer; the log
+  // form cannot move). Below three tracks the middle column simply follows the first. The two feeds
+  // take Phone's places: Spots at the foot of the leading column, Needed at the foot of the middle,
+  // and below three tracks both after every strip (`stockMerged`, Phone's rule), so ticking one never
+  // pushes the Rig controls (which CwCockpit keeps ahead of them), Band Activity or the copilot down.
+  arrange: {
+    columns: {
+      a: ['decode', 'sent', 'spots'],
+      b: ['bandActivity', 'copilot', 'needed'],
+      log: [],
+    },
+    pinned: [],
+    stockMerged: ['decode', 'sent', 'bandActivity', 'copilot', 'spots', 'needed'],
+  },
 }
 
 /** RTTY cockpit's removable panels (Phase 3). The CockpitHeader + StopTX + TX-arm, the
@@ -788,14 +999,14 @@ export const CW_PANELS: PanelVocabulary<CwPanelId> = {
  *  click-to-net are the decoder's tuning aid, not a stop. `stream` is unchanged and is still
  *  the pane that hosts a stop control of its own. With both ticked off this cockpit renders
  *  no ⊞-reachable content at all, and THE STOP LINE holds exactly as before: Stop TX and the
- *  TX-enable latch are in the header, the Esc/Stop macro and the sequencer's Abort in the
+ *  TX-enable latch are in the TX strip, the Esc/Stop macro and the sequencer's Abort in the
  *  dock, none of them with an id.
  *
  *  `stream` IS THE SECOND PANE IN THE APP THAT HOSTS A STOP CONTROL, and it is admitted for
  *  the same reason the voice keyer is. Its "Auto on" toggle, clicked off, is
  *  rttySetAuto(false) → seq.abort() + Engine::rtty_stop(): the queue is cleared and
  *  rtty_abort + slot_tx_abort unkey the rig. Hide `stream` and that toggle goes with it —
- *  allowed, because Stop TX and the TX-enable latch are in the header and the Esc/Stop macro
+ *  allowed, because Stop TX and the TX-enable latch are in the TX strip and the Esc/Stop macro
  *  and the sequencer's Abort are in the dock, none of them with an id. Its hide ENDS nothing
  *  (unmounting the pane calls no wire), so it correctly carries no ⊞ note. This is the pane
  *  that falsified the FOURTH wording a second time — see the header. */
@@ -813,9 +1024,9 @@ export const RTTY_PANELS: PanelVocabulary<RttyPanelId> = {
  *
  *  THE STOP LINE holds here the RTTY way (the Phase 1 "by construction" census is gone,
  *  as its own comment demanded when TX arrived). The census — every holder OUTSIDE every
- *  ⊞-removable pane, none with an id in this vocabulary: Stop TX (header, never
+ *  ⊞-removable pane, none with an id in this vocabulary: Stop TX (TX strip, never
  *  disabled), the dock's Esc/Stop macro (`disabled={!(sending || latched)}`, live from
- *  the instant the continuous-TX latch goes up), the TX-enable latch (header arm —
+ *  the instant the continuous-TX latch goes up), the TX-enable latch (TX strip arm —
  *  `set_tx_enabled(false)` arms `psk_abort`, so it is a real stop here exactly as in
  *  RTTY/SSTV), and Esc (keyboard-only ⇒ census-only, outside both sweeps by
  *  construction). Swept in stop-line.test.tsx's PSK case, rendered with App's props
@@ -846,8 +1057,8 @@ export const PSK_PANELS: PanelVocabulary<PskPanelId> = {
  *  case in the census below.
  *
  *  THE STOP LINE holds here the Operate way (a slotted mode): the census — every holder
- *  OUTSIDE every ⊞-removable pane, none with an id in this vocabulary: Stop TX (header →
- *  halt_tx, never disabled), Tune (header; the carrier it started), and Esc (window keydown
+ *  OUTSIDE every ⊞-removable pane, none with an id in this vocabulary: Stop TX (TX strip →
+ *  halt_tx, never disabled), Tune (TX strip; the carrier it started), and Esc (window keydown
  *  bound only while JS8 is the visible view → the same halt; keyboard-only ⇒ census-only).
  *  The TX-enable latch is NOT a stop control here: `set_tx_enabled(false)` deliberately does
  *  not arm `slot_tx_abort` (the operator's 2026-07-31 Operate ruling — a frame in flight
@@ -860,6 +1071,19 @@ export type Js8PanelId = (typeof JS8_PANEL_IDS)[number]
 export const JS8_PANELS: PanelVocabulary<Js8PanelId> = {
   view: 'js8',
   panelIds: JS8_PANEL_IDS,
+  // ⊞ Arrange (layout L3): the pane region's stock grouping, as Js8Cockpit renders it — the two
+  // decode surfaces lead, Stations and the inbox in the middle, the log alone in the last column.
+  // JS8'S LOG HAS AN ID (it is ⊞-hideable), so it is listed, and it is PINNED (D9): the log form
+  // holds a half-typed contact, which a change of column would remount and lose. It moves up and
+  // down in its column only.
+  arrange: {
+    columns: {
+      a: ['activity', 'offsets'],
+      b: ['stations', 'inbox'],
+      log: ['log'],
+    },
+    pinned: ['log'],
+  },
 }
 
 /** Connect's removable panes (close + resize, operator-approved 2026-09-13) — its seven
@@ -869,8 +1093,11 @@ export const JS8_PANELS: PanelVocabulary<Js8PanelId> = {
  *
  *  THE STOP LINE holds here by the emptiest route there is: Connect renders NO transmit
  *  control, in a pane or out of one (its panes' ▶ Work QSYs and opens a cockpit; it keys
- *  nothing), and the TopBar's TX cluster is outside the view, where no id reaches. There is no
- *  stop control for a hide to cost. What IS swept is that a hide reaches only its own pane —
+ *  nothing). There is no stop control for a hide to cost. And Connect is the stop line's ONE
+ *  RULED EXCEPTION as a screen: App draws no top bar there, so no Stop TX either — the operator,
+ *  2026-10-01: "remove all radio control from connect, reclaim that space". Transmit on Connect
+ *  is stopped by Esc (App binds it while Connect is shown) or by leaving the screen
+ *  (stop-control-wiring.test.tsx holds both). What IS swept is that a hide reaches only its own pane —
  *  ConnectView.panes.test.tsx closes every slot, singly and all at once, and requires every
  *  control outside the panes to still be on screen (declared in stop-line.test.tsx ELSEWHERE).
  *  No hide here ends anything in flight, so no entry carries a note.
@@ -881,6 +1108,22 @@ export const JS8_PANELS: PanelVocabulary<Js8PanelId> = {
 export const CONNECT_PANELS: PanelVocabulary<SlotId> = {
   view: 'connect',
   panelIds: SLOT_IDS,
+}
+
+/** The dashboard rail's four slots (components/DashRail, a column of Connect boxes beside the
+ *  cockpits). Connect's split exactly: which box sits in a slot is PLACEMENT, in
+ *  `nexus.dashrail.config` (features/dashRail), and this record says whether a slot is shown and how
+ *  it shares the column with its neighbours — so a closed slot keeps its box, and the rail's own ⊞
+ *  brings the same box back.
+ *
+ *  THE STOP LINE holds here by Connect's route: the rail renders NO transmit control (its boxes are
+ *  Connect's, which key nothing — ▶ Work moves the rig and opens a cockpit), and it is a sibling of
+ *  the cockpit in the app shell, never inside a cockpit shell, so no id here can reach a cockpit's
+ *  header or dock. Swept in DashRail.stopLine.test.tsx (declared in stop-line.test.tsx ELSEWHERE). No
+ *  hide here ends anything in flight, so no entry carries a note. */
+export const DASH_PANELS: PanelVocabulary<DashSlotId> = {
+  view: 'dashrail',
+  panelIds: DASH_SLOT_IDS,
 }
 
 /**
@@ -904,6 +1147,7 @@ export const ALL_PANEL_VOCABULARIES: readonly PanelVocabulary<string>[] = [
   PSK_PANELS,
   JS8_PANELS,
   CONNECT_PANELS,
+  DASH_PANELS,
 ]
 
 /**
@@ -962,3 +1206,23 @@ export const STOP_CONTROL_WORDS = [
   'kill',
   'panic',
 ] as const
+
+// ── A CONNECT BOX'S OWN TEXT SIZE (⋯ ▸ A− / A+) ──────────────────────────────────────────────
+// The operator's pick (2026-09-29): "Per-box text size (A−/A+)", 80–160 %. A factor on the app's
+// Text size (Settings ▸ Workspace ▸ Text size), never a structural size: styles.css multiplies
+// --text-scale inside the box body by it, and the frame, the rails and the strip keep their sizes.
+// Stored per SLOT in the record (`PanelLayout.scale`), so it is part of the board, like a split.
+
+export const BOX_SCALE_MIN = 0.8
+export const BOX_SCALE_MAX = 1.6
+/** One press of A− or A+. */
+export const BOX_SCALE_STEP = 0.1
+
+/** A stored or requested box text size as the record keeps it: clamped into the range, rounded to
+ *  the hundredth (so three presses of A+ are 1.3, not 1.3000000000000003), and null for 1 (no entry)
+ *  or for anything that is not a positive number. */
+export function boxScaleValue(v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return null
+  const c = Math.round(Math.min(BOX_SCALE_MAX, Math.max(BOX_SCALE_MIN, v)) * 100) / 100
+  return c === 1 ? null : c
+}

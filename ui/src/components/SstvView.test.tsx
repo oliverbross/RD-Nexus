@@ -12,6 +12,8 @@ import { SSTV_VIEWER_PANEL, SSTV_VIEWER_PATH_KEY } from './SstvViewer'
 // and a working canvas 2D context — jsdom provides neither. These tests are about
 // the SSTV panel, so the waterfall is stubbed rather than propped up.
 vi.mock('./Waterfall', () => ({ Waterfall: () => null }))
+// The rotor strip has its own suite (SstvView.rotor.test.tsx), and it reaches the rotator on mount.
+vi.mock('./RotorStrip', () => ({ RotorStrip: () => null }))
 // Radix Popper (the header's band menu) observes its elements with a ResizeObserver jsdom lacks.
 globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
 
@@ -135,9 +137,9 @@ describe('SstvView RX wiring', () => {
 
   it('arms the receiver through sstv_arm and shows the armed waiting state', async () => {
     render(<SstvView snap={snap} />)
-    // The header now shows the TX-state pill (display-only here — the arm handler is
+    // The TX strip shows the TX state (the latch is read-only here — the arm handler is
     // supplied by App in the real app; the dedicated arm test below covers the toggle).
-    expect(document.querySelector('.cockpit-txstate')).not.toBeNull()
+    expect(document.querySelector('.cockpit-txstrip .cq-statecap')).not.toBeNull()
     const arm = await screen.findByText('Arm')
     fireEvent.click(arm)
     expect(sstvArm).toHaveBeenCalledWith(true)

@@ -10,6 +10,7 @@ import { useStationControl, useStationTierControl, useStationCapability } from '
 // slot countdown, the callsign and grid, and the four plates below are tokens and measurements
 // and stay in the code.
 import { useEffect, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { BandChannel, LinkState, RadioStatus, RadioSummary, Tier } from '../types'
 import { isOnAir, isRxOnly } from '../types'
 import { Menu } from './ui/Menu'
@@ -21,16 +22,16 @@ import { appVersion } from '../api'
 import { t } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { T } from '../i18n/T'
+import { UtcClock } from './UtcClock'
 
 /** The bar's own plates: the product name, the two directions of the TX/RX indicator, the
- *  operator prefix, the recording badge and the UTC label. Tokens, named so the catalog guard
- *  reads them as the deliberate constants they are. */
+ *  operator prefix and the recording badge. Tokens, named so the catalog guard reads them as the
+ *  deliberate constants they are. (The clock's UTC label is the clock's own, `UtcClock`.) */
 const NEXUS = 'RD-Nexus'
 const TX = 'TX'
 const RX = 'RX'
 const OP = 'OP'
 const REC = 'REC'
-const UTC = 'UTC'
 
 /** The tier pills in the top bar. FT8/FT4 transmit; the six WSJT-X modes below
  *  them are DECODE-ONLY (modes::tx_mode refuses them in the engine) and carry a
@@ -77,6 +78,14 @@ interface Props {
    * countdown, time-sync, DT readout, and the FT8 TX cluster). Set on the Phone/CW
    * cockpits so they focus on phone/CW operating, not the digital-mode furniture. */
   hideDigitalChrome?: boolean
+  /** Operate and Tempo: the screens the FT-only items are for. At the small size (sm/xs) every
+   * other screen drops them from the bar — the mode pills, the Tx cycle, the slot countdown,
+   * Sync and DT — and these two keep them, the pills folded into one mode button and the Tx
+   * cycle without its small captions (operator, 2026-10-01). CSS keyed on `[data-viewport]`
+   * does it (styles.css, "The top bar at the small size"); larger windows are unchanged.
+   * ⚠️ ITS OWN FLAG, NOT `hideDigitalChrome`: that one also hides the TX cluster, and on Field
+   * Day and the other screens without a cockpit the cluster is the only Stop TX. */
+  ftScreen?: boolean
   mycall: string
   mygrid: string
   radio: RadioStatus
@@ -285,30 +294,6 @@ function ClockChip({ radio }: { radio: RadioStatus }) {
   )
 }
 
-/** Live clock (HH:MM:SS), ticking once a second. UTC by default; `local` shows this computer's
- *  local time instead (#253, the optional second clock) with the same look, so the two read as a
- *  pair and UTC keeps its place. */
-function UtcClock({ local = false }: { local?: boolean }) {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(id)
-  }, [])
-  const p = (n: number) => String(n).padStart(2, '0')
-  const hhmmss = local
-    ? `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`
-    : `${p(now.getUTCHours())}:${p(now.getUTCMinutes())}:${p(now.getUTCSeconds())}`
-  return (
-    <div
-      className={`utc-clock${local ? ' local-clock' : ''}`}
-      title={local ? t('topbar.localClock.title') : t('topbar.utc.title')}
-    >
-      <span className="utc-time">{hhmmss}</span>
-      <span className="utc-label">{local ? t('topbar.localClock.label') : UTC}</span>
-    </div>
-  )
-}
-
 export function TopBar({
   mycall,
   mygrid,
@@ -339,12 +324,14 @@ export function TopBar({
   hideTxControls,
   hideFrequencyControl,
   hideDigitalChrome,
+  ftScreen = false,
   showLocalClock = false,
 }: Props) {
   const control = useStationControl()
   const ftSettings = useStationCapability('ftSettings')
   const preferenceControl = control || ((tier === 'FT8' || tier === 'FT4') && ftSettings)
   const tierControl = useStationTierControl(radio)
+  const currentPill = TIER_PILLS.find((p) => p.tier === tier)
   const countdown = (radio.nextSlotMs / 1000).toFixed(1)
   const [version, setVersion] = useState('')
   useEffect(() => {
@@ -367,6 +354,17 @@ export function TopBar({
   // it moves with the bar rather than with the deferred TX controls it happens to sit on (the
   // batch-18 ruling; the Operate strip states the same fact under `operate.strip.rxOnly.why`).
   const NO_TX_WHY = t('topbar.rxOnly.why')
+  const modeButton = (
+    <button disabled={!tierControl}
+      type="button"
+      className={`tier-btn active tier-menu-btn${currentPill?.rxOnly ? ' rx-only' : ''}`}
+      title={t('topbar.tier.aria')}
+    >
+      {currentPill?.small ? <small>{currentPill.small}</small> : null}
+      {currentPill?.name ?? tier}
+      <ChevronDown size={12} aria-hidden="true" />
+    </button>
+  )
   const chipCluster = (
     <div className="topbar-group topbar-chips">
         {/* Help lives in the one group that renders in every section — the
@@ -451,7 +449,7 @@ export function TopBar({
   )
 
   return (
-    <header className={`topbar${hideFrequencyControl ? ' topbar--no-readout' : ''}`}>
+    <header className={`topbar${hideFrequencyControl ? ' topbar--no-readout' : ''}${ftScreen ? ' topbar--ft' : ''}`}>
       <div className="topbar-group brand">
         <span className="logo-wrap">
           <span className="logo">{NEXUS}</span>
@@ -616,6 +614,21 @@ export function TopBar({
             {p.name}
           </button>
         ))}
+        {/* The FT screens' one mode button at the small size (2026-10-01): the mode in use,
+            opening all eleven with their tags. Not drawn above sm (CSS), where the pills are.
+            The group's LAST child, so every pill keeps its place among its siblings. Without
+            tier control it is a plain disabled button, as the pills are: the menu's trigger
+            reads only its own disabled prop, and opened on a press of the disabled button. */}
+        {ftScreen && (tierControl ? (
+          <Menu
+            trigger={modeButton}
+            items={TIER_PILLS.map((p) => ({
+              label: p.name,
+              icon: p.small ? <small>{p.small}</small> : undefined,
+              onSelect: () => onTierChange(p.tier),
+            }))}
+          />
+        ) : modeButton)}
       </div>
 
       {/* Option 1 (operator, 2026-08-10): the Help/OP/Field cluster sits between the mode

@@ -47,28 +47,43 @@
 // WHAT THIS FILE DOES NOT COVER, and why — the census in CLAUDE.md names three kinds that the
 // other sweeps call "census-only by construction". Two of them ARE reachable from here and are
 // covered below; the third is not, and stays uncovered:
-//   · KEYBOARD-ONLY STOPS — COVERED. Phone's Space, CW's Esc, Operate's Esc, RTTY's Esc and
-//     PSK's Esc are all `window` listeners, and a real App mount has a real `window`. They were
+//   · KEYBOARD-ONLY STOPS — COVERED. Phone's Space and every screen's Esc are `window` listeners,
+//     and a real App mount has a real `window`: Operate's, CW's, RTTY's, PSK's and JS8's are the
+//     cockpits' own; Tempo's, Phone's, SSTV's, APRS's and Satellites' are App's (N71). They are
 //     census-only for stop-line.test.tsx because that file finds BUTTONS BY ACCESSIBLE NAME;
-//     nothing about them resists a bridge-level check.
+//     nothing about them resists a bridge-level check, and the Esc census near the end of this
+//     file presses Esc on every section in the registry.
 //   · CONDITIONALLY RENDERED — COVERED. RTTY's sequencer Abort renders only inside
 //     `{auto && seqState !== 'idle'}`; both flags come from the `get_rtty_state` poll, so the
 //     bridge fixture puts the cockpit in that state and the button is on screen.
-//   · SSTV has NO keyboard stop to cover — the only Escape in SstvView is a React `onKeyDown`
-//     on the preview that deselects an overlay item. Stated, not silently dropped.
+//   · SSTV's keyboard stop is App's Esc (N71); the only Escape in SstvView itself is a React
+//     `onKeyDown` on the preview that deselects an overlay item, and it still does.
 // Genuinely out of reach: nothing on the census. Two deliberate omissions, both OFF it: APRS
-// renders no stop control at all (the rule holds there by construction), and the header's ATU —
+// renders no stop BUTTON (its stops are the TX latch and, from N71, Esc), and the header's ATU —
 // which keys the RIG's own tuning carrier, bounded by the rig — is not a stop control and renders
 // only when `radio.atu != null`, which this fixture does not set.
 // What this file still does NOT prove is what the BACKEND does with the command — `halt_tx`
 // reaching the bridge is not `halt_tx` unkeying a rig. That is `reference-tx-safety-invariants`
 // territory and belongs to the Rust suites.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, waitFor, fireEvent, screen } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { render, cleanup, waitFor, fireEvent, screen, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { EN } from './i18n'
 import type { AppSnapshot } from './types'
 import App from './App'
+import { installStreamInput } from './remote-native/stream-input'
+import { allFeatureIds, featureById, sectionFeatures, type View } from './features/registry'
+import defaultSettings from './components/__fixtures__/defaultSettings.json'
+import { LOCAL_CLOCK_STORAGE_KEY } from './useLocalClock'
+import { pastTheSwitch } from './components/ConnectView.testkit'
+
+// A 30 s budget for every test and hook here, for the machine and not for the checks. Each test mounts the real App, and
+// in three full-suite runs on a loaded box (2026-09-29 and 30) vitest's default budgets ran out with nothing wrong: "Test
+// timed out in 5000ms" on RTTY's latch, RTTY's Auto toggle and JS8's Tune, and "Hook timed out in 10000ms" on the mount
+// before RTTY's Tune and Esc and JS8's Esc. No assertion, fixture or wait below is changed: a stop that stops reaching
+// the wire still fails at its own assertion, well inside the budget.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 })
 
 // ── the recorder ────────────────────────────────────────────────────────────────────────────
 type BridgeCall = { cmd: string; args?: Record<string, unknown> }
@@ -90,6 +105,8 @@ const TX_VERBS = new Set([
   'sstv_stop',
   'stop_voice',
   'atu_tune',
+  'arm_stream_mic',
+  'release_stream_mic',
 ])
 
 /** Every transmit-path command since `mark`, rendered as `cmd` or `cmd {"key":value}` — the
@@ -121,6 +138,9 @@ async function fire(action: () => void): Promise<string[]> {
 // keyed into a dummy load until the tune watchdog expires. The two clicks are different code
 // paths — `onTune(!radio.tuning)` — so only a backend that remembers can exercise both.
 let tuning = false
+/** What `get_settings` answers. Null (no settings file) everywhere but the one screen that needs a
+ *  switch in it: Field Day is drawn only with its master switch (`fdActive`) on. */
+let settingsAnswer: unknown = null
 
 const snapshot = {
   mycall: 'KD9TAW',
@@ -234,12 +254,36 @@ function respond(cmd: string, args?: Record<string, unknown>): unknown {
   if (/^(get_sstv_state|sstv_)/.test(cmd)) return sstvState
   if (/^(get_js8_state|js8_)/.test(cmd)) return js8State
   if (/^(cw_decode|get_cw_state)$/.test(cmd)) return cwDecodeResult
+  // A press through the stream arms the streamed operator's microphone over: the station armed it.
+  if (cmd === 'arm_stream_mic') return true
+  if (cmd === 'release_stream_mic') return null
+  // APRS reads its roster, what it has heard, its decoder's health and the internet feed's status on
+  // mount, in these shapes: a `{}` roster takes the view down through its ErrorBoundary.
+  if (cmd === 'get_aprs_stations') return { stations: [], ttlMin: 60, fadeAfterMin: 30 }
+  if (cmd === 'get_aprs_heard') return []
+  if (cmd === 'get_aprs_health') {
+    return { arm: 'auto', audioPeak: 0, lastAudioUnix: null, drains: 0, framesSeen: 0, framesDecoded: 0, lastDecodeUnix: null,
+      lastFrameSeenUnix: null, framePeak: 0, maxFramePeak: 0, frameClippedSamples: 0, radioName: '', bandRadioCount: 1 }
+  }
+  if (cmd === 'get_aprs_is_status') {
+    return { enabled: false, connected: false, verified: false, packets: 0, lastPacketUnix: null, uplinkEnabled: false, uploaded: 0,
+      gateRejected: 0, lastReject: null }
+  }
+  if (cmd === 'aprs_auto_arm') return true
+  if (cmd === 'get_aprs_tx_notice') return null
   if (cmd === 'get_awards') return { achievements: [] }
   if (cmd === 'get_journey') return { firsts: [], feats: [], ladders: [] }
   if (cmd === 'app_version') return '0.0.0-test'
   if (cmd === 'radio_launch_info') return { showPicker: false }
   if (/^(get_band_plan|get_licensed_band_plan|log_operators|log_activations|get_all_spots|get_need_alerts|get_dxped_windows|get_sat_schedule|get_voice_messages|get_log)$/.test(cmd)) return []
-  if (/^(get_propagation|get_settings|get_fd_ruleset|get_feed_health|get_xray_now|sat_track_status|get_iss_pass|get_tle_status|get_kp_forecast|check_for_update)$/.test(cmd)) return null
+  if (cmd === 'get_settings') return settingsAnswer
+  if (/^(get_propagation|get_fd_ruleset|get_feed_health|get_xray_now|sat_track_status|get_iss_pass|get_tle_status|get_kp_forecast|check_for_update)$/.test(cmd)) return null
+  // Connect's own feeds, in the shapes its panes read (ConnectView.panes.test.tsx answers the same
+  // ones): a `{}` takes the view down through its ErrorBoundary, and Connect is never drawn at all.
+  if (cmd === 'get_band_outlook') return { bands: [], asOf: 0 }
+  if (cmd === 'get_space_wx_scales') return [null, []]
+  if (/^(get_kc2g_muf|get_ota_map_spots|get_contests)$/.test(cmd)) return []
+  if (/^(get_getting_out|get_path_outlook|get_aurora|get_declination|get_pca|get_satellites|get_log_stats)$/.test(cmd)) return null
   // The log's questions go unanswered, as the whole-log read (answered `{}`) did: no view here
   // needs the log, and `{}` is no answer to any of them.
   if (cmd === 'ask_log') throw new Error('no log in this test')
@@ -248,8 +292,10 @@ function respond(cmd: string, args?: Record<string, unknown>): unknown {
 
 beforeEach(() => {
   localStorage.clear()
+  pastTheSwitch()
   bridgeCalls.length = 0
   tuning = false
+  settingsAnswer = null
   // THE WHOLE POINT OF THIS FILE: the real `./api` module, a fake bridge under it.
   window.__TAURI_INTERNALS__ = {
     invoke: async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
@@ -288,8 +334,8 @@ afterEach(() => {
 
 /** Mount the real App on `view` and wait for the boot snapshot — before it lands App renders
  *  only "Connecting to Nexus…", and every query below would find nothing. */
-async function mountOn(view: string): Promise<void> {
-  localStorage.setItem('nexus.workspace', 'dx')
+async function mountOn(view: string, area: 'dx' | 'msg' = 'dx'): Promise<void> {
+  localStorage.setItem('nexus.workspace', area)
   window.location.hash = `#${view}`
   render(<App />)
   await waitFor(() => expect(document.querySelector('.app.loading')).toBeNull(), { timeout: 10_000 })
@@ -318,7 +364,56 @@ async function expectTuneKeysAndUnkeys(find: () => HTMLButtonElement): Promise<v
 
 const STOP_TX = /^stop tx$/i
 const TUNE = /^tune$|^tuning…$/i
-const TX_LATCH = /^▼ tx on$|^■ tx off$/i
+// The TX strip's latch, in FT's words since 2026-10-01 (the header's read "▼ TX On" / "■ TX Off").
+const TX_LATCH = /^tx on$|^tx off$/i
+
+// ── Space and the ⊞ menu (Phone) ────────────────────────────────────────────────────────────
+const SPACE = { code: 'Space', key: ' ' }
+
+/** Phone's ⊞ Panels, opened; returns the popover on screen. */
+async function openPanels(): Promise<HTMLElement> {
+  fireEvent.click(onScreenButton(/^⊞ panels/i))
+  return waitFor(() => {
+    const pop = [...document.querySelectorAll<HTMLElement>('.panels-menu-pop')].find((p) => p.closest('[hidden]') == null)
+    expect(pop, 'the ⊞ popover did not open').toBeDefined()
+    return pop!
+  })
+}
+
+/** The first ⊞ Arrange move that can act. A disabled button takes no focus and no key, so pressing
+ *  one would prove nothing. */
+function liveArrangeButton(pop: HTMLElement): HTMLButtonElement {
+  const b = [...pop.querySelectorAll<HTMLButtonElement>('.panels-arrange button')].find((x) => !x.disabled)
+  expect(b, 'no live ⊞ Arrange button: these tests would be pressing nothing').toBeDefined()
+  return b!
+}
+
+/** What an action put on the transmit path, when the right answer may be NOTHING. `fire` waits
+ *  for a command and would time out on a silent action. The key handlers call the api
+ *  synchronously, so a short settle is enough; the mutation controls in the L3 report show this
+ *  sees a send when there is one. */
+async function sentBy(action: () => unknown): Promise<string[]> {
+  const m = mark()
+  await action()
+  await new Promise((r) => setTimeout(r, 30))
+  return firedSince(m)
+}
+
+/** Space pressed and released on a focused control, the way a browser delivers it: keydown, a
+ *  moment held, keyup. jsdom performs no default actions, so the click a browser gives a focused
+ *  button for an UNCANCELLED Space is dispatched here. Returns whether the control was pressed
+ *  (Chrome's own activation is measured in the L3 report). */
+async function spaceOn(el: HTMLElement): Promise<boolean> {
+  el.focus()
+  const down = fireEvent.keyDown(el, SPACE)
+  await new Promise((r) => setTimeout(r, 10))
+  const up = fireEvent.keyUp(el, SPACE)
+  if (down && up) fireEvent.click(el)
+  return down && up
+}
+
+/** Phone's stored arrangement: what an Arrange move, Undo and Reset each change. */
+const phonePlace = (): unknown => JSON.parse(localStorage.getItem('nexus.panels.phone.main') ?? 'null')?.place
 
 // ────────────────────────────────────────────────────────────────────────────────────────────
 describe('Phone', () => {
@@ -350,8 +445,88 @@ describe('Phone', () => {
     ])
   })
 
+  // SPACE INSIDE THE ⊞ MENU (layout L3, ruling R7). Space is this cockpit's talk key on every
+  // target but a field. Inside the ⊞ Panels popover it presses the focused control instead, as
+  // Space does everywhere else in a browser: ⊞ Arrange is a grid of buttons, with Undo and Reset
+  // beside it. ONLY THE PRESS is exempt. The release still asks one question, "are we keyed?", so
+  // an over keyed from outside the menu unkeys wherever focus has gone by the release
+  // (reference-tx-safety-invariants: an unkey a guard can swallow is a stuck transmitter).
+  describe('Space inside the ⊞ menu presses the menu, never the transmitter', () => {
+    it('an Arrange move, Undo and Reset each act, and nothing reaches the transmit path', async () => {
+      const pop = await openPanels()
+      let pressed = false
+      expect(await sentBy(async () => (pressed = await spaceOn(liveArrangeButton(pop)))), 'Space on an Arrange move').toEqual([])
+      expect(pressed, 'Space on an Arrange move was cancelled').toBe(true)
+      expect(phonePlace(), 'the Arrange move did not happen').toBeDefined()
+      const undo = within(pop).getByRole('button', { name: 'Undo last change' })
+      expect(await sentBy(async () => (pressed = await spaceOn(undo))), 'Space on Undo').toEqual([])
+      expect(pressed, 'Space on Undo was cancelled').toBe(true)
+      expect(phonePlace(), 'Undo did not take the move back').toBeUndefined()
+      await spaceOn(liveArrangeButton(pop))
+      expect(phonePlace()).toBeDefined()
+      const reset = within(pop).getByRole('button', { name: 'Reset layout' })
+      expect(await sentBy(async () => (pressed = await spaceOn(reset))), 'Space on Reset').toEqual([])
+      expect(pressed, 'Space on Reset was cancelled').toBe(true)
+      expect(phonePlace(), 'Reset did not restore the stock arrangement').toBeUndefined()
+    })
+
+    it('CONTROL: on a button outside the popover (the ⊞ trigger, Tune) Space keys exactly as before', async () => {
+      await openPanels()
+      for (const outside of [onScreenButton(/^⊞ panels/i), onScreenButton(TUNE)]) {
+        let pressed = true
+        const sent = await sentBy(async () => (pressed = await spaceOn(outside)))
+        expect(sent, `Space on ${outside.textContent}`).toEqual(['set_ptt {"on":true}', 'set_ptt {"on":false}'])
+        expect(pressed, `Space pressed ${outside.textContent} as a button`).toBe(false)
+      }
+    })
+
+    it('held from outside and released inside the popover, it UNKEYS: onto a button or a ⊞ checkbox', async () => {
+      const pop = await openPanels()
+      const checkbox = pop.querySelector<HTMLInputElement>('input[type="checkbox"]')
+      expect(checkbox, 'no ⊞ entry checkbox in the popover').not.toBeNull()
+      for (const inside of [liveArrangeButton(pop), checkbox!]) {
+        ;(document.activeElement as HTMLElement | null)?.blur()
+        expect(await fire(() => fireEvent.keyDown(document.body, SPACE))).toEqual(['set_ptt {"on":true}'])
+        inside.focus()
+        expect(await fire(() => fireEvent.keyUp(inside, SPACE)), `released on ${inside.tagName}`).toEqual(['set_ptt {"on":false}'])
+      }
+    })
+
+    it('auto-repeat inside the popover during an over neither re-keys nor unkeys it', async () => {
+      const pop = await openPanels()
+      const inside = liveArrangeButton(pop)
+      expect(await fire(() => fireEvent.keyDown(document.body, SPACE))).toEqual(['set_ptt {"on":true}'])
+      inside.focus()
+      const repeats = () => {
+        for (let i = 0; i < 5; i++) fireEvent.keyDown(inside, { ...SPACE, repeat: true })
+      }
+      expect(await sentBy(repeats), 'the held key repeating inside the popover').toEqual([])
+      expect(await fire(() => fireEvent.keyUp(inside, SPACE))).toEqual(['set_ptt {"on":false}'])
+    })
+  })
+
   it("the voice keyer's ■ Stop sends stop_voice (a pane-resident convenience, not the line)", async () => {
     expect(await fire(() => fireEvent.click(onScreenButton(/^■ stop$/i)))).toEqual(['stop_voice'])
+  })
+})
+
+// With TX switched off, Phone's talk key turns TX back on instead of keying (`key(true)`'s second
+// refusal). Inside the ⊞ menu it must not do that either.
+describe('Phone, TX switched off', () => {
+  beforeEach(async () => {
+    snapshot.radio.txEnabled = false
+    await mountOn('phone')
+  })
+  afterEach(() => {
+    snapshot.radio.txEnabled = true
+  })
+
+  it('Space inside the ⊞ menu does not turn TX back on; on the ⊞ trigger it does, as before', async () => {
+    const pop = await openPanels()
+    expect(await sentBy(() => spaceOn(liveArrangeButton(pop))), 'Space on an Arrange move').toEqual([])
+    expect(await sentBy(() => spaceOn(onScreenButton(/^⊞ panels/i))), 'Space on the ⊞ trigger').toEqual([
+      'set_tx_enabled {"enabled":true}',
+    ])
   })
 })
 
@@ -513,6 +688,497 @@ describe('JS8', () => {
   })
 })
 
+// ── the same controls, driven over the stream ─────────────────────────────────────────────────
+//
+// Remote as a stream: a streamed operator's input reaches this window as DOM events that the input
+// bridge dispatches (remote-native/stream-input.ts), fed here through the Tauri event the station
+// emits. Held against the REAL cockpit and the real api module, the lead's rules for it: a key or a
+// click travels as itself and the cockpit decides what it means (a Space outside a field is PTT, in
+// a field it types); and whatever the stream holds down is a re-asserted state that comes up
+// within 200 ms of the page going quiet (the dead-man), with the station's `reset` as the backstop.
+// A PTT press made this way ARMS the streamed operator's microphone over, never `set_ptt`, which
+// would key the rig on the shack's own microphone (the operator's ruling "Arms your mic"); its
+// release lets go of both.
+const WEBVIEW = JSON.parse(readFileSync(resolve(__dirname, '../../remote/test/fixtures/stream/webview.json'), 'utf8')) as {
+  stationToWebview: { name: string; message: Record<string, unknown> }[]
+}
+const streamed = (name: string) => structuredClone(WEBVIEW.stationToWebview.find((c) => c.name === name)!.message)
+const SPACE_DOWN = "key down, Space (an ordinary key: the window's own handlers decide what it does)"
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+describe('Phone, over the stream', () => {
+  let send: (payload: unknown) => void = () => {}
+  let remove: () => void = () => {}
+  let seq = 0
+  const deliver = (name: string) => send(streamed(name))
+  const at = (el: Element) => Object.defineProperty(document, 'elementFromPoint', { configurable: true, value: () => el })
+  const click = () => { deliver('pointer down'); deliver('pointer up') }
+  /** The page re-asserting what it holds as the page does: at once, then every 100 ms, for `ms`.
+   *  Returns when the last re-assertion went. Each wait is started after a re-assertion, so however
+   *  late the event loop runs, the next one is due before the window's 200 ms deadline and is
+   *  handled first. */
+  const reassert = async (keys: string[], buttons: number, ms: number): Promise<number> => {
+    let last = performance.now()
+    for (let t = 0; t < ms; t += 100) { send({ type: 'held', keys, buttons, seq: seq++ }); last = performance.now(); await pause(100) }
+    return last
+  }
+  /** A streamed press, and its release: the microphone over armed, then both let go. */
+  const ARMED = ['arm_stream_mic'], RELEASED = ['arm_stream_mic', 'set_ptt {"on":false}', 'release_stream_mic']
+  /** Wait for the release after the page went quiet, and say how long after its last re-assertion. */
+  const unkeyedAfter = async (m: number, quiet: number): Promise<number> => {
+    await waitFor(() => expect(firedSince(m)).toEqual(RELEASED))
+    return performance.now() - quiet
+  }
+  beforeEach(async () => {
+    seq = 0
+    await mountOn('phone')
+    const tauri = window as unknown as { __TAURI__?: unknown }
+    tauri.__TAURI__ = { event: { listen: (_name: string, handler: (event: { payload: unknown }) => void) => {
+      send = (payload) => handler({ payload })
+      return Promise.resolve(() => {})
+    } } }
+    remove = installStreamInput(window)
+    await Promise.resolve()
+  })
+  afterEach(() => {
+    remove()
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint
+  })
+
+  it('a streamed Space arms the microphone over through the cockpit\'s own handler, never set_ptt, stays armed while re-asserted, and is released within 200 ms of the page going quiet', async () => {
+    const m = mark()
+    deliver(SPACE_DOWN)
+    const quiet = await reassert(['Space'], 0, 600)
+    expect(firedSince(m), 'armed, and held for 600 ms: still armed, and never the shack\'s key').toEqual(ARMED)
+    expect(await unkeyedAfter(m, quiet), 'not before the 200 ms are up').toBeGreaterThanOrEqual(195)
+  })
+
+  it('a streamed space typed into a field is typed there, and keys nothing', async () => {
+    const comment = [...document.querySelectorAll<HTMLInputElement>('input.le-comment')].find((el) => el.closest('[hidden]') == null)
+    expect(comment, 'the log strip\'s comment field is not on screen').toBeTruthy()
+    at(comment!)
+    const m = mark()
+    click()
+    const digit = (key: string, action: 'down' | 'up') => send({ type: 'key', action, key, code: `Digit${key}`, modifiers: 0, repeat: false })
+    digit('5', 'down'); digit('5', 'up')
+    deliver(SPACE_DOWN); deliver('key up, Space')
+    digit('9', 'down'); digit('9', 'up')
+    await waitFor(() => expect(comment!.value).toBe('5 9'))
+    expect(document.activeElement).toBe(comment)
+    expect(firedSince(m), 'typing a space keyed nothing').toEqual([])
+  })
+
+  it('a streamed click is a click: Stop TX sends halt_tx, Tune keys the carrier and drops it', async () => {
+    at(onScreenButton(STOP_TX))
+    expect(await fire(click)).toEqual(['halt_tx'])
+    at(onScreenButton(TUNE))
+    expect(await fire(click)).toEqual(['set_tune {"on":true}'])
+    await waitFor(() => expect(onScreenButton(TUNE).getAttribute('aria-pressed')).toBe('true'))
+    at(onScreenButton(TUNE))
+    expect(await fire(click)).toEqual(['set_tune {"on":false}'])
+  })
+
+  // An Esc typed in the browser over the picture comes here like any other key: the dispatcher
+  // fires it on whatever has focus in this window, so App's capture-phase Esc (useEscStop) hears it
+  // as it hears the shack's own keyboard. It is therefore this screen's Esc, sent exactly as the
+  // local Esc below sends it ('Esc on Tempo, Phone, …'): the halt Stop TX sends, then the voice
+  // keyer's stop. The station's halt_tx also ends a microphone over the stream armed
+  // (engine/remote_mic.rs, `halt_tx_and_tx_off_end_a_live_mic_over`).
+  it("a streamed Esc is the shack's Esc: the halt Stop TX sends, then the voice keyer's stop", async () => {
+    const esc = (action: 'down' | 'up') => send({ type: 'key', action, key: 'Escape', code: 'Escape', modifiers: 0, repeat: false })
+    expect(await fire(() => { esc('down'); esc('up') })).toEqual(['halt_tx', 'stop_voice'])
+  })
+
+  it('the PTT button held over the stream arms the microphone over, never set_ptt, stays armed while re-asserted, and is released within 200 ms of the page going quiet; reset releases it too', async () => {
+    at(document.querySelector('.ph-ptt')!)
+    const m = mark()
+    deliver('pointer down')
+    const quiet = await reassert([], 1, 600)
+    expect(firedSince(m), 'armed, and held for 600 ms: still armed, and never the shack\'s key').toEqual(ARMED)
+    expect(await unkeyedAfter(m, quiet), 'not before the 200 ms are up').toBeGreaterThanOrEqual(195)
+    // The backstop: a stream's end or a lapse of presence releases it at once. The shack's key is
+    // let go in the same dispatch; the over's arm and then its release follow on the cockpit's
+    // chain, in that order, so the release can never overtake the arm it ends.
+    const again = mark()
+    deliver('pointer down')
+    send({ type: 'reset' })
+    expect(firedSince(again)).toEqual(['set_ptt {"on":false}'])
+    await waitFor(() => expect(firedSince(again)).toEqual(['set_ptt {"on":false}', 'arm_stream_mic', 'release_stream_mic']))
+  })
+})
+
+// ── Esc stops transmit on every operating screen and on Satellites ─────────────────────────
+//
+// Measured with real keys in a real browser (N66, 2026-09-28): Esc stopped transmit on FT, CW,
+// RTTY, PSK and JS8, each of which binds its own Esc while it is on show. It did NOTHING on Tempo,
+// SSTV and APRS; on Phone it stopped only the voice keyer; and on Satellites, where App hides the
+// top bar's transmit controls, there was no stop of any kind, by key or by button. On those five
+// the stop is halt_tx: Tempo's Stop TX is the top bar's (App's handleHaltTx), Phone's and SSTV's
+// header Stop TX call haltTx alone, and APRS and Satellites draw none. So App binds Esc to that halt
+// while one of the five is on show, and these tests hold it at the wire:
+//   · Esc sends exactly what the screen's Stop TX sends (Phone: then the voice keyer's own stop);
+//   · from inside a text field as well: Esc is an abort key, not an editing key, as it is on FT;
+//   · a control that stops the key on its way cannot swallow the stop (App listens in the capture
+//     phase);
+//   · a menu or panel that Esc closes still closes on the same press and the halt is sent too,
+//     which is what FT and CW do, measured here alongside;
+//   · and every other screen's Esc is exactly what it was: the census is every section in the
+//     registry, so the halt cannot leak onto a screen with its own Esc (that would send a second
+//     halt) or onto one that has none.
+
+/** Every section on, so every screen can be the one on show. */
+function everySectionOn(): void {
+  localStorage.setItem(
+    'nexus.features.v1',
+    JSON.stringify({ profile: 'custom', enabled: Object.fromEntries(allFeatureIds().map((id) => [id, true])) }),
+  )
+}
+
+/** The on-screen element matching `sel` — every keep-alive host stays mounted while hidden. */
+function shown(sel: string): HTMLElement | null {
+  return [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.closest('[hidden]') == null) ?? null
+}
+
+/** Esc as a keyboard delivers it: to the focused element, or the body when nothing has focus. */
+function pressEsc(on: Element = document.activeElement ?? document.body): void {
+  fireEvent.keyDown(on, { key: 'Escape', code: 'Escape' })
+  fireEvent.keyUp(on, { key: 'Escape', code: 'Escape' })
+}
+
+type EscScreen = {
+  view: View
+  area: 'dx' | 'msg'
+  /** The screen's own content, so a test is never pressing Esc on an error panel. */
+  drawn: () => HTMLElement | null
+  /** What Esc must send, in order. */
+  esc: string[]
+}
+const ESC_SCREENS: EscScreen[] = [
+  // Tempo lives in the Tempo area; in the FT area App sends #chat to Operate.
+  { view: 'chat', area: 'msg', drawn: () => shown('.cockpit-modes'), esc: ['halt_tx'] },
+  // The halt first, then the voice keyer's own stop (its listener, unchanged, ignores Esc in a field).
+  { view: 'phone', area: 'dx', drawn: () => shown('.ph-ptt'), esc: ['halt_tx', 'stop_voice'] },
+  { view: 'sstv', area: 'dx', drawn: () => shown('.sstv-tx-bar'), esc: ['halt_tx'] },
+  { view: 'aprs', area: 'dx', drawn: () => shown('main.aprs-cockpit'), esc: ['halt_tx'] },
+  { view: 'sats', area: 'dx', drawn: () => shown('.sats-view'), esc: ['halt_tx'] },
+  // Connect draws no top bar, so no Stop TX of its own (N65): App's halt is its stop.
+  { view: 'connect', area: 'dx', drawn: () => shown('main .connect-shell'), esc: ['halt_tx'] },
+]
+
+/** The window's title on `view`: its label, but Conditions' title still says "(formerly Connect)". */
+const titleOn = (view: View) => `${view === 'connect' ? EN['features.connect.windowTitle'] : featureById(view)!.label} — Nexus`
+
+async function mountScreen(s: EscScreen): Promise<void> {
+  everySectionOn()
+  await mountOn(s.view, s.area)
+  expect(document.title, `control: ${s.view} is the screen on show`).toBe(titleOn(s.view))
+  await waitFor(() => expect(s.drawn(), `control: ${s.view} drew its own content`).not.toBeNull())
+  ;(document.activeElement as HTMLElement | null)?.blur()
+}
+
+describe('Esc on Tempo, Phone, SSTV, APRS and Satellites sends the same halt as Stop TX', () => {
+  it.each(ESC_SCREENS.map((s) => [s.view, s] as const))('%s: Esc sends the halt', async (_view, s) => {
+    await mountScreen(s)
+    expect(await fire(() => pressEsc())).toEqual(s.esc)
+  })
+
+  it.each(ESC_SCREENS.filter((s) => s.view !== 'aprs' && s.view !== 'sats' && s.view !== 'connect').map((s) => [s.view, s] as const))(
+    "%s: Esc sends what the screen's own Stop TX sends",
+    async (_view, s) => {
+      await mountScreen(s)
+      const stopTx = await fire(() => fireEvent.click(onScreenButton(STOP_TX)))
+      expect(stopTx, 'control: Stop TX is the halt').toEqual(['halt_tx'])
+      const esc = await fire(() => pressEsc())
+      expect(esc.slice(0, stopTx.length), 'Esc does not begin with what Stop TX sends').toEqual(stopTx)
+    },
+  )
+
+  // A text field where the screen has one in this fixture; SSTV's only text field is a picture's
+  // caption editor, drawn once a picture is loaded, so there it is the transmit-mode picker.
+  // Connect draws no text field to type in; its Esc through a control that stops the key is held below.
+  it.each(ESC_SCREENS.filter((s) => s.view !== 'connect').map((s) => [s.view, s] as const))('%s: Esc from inside a field halts', async (_view, s) => {
+    await mountScreen(s)
+    const live = (el: HTMLElement): boolean =>
+      el.closest('[hidden]') == null && !(el as HTMLInputElement).readOnly && !(el as HTMLInputElement).disabled
+    const first = (sel: string): HTMLElement | undefined => [...document.querySelectorAll<HTMLElement>(sel)].find(live)
+    const field =
+      first('main input:not([type]), main input[type="text"], main input[type="search"], main textarea') ??
+      (s.view === 'sstv' ? first('main select') : undefined)
+    expect(field, `${s.view}: no field on screen, so this test would press Esc in nothing`).toBeDefined()
+    field!.focus()
+    expect(document.activeElement).toBe(field)
+    const sent = await fire(() => pressEsc(field!))
+    expect(sent[0], `${s.view}: Esc pressed in a field did not halt`).toBe('halt_tx')
+  })
+
+  it.each(ESC_SCREENS.map((s) => [s.view, s] as const))(
+    '%s: a control that stops the key on its way cannot swallow the stop',
+    async (_view, s) => {
+      await mountScreen(s)
+      const button = (s.drawn()!.closest('main') ?? shown('main'))?.querySelector<HTMLButtonElement>('button:not([disabled])') ?? null
+      expect(button, `${s.view}: no enabled button inside the screen`).not.toBeNull()
+      const swallow = (e: Event): void => e.stopPropagation()
+      button!.addEventListener('keydown', swallow)
+      try {
+        expect((await fire(() => pressEsc(button!)))[0]).toBe('halt_tx')
+      } finally {
+        button!.removeEventListener('keydown', swallow)
+      }
+    },
+  )
+})
+
+describe('a menu or panel that Esc closes still closes, and the halt is sent on the same press', () => {
+  const popover = (): HTMLElement | null => shown('.panels-menu-pop')
+  // FT and CW are the reference: their own Esc, measured with the ⊞ menu open. Phone and SSTV must
+  // do the same.
+  it.each([
+    ['operate (the reference)', 'operate', ['halt_tx']],
+    ['cw (the reference)', 'cw', ['stop_cw', 'halt_tx']],
+    ['rtty', 'rtty', ['rtty_stop', 'halt_tx']],
+    ['psk', 'psk', ['psk_stop', 'halt_tx']],
+    ['js8', 'js8', ['halt_tx']],
+    ['phone', 'phone', ['halt_tx', 'stop_voice']],
+    ['sstv', 'sstv', ['halt_tx']],
+  ] as const)('%s: the ⊞ Panels menu closes and the stop is sent', async (_name, view, esc) => {
+    everySectionOn()
+    await mountOn(view)
+    fireEvent.click(onScreenButton(/^⊞ panels/i))
+    await waitFor(() => expect(popover(), 'control: the ⊞ menu opened').not.toBeNull())
+    const inside = popover()!.querySelector<HTMLButtonElement>('button:not([disabled])')
+    expect(inside, 'control: a button to focus inside the menu').not.toBeNull()
+    inside!.focus()
+    const sent = await fire(() => pressEsc(inside!))
+    await waitFor(() => expect(popover(), 'Esc did not close the ⊞ menu').toBeNull())
+    expect(sent).toEqual([...esc])
+  })
+
+  // A Radix menu and a Radix dialog dismiss only an Esc that nothing has cancelled, so these are what
+  // would catch a stop listener that cancelled the key: the top bar's Help menu, and the Getting
+  // started dialog it opens. On Tempo, and on Operate as the reference.
+  it.each([
+    ['operate (the reference)', 'operate', 'dx'],
+    ['chat', 'chat', 'msg'],
+  ] as const)('%s: the Help menu, then the dialog it opens, each close on Esc and each Esc sends the halt', async (_name, view, area) => {
+    everySectionOn()
+    await mountOn(view, area)
+    const help = (): HTMLElement => {
+      const hits = screen.getAllByRole('button', { name: EN['topbar.help.label'], hidden: true }).filter((el) => el.closest('[hidden]') == null)
+      expect(hits, 'control: one Help button on screen').toHaveLength(1)
+      return hits[0]
+    }
+    const openHelp = async (): Promise<HTMLElement> => {
+      fireEvent.pointerDown(help(), { button: 0, ctrlKey: false, pointerType: 'mouse' })
+      return screen.findByRole('menuitem', { name: EN['gettingStarted.title'] })
+    }
+    const item = await openHelp()
+    expect(await fire(() => pressEsc(item))).toEqual(['halt_tx'])
+    await waitFor(() => expect(screen.queryByRole('menuitem'), 'Esc did not close the Help menu').toBeNull())
+    fireEvent.click(await openHelp())
+    const dialog = await screen.findByRole('dialog')
+    expect(await fire(() => pressEsc(dialog))).toEqual(['halt_tx'])
+    await waitFor(() => expect(screen.queryByRole('dialog'), 'Esc did not close the dialog').toBeNull())
+  })
+
+  it("aprs: the internet panel closes and the halt is sent", async () => {
+    await mountScreen(ESC_SCREENS.find((s) => s.view === 'aprs')!)
+    fireEvent.click(shown('button.aprs-inet')!)
+    await waitFor(() => expect(shown('.aprs-inet-panel'), 'control: the internet panel opened').not.toBeNull())
+    expect(await fire(() => pressEsc(shown('.aprs-inet-panel')!))).toEqual(['halt_tx'])
+    await waitFor(() => expect(shown('.aprs-inet-panel'), 'Esc did not close the internet panel').toBeNull())
+  })
+})
+
+// ── FT, CW, RTTY, PSK and JS8: their own stop, on the same capture listener ────────────────────
+//
+// These five bound their own Esc in the BUBBLE phase, so a control that stopped the key on its way
+// up would have kept the stop from hearing it (measured in real Chrome with a planted one). The
+// operator's ruling (2026-10-01): all five move onto the shared capture listener App's five use
+// (useEscStop). Only the listener moves: each screen's Esc still sends its own stop, the same call
+// as before (on FT, WSJT-X's halt), and the key's default is still cancelled.
+//
+// NOT A SWALLOWER, though it looks like one: the Band Activity chip bar's Hide calls and Countries
+// fields stop every keydown in their capture handler. In a browser a real Esc closes their Radix
+// menu first (Radix listens on the document), React commits that between listeners, and the field
+// is gone before its handler runs, so the stop is heard either way. fireEvent dispatches the whole
+// event inside one script call, so here the field WOULD stop the key: a test of it would show a
+// swallow no browser shows (measured both ways, 2026-10-02).
+const OWN_ESC_SCREENS: EscScreen[] = [
+  { view: 'operate', area: 'dx', drawn: () => shown('main.operate-cockpit'), esc: ['halt_tx'] },
+  { view: 'cw', area: 'dx', drawn: () => shown('main.cw-cockpit'), esc: ['stop_cw', 'halt_tx'] },
+  // RTTY and PSK are on the air in this fixture, so their own stop goes first.
+  { view: 'rtty', area: 'dx', drawn: () => shown('main.rtty-cockpit'), esc: ['rtty_stop', 'halt_tx'] },
+  { view: 'psk', area: 'dx', drawn: () => shown('main.psk-cockpit'), esc: ['psk_stop', 'halt_tx'] },
+  { view: 'js8', area: 'dx', drawn: () => shown('main.js8-cockpit'), esc: ['halt_tx'] },
+]
+
+describe("FT's, CW's, RTTY's, PSK's and JS8's own Esc cannot be swallowed either", () => {
+  it.each(OWN_ESC_SCREENS.map((s) => [s.view, s] as const))(
+    '%s: a control that stops the key on its way cannot swallow the stop',
+    async (_view, s) => {
+      await mountScreen(s)
+      const button = s.drawn()!.querySelector<HTMLButtonElement>('button:not([disabled])')
+      expect(button, `${s.view}: no enabled button inside the screen`).not.toBeNull()
+      const swallow = (e: Event): void => e.stopPropagation()
+      button!.addEventListener('keydown', swallow)
+      try {
+        expect(await fire(() => pressEsc(button!))).toEqual(s.esc)
+      } finally {
+        button!.removeEventListener('keydown', swallow)
+      }
+    },
+  )
+
+  it.each(OWN_ESC_SCREENS.map((s) => [s.view, s] as const))('%s: Esc from inside a field sends the same stop', async (_view, s) => {
+    await mountScreen(s)
+    const field = [...s.drawn()!.querySelectorAll<HTMLInputElement>('input:not([type]), input[type="text"], input[type="search"], textarea')].find(
+      (el) => el.closest('[hidden]') == null && !el.readOnly && !el.disabled,
+    )
+    expect(field, `${s.view}: no field on screen, so this test would press Esc in nothing`).toBeDefined()
+    field!.focus()
+    expect(document.activeElement).toBe(field)
+    expect(await fire(() => pressEsc(field!))).toEqual(s.esc)
+  })
+
+  it.each(OWN_ESC_SCREENS.map((s) => [s.view, s] as const))("%s: Esc's default is still cancelled, as it always was", async (_view, s) => {
+    await mountScreen(s)
+    const m = mark()
+    expect(fireEvent.keyDown(document.body, { key: 'Escape', code: 'Escape' }), `${s.view}: Esc's default went through`).toBe(false)
+    await waitFor(() => expect(firedSince(m)).toEqual(s.esc))
+  })
+
+  it("operate: Esc sends exactly what Stop TX sends — WSJT-X's halt, the same call as before", async () => {
+    await mountScreen(OWN_ESC_SCREENS[0])
+    const stop = shown('.cockpit-qso .op-btn.stop') as HTMLButtonElement | null
+    expect(stop, 'control: Operate Stop TX is on screen').not.toBeNull()
+    const stopTx = await fire(() => fireEvent.click(stop!))
+    expect(stopTx, 'control: Stop TX is the halt').toEqual(['halt_tx'])
+    expect(await fire(() => pressEsc())).toEqual(stopTx)
+  })
+})
+
+describe('Esc on every screen in the registry: the ten above send their stop, and nothing else changed', () => {
+  // App's five send the halt, and each cockpit with its own Esc sends its own stop. Any other section
+  // sends nothing: it has no Esc stop.
+  const STOP_SCREENS = [...ESC_SCREENS, ...OWN_ESC_SCREENS]
+  const SECTIONS = sectionFeatures().map((f) => f.id as View)
+
+  it('control: the census covers the app’s screens, and the eleven', () => {
+    expect(SECTIONS.length).toBeGreaterThan(15)
+    for (const s of STOP_SCREENS) expect(SECTIONS).toContain(s.view)
+  })
+
+  it.each(SECTIONS)('%s', async (view) => {
+    everySectionOn()
+    // Field Day is drawn only with its master switch on.
+    if (view === 'fieldDay') settingsAnswer = { ...defaultSettings, fdActive: true }
+    await mountOn(view, view === 'chat' ? 'msg' : 'dx')
+    expect(document.title, `control: ${view} is the screen on show`).toBe(titleOn(view))
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    const expected = STOP_SCREENS.find((s) => s.view === view)?.esc ?? []
+    expect(await sentBy(() => pressEsc()), `${view}: what Esc sent`).toEqual(expected)
+  })
+})
+
+// ── Connect: the stop line's one ruled exception ────────────────────────────────────────────
+//
+// The operator, 2026-10-01, of the bar across the top of the window: "at very top, its the
+// frequency, the band dropdown, tx off, tune, stop tx.  That bar doenst need to live in
+// connect/conditions"; and, asked what Connect should keep so that transmit could always be stopped
+// there: "remove all radio control from connect, reclaim that space". So Connect draws no top bar,
+// and its Stop TX goes with it — the one screen the stop line excepts, by that ruling. Transmit on
+// Connect is stopped by Esc, which App binds while Connect is on show, or by leaving the screen.
+// Both halves are held here, at the wire, and so is the fence around them: every OTHER screen in the
+// app still draws the bar, so the exception cannot quietly grow to a second screen.
+
+describe('Connect — no radio controls, and Esc stops (the operator’s ruled exception)', () => {
+  beforeEach(async () => {
+    everySectionOn()
+    await mountOn('connect')
+  })
+  const connectShell = (): HTMLElement | null => document.querySelector('main .connect-shell')
+
+  it('draws no top bar: no frequency, band, TX Off, Tune or Stop TX anywhere on the screen', () => {
+    expect(connectShell(), 'control: Connect is the screen on show').not.toBeNull()
+    expect(document.querySelector('header.topbar'), 'the top bar is drawn on Connect').toBeNull()
+    for (const name of [STOP_TX, TUNE, /^tx (on|off)$/i]) {
+      const shown = screen.queryAllByRole('button', { name, hidden: true }).filter((el) => el.closest('[hidden]') == null)
+      expect(shown, `${name} is on Connect`).toEqual([])
+    }
+  })
+
+  it('Esc sends halt_tx — pressed inside Connect, on a control whose own menu answers Esc too', async () => {
+    const shell = connectShell()
+    expect(shell, 'control: Connect is the screen on show').not.toBeNull()
+    const panels = within(shell!).getByRole('button', { name: /⊞ Panels/ })
+    expect(await fire(() => fireEvent.keyDown(panels, { key: 'Escape' }))).toEqual(['halt_tx'])
+  })
+
+  it('…and a control inside Connect that stops the key cannot swallow the stop (App listens in the capture phase)', async () => {
+    const panels = within(connectShell()!).getByRole('button', { name: /⊞ Panels/ })
+    const swallow = (e: Event): void => e.stopPropagation()
+    panels.addEventListener('keydown', swallow)
+    try {
+      expect(await fire(() => fireEvent.keyDown(panels, { key: 'Escape' }))).toEqual(['halt_tx'])
+    } finally {
+      panels.removeEventListener('keydown', swallow)
+    }
+  })
+})
+
+// …BUT CONNECT KEEPS THE TIME (the operator, 2026-10-01: "things like time are very good" on a
+// second monitor or the TV). The bar's other items stay off Connect; its clock rides in Connect's own
+// header, with the local clock beside it when Settings ▸ Workspace asks for one, as in the bar.
+describe('Connect keeps the station clock', () => {
+  it('the top bar’s UTC clock rides in Connect’s header, the local clock beside it when Settings asks', async () => {
+    everySectionOn()
+    localStorage.setItem(LOCAL_CLOCK_STORAGE_KEY, '1')
+    await mountOn('connect')
+    const header = document.querySelector('main .connect-shell .connect-header')
+    expect(header, 'control: Connect is the screen on show').not.toBeNull()
+    expect(document.querySelector('header.topbar'), 'control: the top bar is not drawn').toBeNull()
+    const clocks = [...header!.querySelectorAll('.utc-clock')]
+    expect(clocks.map((c) => c.querySelector('.utc-label')?.textContent)).toEqual(['UTC', 'Local'])
+    expect(clocks[0].querySelector('.utc-time')?.textContent).toMatch(/^\d\d:\d\d:\d\d$/)
+  })
+
+  it('Frame + bar puts the dashboard bar over Connect, with the station from the snapshot, and its clock stands for the header’s', async () => {
+    everySectionOn()
+    await mountOn('connect')
+    const shell = document.querySelector('main .connect-shell') as HTMLElement
+    expect(shell, 'control: Connect is the screen on show').not.toBeNull()
+    expect(shell.querySelector(':scope > .dash-bar'), 'control: no bar before the tap').toBeNull()
+    fireEvent.click(within(shell.querySelector('.connect-header') as HTMLElement).getByRole('button', { name: 'Layout' }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Layout' })).getByRole('button', { name: 'Frame + bar (default)' }))
+    const bar = shell.querySelector(':scope > .dash-bar') as HTMLElement
+    expect(bar, 'the bar is over the view').not.toBeNull()
+    expect([bar.querySelector('.dash-call')?.textContent, bar.querySelector('.dash-grid')?.textContent]).toEqual(['KD9TAW', 'EN52'])
+    expect(shell.querySelector('.connect-header .utc-clock'), 'one clock: the bar’s').toBeNull()
+    expect(document.querySelector('header.topbar'), 'and still no top bar').toBeNull()
+  })
+})
+
+describe('…and every OTHER screen keeps the top bar: the exception is Connect alone', () => {
+  // Read off the registry, not kept here: a section added later is swept by existing.
+  const OTHERS = sectionFeatures()
+    .map((f) => f.id as View)
+    .filter((id) => id !== 'connect')
+
+  it('control: the sweep covers the app’s screens', () => {
+    expect(OTHERS.length).toBeGreaterThan(15)
+  })
+
+  it.each(OTHERS)('%s draws the top bar', async (view) => {
+    everySectionOn()
+    // Field Day is drawn only with its master switch on, and Chat only in the Tempo area.
+    if (view === 'fieldDay') settingsAnswer = { ...defaultSettings, fdActive: true }
+    await mountOn(view, view === 'chat' ? 'msg' : 'dx')
+    expect(document.title, `control: ${view} is the screen on show`).toBe(`${featureById(view)!.label} — Nexus`)
+    expect(document.querySelector('header.topbar'), `${view}: the top bar`).not.toBeNull()
+  })
+})
+
 // ── the other half of the wire ──────────────────────────────────────────────────────────────
 //
 // Everything above proves the UI serialises a command. It cannot prove the BACKEND still answers
@@ -539,6 +1205,8 @@ describe('every command this file sends exists in the Rust command surface', () 
     psk_stop: [],
     sstv_stop: [],
     stop_voice: [],
+    arm_stream_mic: [],
+    release_stream_mic: [],
   }
 
   for (const [cmd, args] of Object.entries(WIRE)) {
@@ -551,4 +1219,54 @@ describe('every command this file sends exists in the Rust command surface', () 
       }
     })
   }
+})
+
+// ── the top bar's Stop TX, where it is the only one ─────────────────────────────────────────
+//
+// Twelve screens have no cockpit and so no TX strip: Connect, Needed, Spots, DXped, Logbook,
+// Awards, Stats, Field Day, POTA/SOTA, Memories, Program and Settings. Their Stop TX is the top
+// bar's cluster. At the small size they drop the FT-only items from the bar (operator,
+// 2026-10-01), keyed on the bar's `topbar--ft` class, and keep the cluster; App's
+// `hideDigitalChrome` would have taken both, which is why Field Day is not on that list. Here,
+// with the real App: each of the eleven (all but Conditions) draws the bar's Stop TX, enabled, and the press sends
+// halt_tx, and its bar is not marked an FT screen; Operate and Tempo, the two that are, carry
+// the mark. The CSS half (no rule in either sheet hides the cluster at any size) is
+// TopBar.small.test.tsx; the geometry is the real-browser sweep's.
+describe("the top bar's Stop TX on every screen without a cockpit", () => {
+  const COCKPITS: View[] = ['operate', 'chat', 'phone', 'cw', 'rtty', 'psk', 'sstv', 'aprs', 'js8', 'sats']
+  const BAR_STOP = sectionFeatures()
+    .map((f) => f.id as View)
+    // Conditions (code id 'connect') draws no top bar since 2026-10-01 — the operator's ruled exception, held in "Connect — no radio
+    // controls, and Esc stops" above: its stop is Esc. So the bar's Stop TX is on the other eleven.
+    .filter((v) => !COCKPITS.includes(v) && v !== 'connect')
+
+  it('control: the census is the eleven screens without a cockpit but Conditions, Field Day among them', () => {
+    expect([...BAR_STOP].sort()).toEqual([
+      'awards', 'dxped', 'fieldDay', 'logbook', 'memories', 'needed', 'pota', 'program', 'settings', 'spots', 'stats',
+    ])
+  })
+
+  it.each(BAR_STOP)('%s: on screen, enabled, and it sends halt_tx', async (view) => {
+    everySectionOn()
+    // Field Day is drawn only with its master switch on.
+    if (view === 'fieldDay') settingsAnswer = { ...defaultSettings, fdActive: true }
+    await mountOn(view)
+    expect(document.title, `control: ${view} is the screen on show`).toBe(`${featureById(view)!.label} — Nexus`)
+    const bar = document.querySelector<HTMLElement>('header.topbar')!
+    expect(bar.classList.contains('topbar--ft'), `${view} is not an FT screen`).toBe(false)
+    const stop = within(bar).getByRole('button', { name: STOP_TX }) as HTMLButtonElement
+    expect(stop.disabled, `${view}: the bar's Stop TX is enabled`).toBe(false)
+    expect(await fire(() => fireEvent.click(stop))).toEqual(['halt_tx'])
+  })
+
+  it.each([
+    ['operate', 'dx'],
+    ['chat', 'msg'],
+  ] as const)('%s is an FT screen: its bar is marked, and its stop is its own strip, not the bar', async (view, area) => {
+    everySectionOn()
+    await mountOn(view, area)
+    const bar = document.querySelector<HTMLElement>('header.topbar')!
+    expect(bar.classList.contains('topbar--ft')).toBe(true)
+    expect(within(bar).queryByRole('button', { name: STOP_TX })).toBeNull()
+  })
 })

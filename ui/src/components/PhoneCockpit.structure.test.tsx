@@ -19,10 +19,10 @@
 // suite asserts the SHELL's structure, not the panes' behaviour, which keeps it honest
 // about what it can see in jsdom (no layout; widths are stubbed like useRegionCols.test).
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, cleanup, act } from '@testing-library/react'
+import { render, cleanup, act, fireEvent, screen } from '@testing-library/react'
 import { PhoneCockpit } from './PhoneCockpit'
 import type { AppSnapshot } from '../types'
-import { PHONE_PANEL_IDS } from '../features/panelState'
+import { PHONE_PANEL_IDS, PHONE_PANELS, panelStorageKey, usePanelLayout } from '../features/panelState'
 import type { PanelLayoutApi, PhonePanelId } from '../features/panelState'
 
 vi.mock('../api', () => ({
@@ -71,17 +71,23 @@ vi.mock('./SpotDialog', () => ({ SpotDialog: () => null }))
 vi.mock('./SpotsPanel', () => ({ SpotsPanel: () => <div data-testid="spots-stub" /> }))
 vi.mock('./NeededPanel', () => ({ NeededPanel: () => <div data-testid="needed-stub" /> }))
 
-/** The observed element's callback, so a test can fire a resize the way the browser
- *  does (the useRegionCols.test.tsx harness). */
+/** Fire a resize the way the browser does: EVERY live observer hears it (the useRegionCols.test.tsx
+ *  harness kept only the last one created, and a split divider's own observer — the feeds' pair
+ *  at tier 2 — then silently took the region's place). */
 let fire: (() => void) | null = null
 beforeEach(() => {
-  fire = null
+  const live = new Set<() => void>()
+  fire = () => [...live].forEach((cb) => cb())
   globalThis.ResizeObserver = class {
+    cb: () => void
     constructor(cb: () => void) {
-      fire = cb
+      this.cb = cb
+      live.add(cb)
     }
     observe() {}
-    disconnect() {}
+    disconnect() {
+      live.delete(this.cb)
+    }
     unobserve() {}
   } as unknown as typeof ResizeObserver
 })
@@ -168,6 +174,7 @@ describe('PhoneCockpit pane-grid shell', () => {
       '.cockpit-header',
       '.ph-scope-panel',
       '.pane-splitter',
+      '.cockpit-txstrip',
       '.cockpit-panes',
       '.cockpit-txdock',
       '.logconfirm-backdrop',
@@ -180,6 +187,15 @@ describe('PhoneCockpit pane-grid shell', () => {
     }
     expect(shell.querySelectorAll(':scope > .cockpit-panes').length).toBe(1)
     expect(shell.querySelectorAll(':scope > .cockpit-txdock').length).toBe(1)
+    // THE TX STRIP (2026-10-01): exactly one, a shell child directly under the scope (after
+    // its divider), holding the stop controls the header used to hold — and the header none.
+    const strips = shell.querySelectorAll(':scope > .cockpit-txstrip')
+    expect(strips.length, 'no TX strip in the shell').toBe(1)
+    expect(strips[0].previousElementSibling?.matches('.pane-splitter'), 'the TX strip is not directly under the scope').toBe(true)
+    const named = (root: Element, re: RegExp) => [...root.querySelectorAll('button')].filter((b) => re.test(b.textContent!.trim()))
+    expect(named(strips[0], /^stop tx$/i).length, 'Stop TX is not in the TX strip').toBe(1)
+    expect(named(strips[0], /^tune$/i).length, 'Tune is not in the TX strip').toBe(1)
+    expect(named(shell.querySelector('.cockpit-header')!, /^stop tx$|^tune$|^tuning…$|^atu$|tx (on|off)$/i), 'the header still draws a transmit control').toEqual([])
   })
 
   it('renders exactly one .cockpit-panes region, tier-stamped by useRegionCols', () => {
@@ -293,7 +309,7 @@ describe('PhoneCockpit pane-grid shell', () => {
     const shell = document.querySelector('main.layout.single.phone-cockpit')!
     for (const el of Array.from(shell.children)) {
       expect(
-        ['.cockpit-header', '.cockpit-panes', '.cockpit-txdock', '.logconfirm-backdrop'].some((s) =>
+        ['.cockpit-header', '.cockpit-txstrip', '.cockpit-panes', '.cockpit-txdock', '.logconfirm-backdrop'].some((s) =>
           el.matches(s),
         ),
         `unexpected shell child with the scope hidden: <${el.tagName.toLowerCase()} class="${el.className}">`,
@@ -687,5 +703,154 @@ describe('PhoneCockpit TX meters are pinned, not flashed', () => {
     expect(meters()!.textContent).toContain('2.5:1')
     expect(meters()!.classList.contains('idle')).toBe(true)
     expect(meters()!.textContent).not.toContain('readings appear on transmit')
+  })
+})
+
+// ── THE SCOPE DIVIDER (layout L1, PaneSeam) ─────────────────────────────────────────────────
+// The scope's height divider must be reachable from the keyboard and say where it stands. jsdom
+// lays nothing out, so the shell gets a size before the cockpit mounts; with no --vh-eff and a
+// 16 px font the sheet's clamps resolve to 8em = 128 px and 0.45 · 768 = 345.6 px.
+describe('the scope divider answers the keyboard (PaneSeam)', () => {
+  function layOut(boxes: Record<string, { top?: number; left?: number; width?: number; height?: number }>) {
+    const real = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      for (const [sel, b] of Object.entries(boxes)) {
+        if (!this.matches(sel)) continue
+        const { top = 0, left = 0, width = 800, height = 0 } = b
+        return { top, left, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) } as DOMRect
+      }
+      return real.call(this)
+    })
+  }
+  const shell = () => document.querySelector<HTMLElement>('main.phone-cockpit')!
+  const aria = (el: HTMLElement) => ['aria-valuenow', 'aria-valuemin', 'aria-valuemax'].map((a) => el.getAttribute(a))
+  beforeEach(() => {
+    localStorage.clear()
+    document.documentElement.style.removeProperty('--vh-eff')
+    document.documentElement.style.removeProperty('--ui-zoom')
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('focusable, announces its height in CSS px, and steps, jumps and resets', () => {
+    layOut({ 'main.phone-cockpit': { height: 1000 } })
+    renderCockpit()
+    const sep = screen.getByRole('separator', { name: 'scope height' })
+    expect(sep.tabIndex, 'a divider only a mouse can reach').toBe(0)
+    expect(aria(sep)).toEqual(['220', '128', '346'])
+    fireEvent.keyDown(sep, { key: 'ArrowDown' })
+    expect(shell().style.getPropertyValue('--ph-scope-h')).toBe(`${(236 / 1000) * 100}%`)
+    expect(localStorage.getItem('nexus.split.phone.scope')).toBe(String((236 / 1000) * 100))
+    fireEvent.keyDown(sep, { key: 'ArrowDown', shiftKey: true })
+    expect(sep.getAttribute('aria-valuenow')).toBe('300')
+    fireEvent.keyDown(sep, { key: 'End' })
+    expect(sep.getAttribute('aria-valuenow')).toBe('346')
+    fireEvent.keyDown(sep, { key: 'Home' })
+    expect(sep.getAttribute('aria-valuenow')).toBe('128')
+    fireEvent.keyDown(sep, { key: 'Backspace' })
+    expect(shell().style.getPropertyValue('--ph-scope-h')).toBe('22%')
+    expect(localStorage.getItem('nexus.split.phone.scope')).toBe('22')
+  })
+
+  it('a height stored by an earlier build is restored, clamped against this window, and kept', () => {
+    localStorage.setItem('nexus.split.phone.scope', '30')
+    layOut({ 'main.phone-cockpit': { height: 1000 } })
+    const first = renderCockpit()
+    expect(shell().style.getPropertyValue('--ph-scope-h')).toBe('30%')
+    first.unmount()
+    localStorage.setItem('nexus.split.phone.scope', '75')
+    renderCockpit()
+    expect(screen.getByRole('separator', { name: 'scope height' }).getAttribute('aria-valuenow')).toBe('346')
+    expect(localStorage.getItem('nexus.split.phone.scope'), 'the clamp is apply-side only').toBe('75')
+  })
+})
+
+// ── THE COLUMN DIVIDERS (layout L2) ──────────────────────────────────────────────────────────
+// What the divider itself does (keys, values, drag, clamp, Reset/Undo) is RegionColumnSeams.test;
+// this is Phone's wiring of it: which divider sits over which of ITS columns at each tier, that
+// the operator's widths ride its region, and that a divider's commit remounts nothing.
+describe('PhoneCockpit column dividers', () => {
+  // Every live observer hears a resize, as in a browser: the region's and the width divider's.
+  let live: Set<() => void>
+  const resize = () => act(() => [...live].forEach((cb) => cb()))
+  beforeEach(() => {
+    live = new Set()
+    localStorage.clear()
+    globalThis.ResizeObserver = class {
+      cb: () => void
+      constructor(cb: () => void) {
+        this.cb = cb
+        live.add(cb)
+      }
+      observe() {}
+      disconnect() {
+        live.delete(this.cb)
+      }
+      unobserve() {}
+    } as unknown as typeof ResizeObserver
+  })
+  function Live() {
+    const panels = usePanelLayout(PHONE_PANELS)
+    return <PhoneCockpit snap={makeSnap()} theme="dark" onWorkSpot={() => {}} spots={[]} panels={panels} />
+  }
+  const dividers = (region: Element) =>
+    [...region.querySelectorAll(':scope > [role="separator"]')].map((s) => [
+      s.getAttribute('aria-label'),
+      [...s.classList].filter((c) => c.startsWith('cockpit-colseam-')).join(' '),
+    ])
+  async function tier(region: Element, width: number) {
+    stubWidth(region, width)
+    resize()
+    await frame()
+  }
+
+  it('none in the stacking tier; at two columns the log width; at three the split between the feed columns as well', async () => {
+    render(<Live />)
+    const region = document.querySelector('.cockpit-panes')!
+    expect(region.getAttribute('data-cols')).toBe('1')
+    expect(dividers(region), 'a stack cannot be divided sideways').toEqual([])
+    await tier(region, 1200)
+    expect(region.getAttribute('data-cols')).toBe('2')
+    expect(dividers(region)).toEqual([['log column width', 'cockpit-colseam-2']])
+    await tier(region, 1800)
+    expect(region.getAttribute('data-cols')).toBe('3')
+    expect(dividers(region)).toEqual([
+      ['Band activity column / Receiver column', 'cockpit-colseam-2'],
+      ['log column width', 'cockpit-colseam-3'],
+    ])
+    // The region's own children, after every column: the columns keep their order and count.
+    const kinds = [...region.children].map((c) => (c.getAttribute('role') === 'separator' ? 'sep' : 'col'))
+    expect(kinds).toEqual(['col', 'col', 'col', 'sep', 'sep'])
+    await tier(region, 900)
+    expect(dividers(region)).toEqual([])
+  })
+
+  it('the widths stored in the Phone record ride the region; a record from before them adds none', () => {
+    localStorage.setItem(panelStorageKey('phone'), JSON.stringify({ v: 2, state: {}, share: {}, cols: { a: 1.3, b: 0.7, log: 560 } }))
+    const { unmount } = render(<Live />)
+    const region = document.querySelector<HTMLElement>('.cockpit-panes')!
+    expect(region.style.getPropertyValue('--cockpit-col-a')).toBe('1.3fr')
+    expect(region.style.getPropertyValue('--cockpit-col-b')).toBe('0.7fr')
+    expect(region.style.getPropertyValue('--cockpit-col-log')).toBe('min(560px, 50%)')
+    unmount()
+    localStorage.setItem(panelStorageKey('phone'), JSON.stringify({ v: 1, state: {}, share: {} }))
+    render(<Live />)
+    expect(document.querySelector<HTMLElement>('.cockpit-panes')!.getAttribute('style') ?? '').not.toMatch(/--cockpit-col/)
+  })
+
+  it('moving the log divider remounts neither the log form nor the voice keyer', async () => {
+    render(<Live />)
+    const region = document.querySelector('.cockpit-panes')!
+    await tier(region, 1200)
+    const logCol = [...region.querySelectorAll<HTMLElement>(':scope > .cockpit-col')].slice(-1)[0]
+    logCol.getBoundingClientRect = () => ({ left: 712, right: 1200, width: 488, top: 0, bottom: 400, height: 400, x: 712, y: 0, toJSON: () => ({}) }) as DOMRect
+    resize()
+    const log0 = document.querySelector('[data-testid="log-stub"]')!
+    const vk0 = document.querySelector('[data-testid="vk-stub"]')!
+    const sep = screen.getByRole('separator', { name: 'log column width' })
+    fireEvent.keyDown(sep, { key: 'ArrowLeft' })
+    expect(JSON.parse(localStorage.getItem(panelStorageKey('phone'))!).cols).toEqual({ log: 504 })
+    expect((region as HTMLElement).style.getPropertyValue('--cockpit-col-log')).toBe('min(504px, 50%)')
+    expect(document.querySelector('[data-testid="log-stub"]')!.isSameNode(log0), 'the log form remounted').toBe(true)
+    expect(document.querySelector('[data-testid="vk-stub"]')!.isSameNode(vk0), 'the voice keyer remounted (aborts TX)').toBe(true)
   })
 })

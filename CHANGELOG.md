@@ -18,6 +18,330 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remains blocked pending review of the exact written permission grant. A reviewed source pin, full
   route inventory and drift checker make future upstream additions visible instead of silently
   losing parity.
+- **Remote: one way into streaming.** Each station card on the Remote site now has one big
+  **Stream** button and a small **Listen** for the station's audio alone, and says in one
+  sentence where this browser stands and what to do next. Stream starts the stream straight
+  away, with no second button to press. A browser that is not approved yet asks with that same
+  Stream button, under its own name (such as "Chrome on Windows"), and Nexus at the shack pops
+  up **Let Chrome on Windows stream this station?** with the browser's key, the same key the site
+  shows, and **Approve** or **Deny**: no hunting through Settings. Approve gives what approving in
+  Settings gives with the transmit tick off. The question never approves by default: Deny holds
+  the keyboard, so Enter alone denies, Escape answers nothing, and Approve takes no click for its
+  first second. The stream page now also says when the station is not online, when streaming is
+  off at the shack (naming the switch), when another browser is streaming, and when the shack is
+  asking to approve this browser, with its key. Settings ▸ Station ▸ Remote access is one card:
+  the streaming switch, renamed **Stream this station from my browser**, where the station stands
+  with the Remote service, and your browsers with their keys and Approve or Remove; the pairing's
+  transmit option and the per-browser permissions fold under **Advanced**, unchanged. Remote
+  streaming is marked **Beta** on the card, on every station card and on the stream page:
+  access could be revoked at any time. The old watch-and-control workspace is hidden on the site
+  while streaming is proven; its code stays. Leases, permits, heartbeats, the stop rules and what
+  an approval grants are unchanged.
+- **Repeaters: Save to Memories.** Every FM repeater's row has a **Save to Memories** button, and
+  **Save all shown** beside **＋ Add all shown** saves every FM repeater the list shows. The memory
+  carries the frequency, offset, tone or DCS code, narrow FM, the callsign and the site, and in its
+  notes the town, the links (AllStar, IRLP, DMR ID) and the DMR colour code, as the CHIRP export's
+  comment writes them. A repeater already in Memories shows **✓ In Memories** instead, and nothing
+  is saved twice: the same machine is the one the repeater lists are merged by (the same output
+  within 2.5 kHz and the same callsign, or the same input and a site within 5 km where a side has
+  no callsign), so a machine saved from one directory is found again in another. Repeaters' rows no
+  longer carry a ☆: the **In Memories** badge stands in its place, and a saved repeater is starred
+  for the cockpit strip in Memories.
+- **Remote as a stream, the station's half (Windows, off by default).** With **Stream this
+  station from my browser** on (Settings ▸ Station ▸ Remote access), a browser approved for
+  station controls, while it holds control, can be shown this Nexus window and operate it, and
+  hear the station's receive audio. Only the Nexus window is sent, cropped to its contents: a
+  dialog that opens outside it, such as a file picker, is not, and a minimized window sends
+  nothing. Windows draws its yellow capture border round the window while a stream is attached.
+  The browser's clicks and keys reach Nexus only, never anything else on the computer. While a
+  browser is attached, every transmission at the station stops within five seconds if its
+  connection drops, and within seven if its picture freezes. The picture is VP8 over encrypted
+  WebRTC, at most 30 frames a second.
+- **Remote: stream Nexus from the shack (first test build).** Each station on the Remote page has
+  a **Stream** button: the Nexus window at the shack, live in your browser, worked with your
+  own mouse and keyboard. It needs a Nexus at the shack with streaming turned on, and the page says
+  so when that is missing. Only the Nexus window is sent,
+  never the rest of the PC's screen, and what you click and type reaches Nexus and no other
+  program. Nothing streams until you press **Start the stream**, and only with station control
+  allowed for that browser at the radio. If the station does not take the start, the page says
+  why (station control off for this browser, another browser in control, or try again) instead of
+  going back to the button without a word. **Stop TX** stays at the top of the page the whole time
+  and reaches the station by two routes at once. **Hold PTT** keys only while you hold it: let go,
+  or let the picture freeze, and it lets go. In Phone the space bar over the picture is push-to-talk
+  for your own microphone, and a space typed into a Nexus field still types. Anything you hold down
+  over the picture, a key or a mouse button, is let go at the shack within a fifth of a second if
+  the connection drops. While the picture is frozen Nexus takes no clicks or keys from the browser,
+  and Stop TX still works. A band or mode list you open from the browser opens inside the Nexus
+  window, so you can see it and pick from it. Switching to another tab ends the stream; press
+  **Start the stream** again when you are back. If Remote access is switched off for your account
+  while you stream, the stream ends within about two seconds and the page says why.
+- **Remote as a stream: talk on the rig with your browser's microphone (Windows).** A streamed
+  operator's own voice reaches the rig in Phone, played into the rig's USB audio.
+  **Holding the page's PTT no longer keys the station by itself:** it arms an over, and the rig
+  keys only when the operator's voice starts arriving, so a held PTT with the microphone off or
+  muted puts nothing on the air. Held, the page's PTT shows the accent colour, as the microphone
+  button does, while it waits for the voice, and the transmit colour once the voice has keyed the
+  rig. The over ends 200 ms after the voice stops arriving or the PTT
+  is let go, whichever comes first. Stop TX, TX Off, a lost connection, a frozen picture and
+  leaving Phone each end it at once, and no over lasts longer than 10 minutes. Voice that arrives
+  late is dropped, never played late. The rig must take its SSB audio from USB (the menu that
+  sets the transmit audio source for voice); on most radios the factory setting is the front
+  microphone, and then an over keys the rig on the shack's microphone instead of yours; the page
+  says so when the rig shows no power out while your voice is arriving. On the stream page the
+  microphone is off until you press its button, and only then does the browser ask for it. The
+  space bar over the picture and the Phone cockpit's PTT clicked through it arm the same over as
+  the page's own PTT: from Remote they never key the shack's microphone, and Lock does not work.
+  The station's audio in your browser is muted while you are on the air, the page says why an over
+  ended when the station ended it, and it reminds you to give your call sign before each ten
+  minutes of a run of overs is up.
+- **Remote: a stream only starts for the browser you approved.** Each browser now holds its own key,
+  which never leaves it. The Remote page shows it under the station ("This browser's key"), and
+  Nexus at the shack shows the same one beside the browser: check that they match when you approve
+  it. The station starts a stream only for that browser, on that key. A browser approved before
+  this update must be approved once more in Nexus at the shack before it can stream. So must a
+  browser whose key changed, for example after its site data was cleared. The page says which.
+- **Remote: Listen and the stream hear the station at the same time.** Listening on the Remote page
+  and a stream's audio used to shut each other out: whichever started first had the station's
+  receive audio, and the other was told it was in use. The station now encodes its receive audio
+  once and sends it to both. A browser that falls behind loses its own audio as a short gap and
+  never delays or cuts the other's, and a station nobody listens to still encodes nothing.
+- **Remote as a stream: a stream nobody is using ends.** After 15 minutes with no click, key
+  press, turn of the mouse wheel or PTT from your browser, the stream page asks "Still there?".
+  Any click keeps the stream going for another 15 minutes. If nobody answers within a minute, the
+  stream ends the way **End the stream** ends it, and any transmission at the station stops within
+  five seconds. Watching the picture, listening and the station transmitting do not count, so an
+  FT8 sequence left running does not keep a stream open. A PTT held down counts for as long as it
+  is held. The question sits over the picture: **Stop TX** stays where it is and works the whole
+  time.
+- **Remote as a stream: what it needs at the shack, said where you start it.** Beside **Stream
+  this window to an approved browser** in Settings, and on the stream page beside **Start the
+  stream**, Nexus says that the stream is its window as Windows draws it at the shack, so Nexus
+  must stay open there and not minimized.
+- **Remote as a stream: the shack's PC stays awake while you stream (Windows).** Clicks and keys
+  from a stream reach Nexus only, so Windows does not count them as someone at the computer, and it
+  could turn the shack's screen off or put the PC to sleep in the middle of a stream. While a stream
+  is attached, Nexus now asks Windows to keep the PC awake with the screen on, and it stops asking
+  when the last stream ends, however it ended, or when Nexus closes. A screen saver still starts if
+  one is set, a lock enforced by policy still happens, and someone at the shack can still put the PC
+  to sleep. A forgotten stream still ends at the "Still there?" question, and from then on Windows'
+  own power settings apply again.
+- **Remote as a stream: the Phone PTT says Armed until your voice keys the rig.** Pressed through
+  the stream (its button, or the space bar over the picture), the Phone cockpit's PTT reads "Armed
+  — talk to transmit" while the over waits for your voice, and "ON AIR — release to stop" once your
+  voice has keyed the rig. The Phone header's ▲ TX sign waits too, whichever PTT armed the over,
+  the page's own included: it stays dark until your voice keys the rig, unless something else is
+  on the air. It is the same stop control with the same name for screen readers, and a press at
+  the shack reads as before.
+- **Wavelog and Cloudlog on your own network over plain http (#378).** A Wavelog or Cloudlog on your
+  LAN with no certificate can now take uploads at an `http://` address, as long as that address is
+  on your own network: 192.168.x.x, 10.x.x.x, 172.16–31.x.x or 127.x.x.x (or a local IPv6
+  address), or a name whose every address is one of those. The upload goes to the address that was
+  checked and nowhere else. Your API key travels unencrypted on that network, so Settings says so
+  under the Base URL as soon as you type an `http://` address, and the Connections log says where
+  it went, once a session for each address. Any other `http://` address is refused before anything
+  is sent, as before; `https://` is unchanged; and Nexus never follows a redirect with your key.
+- **JS8: JS8Call's allow and deny lists.** Settings ▸ Digital ▸ JS8 has JS8Call's three lists,
+  comma-separated and empty by default as in JS8Call: **Only auto-reply to these callsigns**,
+  **Never auto-reply to these callsigns** and **Never acknowledge heartbeats from these
+  callsigns**. A station is matched by its call as heard or its base call, so W1AW covers
+  W1AW/P. A station the first two keep out is not acted on at all, as in JS8Call: no reply, no
+  relay, its message not filed, nothing held for it.
+- **JS8: each automatic reply asks you first, as JS8Call does.** JS8Call ships with "Ask for
+  confirmation before sending autoreply transmissions" on, and so does Nexus now (Settings ▸
+  Digital ▸ JS8). An answer to a query, an ACK, a relay or a heartbeat acknowledgement waits in
+  the dock as JS8Call's question, "A transmission is queued for autoreply … would you like to send
+  this transmission?", with **Yes** and **No**. Yes sends it in the next period, through every TX
+  check; No sends nothing, and so does no answer: after 89 seconds it is No, JS8Call's 90-second box
+  as it counts. A message held for another station is handed over only on Yes. Turn the setting
+  off and replies go by themselves, in the next period.
+- **UK repeaters from the coordinator's own list, one row per machine.** For a UK location,
+  Program reads the RSGB's repeater list (ETCC, ukrepeater.net) for the locator squares around
+  it, at most nine per search and each kept on your PC for a week, and merges it with hearham
+  into one row per machine. Where the two differ, the coordinator's values are programmed and
+  the row is flagged with what each listed. Around Manchester that fixes GB3BW's tone (88.5 Hz,
+  where hearham has 82.5) and GB3XN's input (438.525 MHz; hearham lists it as simplex, so a
+  radio programmed from it could not open the machine), and a machine hearham lists only by its
+  DMR side, like GB3XL, becomes one FM channel with its CTCSS tone and colour code. Every row
+  says where it came from and how old that is ("RSGB + hearham · no date · fetched 2d ago",
+  "RepeaterBook · updated 2026-05-14"). With a RepeaterBook token its rows and hearham's merge
+  the same way, and a machine hearham lists once per mode or per linked node is one row. The
+  RSGB list is a beta service: when it cannot be read, Program says so and shows hearham's
+  machines alone. The CSV and CHIRP files credit every directory their rows came from, one
+  comment line each, "Repeater data: RSGB ETCC (ukrepeater.net)" among them.
+- **Program shows the repeaters it found on a map.** Press **Map** at the end of the count line
+  and the machines take the list's place on a map of the search: the radius ring around the place,
+  or the corridor along a route, with each machine's callsign beside its dot. A filled dot is in
+  your channel list; click a dot to add the machine or take it off, and **List** goes back. The
+  map shows hearham's listings only, each where hearham places it: RepeaterBook's terms do not
+  allow its listings on a map, and the RSGB list is not mapped yet. So with a RepeaterBook token,
+  or around a UK place, the words under the map say how many machines only RepeaterBook or the
+  RSGB list has, and that those are left off.
+- **Program lists the repeaters along a route.** Press **Route to…** at the end of the Near row,
+  give the place you leave from and the place you are going (My station, a grid or a city, as for
+  Near), and Program lists the repeaters within a corridor of the straight line between them, in
+  the order the trip passes them; each row reads how far along the route the machine is ("120 mi"),
+  and the line under it how far off the route. The corridor is 25 mi either side to start with,
+  with 10 and 50 mi chips. **＋ Add all shown** adds them to the channel list in that order, so the CHIRP or CSV
+  export is one list for the drive. A long US route asks RepeaterBook about the first nine states
+  it reaches, no more than a radius search can, each through the same weekly cache and 15-minute
+  retry limit, and names the states it did not ask about, whose machines are then hearham's alone;
+  a long UK route does the same with the RSGB list's locator squares.
+- **Program finds the repeaters on a frequency.** Type a frequency into Program's search box
+  (147.18, 147.180, 438.5125, or 438,5125 with a decimal comma) and the list shows every repeater
+  on it, within 2.5 kHz, whatever the band, digital and on-air filters are set to: a DMR or
+  off-air machine on that frequency is listed rather than hidden, and the count line says the
+  filters are not applied. A neighbouring channel never matches (147.18 does not find 147.195 or
+  147.1875). A callsign or town filters the list as before.
+- **Program shows how a repeater links, and the export carries it.** A repeater hearham lists
+  with an AllStar or IRLP node, or with its DMR ID, has a line under its row with those numbers
+  and its DMR colour code ("AllStar 2462 · IRLP 3570 · CC1"); a node hearham gives without
+  naming its network reads "node 7230". The CHIRP and CSV files write the same after the town in
+  that channel's comment ("Rockford; IRLP 3570; CC1"), since neither has a column for them.
+
+- **PstRotatorAz by name in the rotator picker.** Settings ▸ Radio ▸ Rotator now offers
+  **PstRotatorAz / PstRotator (UDP)**, Hamlib's model 3 for YO3DMU's PstRotatorAz. It used to be
+  reachable only as "Other Hamlib model #…" 3. PstRotatorAz takes its commands over UDP, so for this
+  entry the port box asks for its address (`127.0.0.1:12000` on the same PC), and the hint under it
+  says to turn on UDP Control in PstRotatorAz's Setup. The hint also warns that Hamlib's backend for
+  it, including the one Nexus ships, writes the bearing it sends with a formatting bug (123.4° goes
+  out as `123.400002.2`), so PstRotatorAz may not turn to it. Nobody has tried that against a real
+  PstRotatorAz yet. The saved setting is the model number, 3, so a rotator already set up that way is
+  unchanged and now shows by name.
+- **The Yaesu G-5500 / G-5500DC by name in the rotator picker.** The G-5500 has no computer port
+  and no Hamlib model of its own: it is driven through a Yaesu GS-232B or GS-232A interface. So
+  Settings ▸ Radio ▸ Rotator now names it on those two entries, **Yaesu G-5500 / G-5500DC —
+  GS-232B interface** and **— GS-232A interface**, each still any GS-232B or GS-232A. A GS-232
+  clone board still belongs on **GS-232 (generic)**. The saved setting is the same model number
+  as before, so a rotator you have already set up is unchanged, and the rotator guide and the
+  settings reference say which entry to pick.
+- **The Rotor pane shows and sets the elevation of an az/el rotator.** On a rotator with an
+  elevation axis, such as a Yaesu G-5500 on its GS-232B or GS-232A, the Rotor pane in Connect shows
+  the elevation under the bearing (`EL 45°`) and has an `el°` box beside the bearing box: type an
+  elevation and press Enter, for EME, a pass you steer by hand, or parking the antenna. It takes
+  only what the rotator can reach (0–180° on a G-5500) and refuses anything else before sending
+  it, and the bearing stays where it is. While the antenna is on its way the pane shows
+  `→ EL 30°`, as it does for a bearing, and a bearing and an elevation typed one after the other
+  both get there. The one ■ STOP stops both motors. Nexus asks the rotator's own control program
+  whether it has an elevation axis, so a rotator without one gets exactly the pane it had. The
+  Remote page's rotator control is unchanged.
+- **Watch list: a note on each entry (#390).** Every entry on the watch list (Settings ▸ Spots &
+  Alerts) has a note field of its own, for why the call is there and when it can come off, such
+  as `Samoa DXp 9/27-10/3`. Type the note when you add the entry, or later in the field on its
+  row: it is saved when you leave the field or press Enter. Empty the field to remove the note.
+  Your existing watch list comes up exactly as it was, with no notes, and a note changes nothing
+  about what alerts or what the Call Roster, the Stations list and Spots mark.
+- **Call Roster: show only the stations within a distance you choose (#386).** The Call Roster's
+  filter row has a new picker beside Hide blocked. Pick **Within 1000 mi**, for example, and the
+  stations farther from your grid square than that leave the list, so a band full of stations you
+  cannot reach stops crowding the ones you can. The choices run from 250 to 5000, in miles or
+  kilometres as the Units setting says (Settings ▸ Station ▸ Operator & Radio). It starts at
+  **Any distance**, which shows every station, as before. A station you have not heard send a grid
+  yet has no known distance, so it always stays on the list, and so does the station you are
+  working. The choice is remembered with the roster's other filters.
+- **A switch for the pop-ups in the bottom-right corner (#391).** Settings ▸ Spots & Alerts ▸
+  Alerts ▸ **Pop-up notifications**, on unless you turn it off. Off, the confirmations (Logged QSO,
+  Saved, a QSY, an upload to QRZ) and the alerts (a new DXCC, a station calling you, a band
+  opening, space weather, a DXpedition you chase coming on) stop popping up; their sounds are
+  unchanged. What must be seen still pops up: every error, every notice about transmitting, the
+  radio or the log (TX locked, nothing to log, TX turned back on), and every message with a
+  button, such as an alarm's Stop, an Undo or an update's Download. Pop-out windows follow the
+  same switch; the Remote page's own pop-ups are unchanged.
+- **The mouse wheel moves the Phone cockpit's sliders (#384).** Point at a slider and scroll. AF
+  gain, RF gain, squelch, noise reduction, mic gain, the speech processor, the monitor and the Sub
+  receiver's levels move 2% a notch, RF power 1%, the manual notch 10 Hz, the Icom scope reference
+  0.5 dB and the Flex one 5 dB. The scope's G and Z move one step, where scrolling over them used
+  to tune the radio. A trackpad works the same way. A slider moves exactly as it would under your
+  hand, so RF power stays within your power limit and nothing done with the wheel keys the
+  transmitter. Only the slider under the pointer moves, never one you clicked earlier, and a scroll
+  that starts elsewhere and passes over a slider keeps scrolling. On the Remote page a run of
+  notches is sent as one change once the wheel stops, as a drag is.
+- **Connect: "Bands for you", the band advice as tiles.** A new Connect box shows one tile per
+  band, big enough to read from across the desk. The tiles run in band-stack order, 160 m up to
+  6 m, plus 4 m and 2 m when there is an opening there. Each tile gives the band and its word,
+  with the same word and colour as the map's Band conditions list and the band menu:
+  - Open: green, with a solid outline.
+  - Marginal: amber, with a dashed outline.
+  - Closed: no colour, dimmer letters.
+
+  On each tile:
+  - A dot shows what you are hearing now.
+  - ★ marks the Band Advisor's best band, and a ring marks the band your radio is on.
+  - On 6 m, 4 m and 2 m, the mode of an opening is named (Es, Tropo, Aurora, F2, MS).
+  - Hover for why: who hears you, the best direction, and when the model expects the band to
+    open or close next.
+  - Click a tile to show that band on the map.
+
+  With no fresh data the tiles are hollow and grey, never green. The box takes the Band Advisor's
+  place in the default Connect layout (and on the wall display). The Band Advisor's ranked list
+  is one pick away in the box's menu. A layout you have already arranged keeps what it has, and
+  Reset layout brings in the tiles.
+
+- **A Clock box for Connect.** Pick **Clock** from any Connect box's menu: it shows UTC in large
+  digits with your computer's local time under it, today's date, your grid, and today's sunrise and
+  sunset there in UTC (point at that line for the times on your own clock). The digits grow with
+  the box, so a wide box reads from across the room and the narrowest one still fits them. Where the
+  Sun stays up or down all day it says so, and with no grid in Settings it asks for one instead of
+  guessing a place. It needs no network, so it keeps time when every feed is down.
+- **Space Wx shows the sunspot number, the solar-wind speed and 30-day trends.** Beside Bz, the
+  Space Wx box now shows the solar wind's speed in km/s, in the warning colour from 600 km/s, the
+  speed at which the Insights feed says a fast stream is arriving. Under the gauges are two lines
+  for the last 30 days from NOAA's daily solar indices, the solar flux and the sunspot number, each
+  with its newest value and the day it is from. When the newest day in NOAA's file is three or more
+  days old, the box says it has not been updated since that day; if the file has never arrived, the
+  box says the trend is unavailable rather than drawing a line. A day NOAA has no value for is a gap in the line, not a drop to zero. The
+  Connect TV page shows the same.
+- **New York QSO Party.** Pick it under **Settings › Contesting › Contest** and the workspace runs
+  the NYQP committee's own 2026 rules: the third Saturday of October from 1400Z for twelve hours,
+  every US band except 30, 17 and 12 m (60 m and everything from 6 m up count), phone 1 point, CW 2
+  and digital 3. New York stations send RST and their county as the sponsor's three-letter code;
+  the rest of the US and Canada send their state or province, and everyone else sends `DX`. **The
+  county box takes the name as well as the code**: `Monroe` becomes MON. Washington, Delaware and
+  Ontario are also the name of a state or a province, so for those you pick from the list. A
+  station counts once per band on phone, CW and digital, a New York station that changes county
+  is a new station, and a station on a county line is logged once for each county. **Duplicates
+  stay in the log**, marked and scoring nothing, because the sponsor uses them to cross-check the
+  other logs. New York stations multiply by New York counties, US states and Canadian provinces,
+  **with New York itself counted from your first New York county**; everyone else multiplies by
+  the New York counties worked. **FT8 and FT4 earn no credit**, because their contest messages
+  have no room for a county. The Cabrillo export writes `CONTEST: NY-QSO-PARTY` and your county
+  code as `LOCATION` for a New York entry, as the sponsor's sample log does.
+- **JS8: send your grid to a station in one click, as in JS8Call.** Each station in the JS8
+  cockpit's Stations pane has a new button beside the quick queries, **GRID** followed by your
+  locator. One click sends that station your locator, the way JS8Call's menu item "GRID … - Send
+  my current station Maidenhead grid locator" does. It is greyed out while Settings has no
+  locator, or one JS8 will not send (such as EN5), and its tooltip then says what to set.
+- **JS8: the `<MYGRID4>` and `<MYGRID12>` macros, as in JS8Call.** Type either in a JS8 message,
+  or put it in your INFO or STATUS text (Settings ▸ Digital ▸ JS8), and it goes out as the first
+  4 or the first 12 characters of the locator in Settings. An INFO or STATUS reply sends the
+  current value, so it follows the locator when you move.
+- **JS8: band activity aging, as in JS8Call.** Settings ▸ Digital ▸ JS8 has a new **Band
+  activity aging (minutes)** field, 2 by default as in JS8Call, so the Band activity pane looks
+  different out of the box: a row whose newest decode is 2 minutes old or more leaves the pane,
+  unless RX is on its offset (a double-click on a row puts RX there). Set it to 0 to keep every
+  row, as before. Nothing about decoding or transmitting changes, and a row comes back as soon as
+  its offset decodes again. Up to 1440 minutes, a day. The Remote's Band activity pane follows the
+  station's setting.
+- **JS8: callsign aging, as in JS8Call.** Settings ▸ Digital ▸ JS8 has a new **Callsign aging
+  (minutes)** field, off (0) by default as in JS8Call. Set it, and a station you have not heard
+  for that many minutes drops off the JS8 Stations pane, unless it is the one you have selected
+  or it has an unread message for you, and your automatic HEARING? replies leave it out. It is
+  not saved with the heard list either, so it does not come back when Nexus restarts. Up to 1440
+  minutes, a day, as in JS8Call. The Remote's Stations pane follows the station's setting.
+- **JS8: a message sent to you is acknowledged, as JS8Call acknowledges it.** When a MSG addressed
+  to you, or to a group you joined, lands in your Inbox, Nexus answers the sender with an ACK
+  (`W1AW ACK` for a message from W1AW), the reply a JS8Call station sends, so the sender sees that
+  it arrived; a message that came through a relay is acknowledged back along the same relay path.
+  It is an automatic reply like the others: it needs TX on and AUTOREPLY on (the default, as in
+  JS8Call), asks for your Yes first unless you turned that off, and is dropped, not sent later, if
+  TX is off, your locator is missing or the frequency is outside your privileges when its turn
+  comes. A message to @ALLCALL, to another station or to a group you have not joined is never
+  acknowledged, and a copy that arrives while the ACK is still waiting does not get a second one.
+- **JS8: a message you hold for another station is acknowledged, as JS8Call acknowledges it.** When a
+  station leaves a MSG TO: with you for someone else, Nexus now answers the sender with an ACK
+  (`W1AW ACK`), the reply a JS8Call station sends, so the sender knows you have it; one that came
+  through a relay is acknowledged back along that relay path. It is an automatic reply like the
+  acknowledgement of a message to you: it needs TX on and AUTOREPLY on, and asks for your Yes
+  first unless you turned that off.
 - **A Text size setting: Normal, Large or Larger (#215).** Settings ▸ Appearance ▸ Workspace has a
   new **Text size** row, directly under UI scale. Large makes every word on the screen 12% bigger
   and Larger 25%, Band Activity, the Call Roster and the Logbook included, while the rest of the
@@ -50,7 +374,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is outside your licence privileges, whatever colour you pick for them.
 - **Three ready-made layouts for Connect: Map first, List first and Dashboard.** **⊞ Panels** on
   Connect now opens with a **Layout** section. **Map first** gives the map the full height and all
-  but two narrow side columns (Conditions and Band Advisor, Chase and Space Wx). **List first**
+  but two narrow side columns (Best band and Band Advisor, Chase and Space Wx). **List first**
   puts Chase, Chase Feed, Getting Out and Openings in two wide columns with a small map between
   them. **Dashboard** opens seven panes around a smaller map: Space Wx and Band Advisor on the
   left, Chase and Getting Out on the right, Openings, Band Outlook and Greyline along the bottom.
@@ -62,6 +386,154 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   minimum size it always had. Each window keeps its own layout, the Remote Connect page and the
   TV page have the same menu, and the map's own choices (globe or flat, layers, colours) are left
   alone.
+- **Connect's pop-out is a dashboard window.** **⧉ Pop out** on Connect now opens a large window,
+  1600 × 1000 or your whole screen if it is smaller, showing Connect's full layout instead of the
+  narrow stacked one. A bar across its top shows your callsign and grid, a big UTC clock beside
+  your local time, and the day's SFI, Kp, sunspot number, A, X-ray and solar-wind speed. The
+  sunspot number is NOAA's daily count, shown with the day it is from, the same one the Space Wx
+  box shows. With no live data each number is a dash, and old data says how old it is. Close the
+  window and it comes back on the same monitor, in the same place and at the same size, maximized
+  if you left it maximized. If that monitor is gone it opens in the middle of your main screen,
+  sized to fit it. The TV page has the same bar.
+- **Connect: a Frame layout.** **⊞ Panels ▸ Layout** has a fourth choice, **Frame**: two panes down
+  each side of a map that runs the full height, Band Advisor over Space Wx on the left and Getting
+  Out over Chase on the right, in 400 px columns. Like the other layouts it changes nothing until
+  you pick it.
+- **Frame shows the satellites.** Picking the **Frame** layout also ticks **Satellites** on the map
+  and on the 3-D globe, so a wall display shows the birds moving. It is the only layout that
+  touches the map, and it only ever turns Satellites on: every other layer stays as you had it,
+  untick Satellites afterwards and it stays off, and **Undo last change** turns it back off along
+  with the rest of the layout (unless you had it on before you picked Frame).
+- **Connect: a Layout button.** The layouts are one click away now: **Layout** in Connect's header,
+  beside **⊞ Panels**, opens **Map first**, **List first**, **Dashboard** and **Frame**, says which
+  layout is on screen (**Standard**, one of the four, or **Custom**) and has **Undo last change**.
+  It is the same picker that opens at the top of **⊞ Panels**, so a pick made in either shows in
+  both, and either Undo takes it back. The dashboard window, the TV page and the Remote Connect
+  page have the button too.
+- **Connect: Frame + bar, the new default view.** **Layout** has a fifth choice, **Frame +
+  bar**: Bands for you over Openings on the left and Chase over Getting Out on the right, in 400 px
+  columns around a full-height map, with the dashboard window's bar across the top (your callsign
+  and grid, a big UTC clock and your local time, and the day's indices). Every other box is one click
+  away as a tab behind those four. Conditions (formerly Connect) opens in it now (see Changed), and
+  **Undo last change**, another layout or **Reset layout** takes the bar away again. In the dashboard
+  window and on the TV page, which have the bar already, it is the one bar.
+- **Connect: Standard is a choice in Layout.** **Layout** (and the top of **⊞ Panels**) lists
+  **Standard** first: every pane open in its usual place at the usual widths, with no bar, as Connect
+  opened before Frame + bar. Trying Frame + bar or another layout and going back is one tap each way, and
+  **Undo last change** takes the Standard tap back like any other. Unlike **Reset layout**, it leaves
+  your panes' text sizes as they are, as every layout does.
+- **The dashboard bar shows a storm.** Kp, X-ray and the solar-wind speed turn amber when the Space
+  Wx box's gauges are at their warning level (Kp 4 and up, an M or X flare, a wind of 600 km/s or
+  more), in the dashboard window, on the TV page and in Frame + bar. In the light theme the number
+  stays dark with an amber underline, so it stays easy to read.
+- **The Connect window can stay behind your other windows (Windows).** The dashboard bar has a
+  **Stay behind** button. Pressed, the window stays behind your other windows even when you click
+  on it, so it can fill a screen behind Nexus without covering the cockpit. The window remembers
+  it. A click on it still moves the keyboard to it: until you click back into Nexus the keyboard
+  is the dashboard's, so Esc stops nothing then. The Stop TX button always works. On macOS and
+  Linux the button does not appear yet.
+- **A dashboard rail beside the cockpits.** Tick **Dashboard rail** in a cockpit's **⊞ Panels**
+  menu, or press **Dashboard** at the right end of the NOW bar, and a column of Connect boxes
+  stands at the right of the cockpit: the Clock, Bands for you, Space Wx and Getting Out, so the
+  time, the bands and who hears you stay in view while you operate. It is off until you turn it
+  on, and Operate, Phone, CW, RTTY, PSK, SSTV, APRS and JS8 each remember their own choice. Each
+  box has the same menu as a Connect box, so any Connect box can take its place; its **✕** closes
+  it, and the rail's own **⊞ Panels** brings it back or resets the rail. A box's **⋯** sets its own
+  text size there too, and the rail's Reset puts every box back at 100%. Drag the rail's left edge
+  to make it wider or narrower, and the line between two boxes to share the height between them;
+  both work from the keyboard too. The rail appears only on a large window (about 1600 px wide at
+  your zoom, which includes a 1366×768 laptop at its usual 85 %), and the cockpit beside it is
+  never narrower than it is on a 1024×768 screen. Clicking a station in the rail selects it in the
+  rail only, never the station your cockpit is working, and the rail has no transmit control. A
+  **Spots** or **POTA / SOTA** box in the rail works a spot as it does on Connect: a click on a
+  spot, or on **HUNT**, moves the radio to the station and opens its screen. Nothing transmits.
+  Within a window, Connect's boxes, the rail's and the alerts share one request per feed: the rail
+  asks for what the same boxes on Connect ask for, and opening Connect no longer asks for the
+  X-ray reading and the DXpedition windows twice. On a window 2400 px wide or wider, Operate's QSO strip keeps its two rows while
+  the rail is shown, as it does on a smaller screen.
+- **Connect: a Spots box and a POTA / SOTA box.** Pick **Spots** or **POTA / SOTA** from any
+  Connect box's menu. Each is the list from its own screen, in a box:
+  - **Spots** lists every spot on the air, as the Spots screen does, with the same search and
+    Filter chips; Heard on my continent and Hide worked start on, as they do there.
+  - **POTA / SOTA** lists the activators on the air, with the POTA, SOTA and Both tabs, Hide
+    worked today, Refresh and **HUNT**. Its band, mode and sort choices open on its Filter button.
+
+  A click on a spot, or on **HUNT**, does what it does on those screens: the radio goes to the
+  station and the right screen opens. Nothing transmits. Each box keeps its own filters, so a chip
+  in a box never changes the Spots or POTA / SOTA screen, or the other way round. A narrow box
+  shows fewer columns (call, frequency and mode at its narrowest; the age, country and comment
+  from about 530 px, where their headings fit whole in every language; every column from about
+  640 px), and the list scrolls inside the box. Neither box is in the
+  default layout or a ready-made one, so nobody's Connect changes on the update. The wall display
+  (the TV page) shows no spot list, and each box says so there.
+- **The Spots and POTA / SOTA boxes work in Connect's own window too.** In the window **⧉ Pop
+  out** opens, the two boxes show the same lists as in the main window, and a click on a spot or
+  on **HUNT** moves the radio exactly as that window's own Needed and POTA/SOTA boards do; the
+  main window then follows to the matching screen (on CW and Phone with the call ready in the
+  log). Nothing transmits. The wall display still has neither list, and nothing on it can move
+  the radio.
+- **Getting Out lists everyone who hears you.** The Getting Out box on Connect lists every station
+  that has decoded you in the last half hour, not only the first six, most distant first: the
+  call, the direction and distance, the band, the SNR they heard you at and how long ago. The list
+  scrolls inside the box, one line per station where the box has room, and a click still shows the
+  station on the map.
+- **Spots and Needed on the CW screen.** ⊞ Panels on the CW cockpit has the Phone screen's two
+  entries, **Spots** and **Needed**, and both start unticked, so nobody's CW screen changes on the
+  update. Tick one and it joins the screen. On a wide window Spots goes under CW Decode and the
+  Sent echo, and the transcript keeps three quarters of that column; Needed goes under Band
+  Activity and the copilot. On a narrower window both go at the bottom of the left-hand column,
+  below the rig controls, Band Activity and the copilot, with a divider between them that you drag
+  to share the height (the split is remembered). On a small window the column scrolls, so hide a
+  pane you do not need to give them more room. **Spots** opens on the CW spots on the band your
+  radio is on (a skimmer's RTTY or FT8 decode in the CW part of the band stays out) and moves with
+  the radio when you change band; its Filter chips widen it to other modes and bands. **Needed**
+  opens on the CW needs, and its chips widen it the same way. Each pane keeps its own filters, so a
+  chip on the CW screen never changes the Spots or Needed screen, or the Phone screen's panes. A
+  click on a row does exactly what it does on those screens: the radio goes to the station and the
+  call goes into the log; a phone or digital spot, once you have widened the list to it, opens its
+  own screen. Nothing transmits. **Reset layout** unticks both again. On the Remote page the panes
+  show the spots and needs the station already shares, and say so when it does not.
+- **The sun is always on the map.** The map and the 3-D globe show the sun where it is overhead,
+  at the centre of the day side, all the time and not only during a solar flare. It moves with the
+  greyline. On the Globe view it is hidden while it is on the far side of the planet. A new **Sun
+  and moon** layer in the Layers menu turns it off. During an M-class flare the flare layer's own
+  animated sun takes its place, so there is only ever one sun on the map. On a quiet sun the map
+  does no extra drawing for it: it moves once a minute, with the greyline.
+- **The moon is on the map too, in its phase.** The map and the 3-D globe show the moon where it
+  is overhead, drawn as much lit as the real one: a thin crescent, a half, a gibbous moon or a full
+  one, and a new moon as a dark disc with a faint rim. It is lit on the side you see lit from where
+  you are: in the northern hemisphere a waxing moon is lit on the right and a waning one on the
+  left, and the other way round in the southern hemisphere. It shares the **Sun and moon** layer
+  and moves once a minute, like the sun. Its place is worked out in Nexus itself, with no download,
+  to within about a third of a degree.
+- **Connect: make one pane's text bigger or smaller.** Every Connect pane has a **⋯** button in its
+  header, beside the ✕. Its **A+ Larger text** and **A− Smaller text** step that pane's words from
+  80% to 160% of your Text size (Settings ▸ Appearance ▸ Workspace), 10% a press. The menu stays
+  open and shows the size, so you can press again. Only the words change: the pane keeps its place
+  and its size, its header stays as it was, and a pane whose text no longer fits scrolls. To make
+  room for the ⋯, the pane picker beside the title is a little narrower, and in the narrowest
+  columns a long title can end in "…" rather than push ✕ out of view. Each pane
+  keeps its own size in each window, a layout picked from ⊞ Panels keeps the sizes, and **Reset
+  layout** puts every pane back at 100%. Layouts saved before this open with every pane at 100%.
+- **Connect: each pane links to its part of the manual.** A pane's **⋯** menu names the pane in
+  the manual, such as **? Space Wx in the manual**, and opens the part of the Nexus manual
+  (hamradiotools.io/manual) that describes it, in your browser. Every Connect pane has one: the
+  manual's table of Connect's panes now also describes Bands for you, Openings Log, Kp outlook,
+  Band Scope and Contests.
+- **Connect: several panes in one slot, as tabs.** A pane's **⋯** menu has **Add a tab**: pick a
+  pane and it joins that slot, shown, and the slot's title becomes a row of tabs, one per pane; in a
+  narrow column the tabs get a row of their own, under the pane's buttons. Click a tab to switch, or
+  use the arrow keys, Home and End on it. The picker changes the pane on the tab
+  that is showing, and **⋯ ▸ Remove … from this slot** takes that pane out. A pane is only ever in
+  one slot, so adding one from another slot moves it; a slot's only pane is not offered. Each slot
+  reopens on the tab it was showing. The ready-made layouts are one pane per slot: picking one, or
+  **Reset layout**, takes the tabs away, and **Undo** brings them back. Layouts saved before this open
+  exactly as they were.
+- **Connect in the dashboard window and on the TV page: a slot's tabs can take turns.** In a slot
+  with tabs, **⋯ ▸ Rotate the tabs** shows them one after another, every 10 s, 15 s, 30 s, 1 min or
+  2 min. It is off until you pick an interval, and it waits while the mouse is over the slot, while
+  you are in it with the keyboard and while its menu is open. The main window's Connect never
+  rotates.
 - **Night: a darker, warmer screen after dark.** Settings ▸ Appearance ▸ Theme has a new
   **Night** row under High contrast: Off, On, or **Auto**, which turns Night on at dusk and off at
   dawn at your grid square (when the sun is 6° below the horizon there). Night dims and warms the
@@ -131,8 +603,315 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own screen as it does from Spots. Nothing transmits. **Reset layout** unticks both again. On the
   Remote page the panes show the spots and needs the station already shares, and say so when it
   does not.
+- **The rotator strip on the RTTY, PSK, SSTV and JS8 screens.** Phone, CW and FT already had it:
+  the antenna's heading in the cockpit header, with **→ CALL** and **LP** to turn toward the
+  station you are working the short or the long way, and ■ to stop the rotator. **→ CALL** turns
+  toward the call in the Call box on the RTTY and PSK screens, the station you selected on the
+  JS8 screen, and on the SSTV screen the station whose picture you would reply to (the last
+  callsign heard in a picture's ID). A station with no rotator sees nothing new, and the strip
+  asks the rotator nothing while its screen is not the one showing. On the Remote page it behaves
+  as it does on the Phone, CW and FT screens.
+- **Ten ready-made themes.** Settings ▸ Appearance ▸ Theme now shows ten more themes below Light,
+  Dark and System, each card with its name, a line on its character and a swatch of its colours.
+  **Rig looks**: **Amber LCD** (black chassis, amber digits), **Green LCD**, **Blue VFD** and
+  **Silver chassis**. **Modern**: **Midnight** (true black, for OLED screens and dark rooms),
+  **Slate**, **Lagoon**, **Ember**, **Nebula** and **Paper** (a warm cream page). Silver chassis and
+  Paper are light themes and the rest are dark. Every one is checked for contrast in every mode,
+  exactly like Light and Dark: the scopes and meters stay dark, and the transmit red, the ON AIR
+  sign, alerts, and the signal and Needed colours are the same in every theme. High contrast keeps
+  its own look whatever the theme, Night dims each theme in its own colours, and a colour you pick
+  in **Colours** wins over the theme's (that row calls the theme's colour **Theme's own**). On a
+  theme, the band name on the band chip, the Logbook globe's band picker and the Field Day band
+  board is lettered in the theme's text colour, with the band's colour on its border or underline,
+  as in Light. A waterfall or scope on the **Auto** palette takes the theme's own palette (Amber
+  CRT on Amber LCD, SDR Green on Green LCD, Blue on Blue VFD, Cividis on Paper…); Night still
+  turns it Amber CRT, and a palette you picked by name never changes. On a dark theme the map's
+  land, sea and coastlines take the theme's colours too; the light themes keep the usual dark map.
+  Pick Light, Dark or System to go back. The theme is remembered per computer, and your backup carries it with the rest of
+  the look.
+- **Every divider you can drag now also works from the keyboard.** This covers the dividers
+  under the scope in Phone and CW and under the waterfall in Operate, the one between Band
+  Activity and Rx Frequency (Roster) or between the Rx Frequency column and the Stations list
+  (Classic) in Operate, the one between Spots and Needed in Phone, and the two beside
+  Tempo's conversation. Tab reaches each divider, and a thin accent ring shows which one has
+  the keyboard. The arrow keys move it (hold Shift for a bigger step). Home and End take it to
+  either end, and Backspace or a double-click puts it back to where it started. A screen reader
+  says each divider's name and its position. The layouts you have saved open exactly where you
+  left them.
+- **Phone, CW and JS8: drag the columns wider or narrower.** When one of these cockpits shows two
+  or three columns, a divider on the left edge of the log column sets how wide the log is, and
+  with three columns a second divider shares the width between the other two. Drag them, or Tab
+  to one and use the arrow keys (Shift for a bigger step, Home and End for either end, Backspace
+  or a double-click for the standard width). The log column stays between its usual minimum and
+  half the width of the panes; a width you set on a big monitor comes back there, and on a
+  smaller window it is simply narrowed to fit. On a narrow window, where the panes stack in one
+  column, there are no column dividers. **⊞ Panels ▸ Reset layout** puts the standard columns
+  back, and **Undo last change** undoes one divider move. Moving a divider never reloads the
+  log form or the voice keyer, so a half-typed contact stays where it is.
+- **JS8: resize the panes and the waterfall.** A divider between Activity and Band activity and
+  another between Stations and Inbox share the height between each pair, and a divider under the
+  waterfall sets its height, from the mouse or the keyboard like every other divider. The
+  waterfall opens at about the size it had before; the height you set is kept, and fitted to the
+  window when it changes size.
+- **RTTY, PSK and SSTV: resize the text, the log and the waterfall.** In RTTY and PSK a divider
+  between the decoded text and the log sets how they share the height, and a divider under the
+  waterfall sets its height. In SSTV a divider under the picture area sets its height: the band
+  waterfall while you wait, the picture while one comes in. Drag them, or Tab to one and use the
+  arrow keys (Shift for a bigger step, Home and End for either end, Backspace or a double-click to
+  put it back). Until you move SSTV's divider the picture area keeps growing with the window as it
+  always has, so a picture coming in on a big monitor keeps its full size, and Backspace gives you
+  that back. The heights you set are kept, and fitted to the window when it changes size.
+  **⊞ Panels ▸ Undo last change** and **Reset layout** cover the divider between the text and the
+  log. RTTY's and PSK's waterfalls open at a quarter of the cockpit's height, about what they had
+  before, and on a short window or a large UI scale they now get smaller before the cockpit starts
+  to scroll.
+- **Operate: resize its columns, and put the side rail on either side.** In the Classic layout a
+  divider between Band Activity and the Rx Frequency column joins the one between the Rx Frequency
+  column and Stations, and a divider between Rx Frequency and the Tx1–Tx6 messages lets the
+  messages take less height (they scroll) so Rx Frequency gets more; it never makes them taller
+  than their rows. In the Roster layout a divider sits between the Call Roster and the side rail.
+  Each one moves only the two columns or panes beside it and stops where either reaches its
+  smallest width. Drag them, or Tab to one and use the arrow keys, like every other divider;
+  **⊞ Panels ▸ Undo last change** and **Reset layout** cover the column dividers. **⊞ Panels ▸
+  Side rail on the left** moves the rail (Stations in Classic; Band Activity and Rx Frequency in
+  Roster) to the left of the window. A layout you set before this opens exactly as you left it.
+- **Phone, CW and JS8: arrange the panes.** ⊞ Panels on these three cockpits now starts with an
+  **Arrange** section: the screen's three columns, each listing the panes on screen in it, and
+  beside each pane ▲ ▼ to move it up or down in its column and ◀ ▶ to move it into the column beside
+  it. Phone's voice keyer and JS8's log move up and down only: each keeps its column, so a message
+  being sent, a recording in progress or a half-typed contact is never cut off by a move. Phone's
+  and CW's log form stays at the foot of its column, and CW's Rig controls stay at the top of the
+  middle one. A divider between two panes stays with them while they stand together. On a narrower
+  window the second column follows the first. **Undo last change** and **Reset layout** cover a move
+  like any other change, and each window keeps its own arrangement. Until you move something, each
+  cockpit looks exactly as it did.
+- **APRS: a wider station list, and the map on either side.** A divider between the map and the
+  column with the beacon form, the message form and the station list sets that column's width,
+  from 260 px up to half the view (and never less than today's 420 px), so the station table can
+  show its last columns. The **Map on the left** button in the map's top-right corner swaps the map
+  and the column. Drag the divider, or Tab to it and use the arrow keys (Shift for a bigger step,
+  Home and End for either end, Backspace or a double-click for the standard width). Each window
+  keeps its own width and side; a width you set on a big monitor comes back there, and on a
+  smaller window it is narrowed to fit. On a narrow window, where the map sits above the list,
+  there is no divider.
+- **Connect: a taller or shorter bottom row.** A divider between the map and the row of panels
+  under it sets the row's height, from a pane's title and a line of it up to half of Connect, so
+  the map always keeps at least half. Until you move it the row is as tall as its panes need, as
+  before. Drag it, or Tab to it and use the arrow keys (Backspace or a double-click puts the usual
+  height back); **⊞ Panels ▸ Reset layout** puts it back too. Each window keeps its own height,
+  fitted to the window when it changes size.
+- **Logbook: resize the globe.** A divider under the 3-D globe at the top of the Logbook sets its
+  height, from a small strip up to most of the list; until you move it the globe is its usual
+  320 px. The table starts right under it, and scrolling still takes the globe away. Drag it, or
+  Tab to it and use the arrow keys (Backspace or a double-click for the usual height). Each window
+  keeps its own height, fitted to the window when it changes size.
+- **Satellites and Awards: move the line between the two columns.** In Satellites a divider
+  between the schedule and the pass column, and in Awards one between the progress by band and
+  mode and the chase lists, moves that boundary, from the mouse or the keyboard like every other
+  divider. Neither column goes below 260 px, the split you set is kept per window, and Backspace
+  or a double-click puts the usual split back. On a narrow window, where the columns stack, there
+  is no divider.
 
 ### Changed
+
+- **The transmit buttons are in one place on every screen: FT's strip, under the scope.** TX
+  On/Off, Tune, ATU and Stop TX now sit in one row under the scope or waterfall on Phone, CW, RTTY,
+  PSK, JS8 and SSTV, in FT's order and at the size the header's buttons had, so Stop TX is in the
+  same spot whichever mode you are in. On Tempo the row moves from the top bar to just under the
+  Tempo header, with Hold Tx, and gains ATU. On APRS it replaces the TX On/Off chip and adds Stop TX
+  (Tune and ATU too, when the radio reports a tuner). The row stays in the window when a large text
+  scale makes the screen scroll: at 150 % and 175 % the header's Stop TX could sit under the
+  transmit bar on Phone, CW and PSK. Each mode keeps its own send area. On Phone and CW the first
+  button only shows whether transmit is enabled, because those screens enable it themselves. Tune
+  lights while its carrier is up, as on FT. FT's transmit buttons are now the same size as
+  everyone else's. On the Remote, the row follows the contact in the Quick layout, and for a
+  browser watching without station control it scrolls with the screen, as the transmit bar does.
+- **Repeaters: the map comes first, the list under it, and a dot and its row are linked.** After a
+  fetch the map of the machines hearham lists sits above the list of every machine; the List and Map
+  chips are gone. Point at a dot and its row lights up; point at a row and its dot is ringed. A click on
+  a dot brings its row into view and opens a card with **Save to Memories** and **＋ Add**, so a click on
+  a dot no longer adds the machine by itself. The map still shows hearham's listings only, never a
+  RepeaterBook row, and says under it what it leaves off.
+- **Repeaters is simpler to work.** **Near** is the one place that says where to search: My station,
+  or one box that takes a grid square or a city (the Grid and City chips are gone), and Route to….
+  The list's own filter sits with the list, reads **Filter: call or MHz** and clears with one ✕; a place
+  typed into it is offered instead of quietly emptying the list ("Search near "woodstock, il" instead?"),
+  and that tap is the search: Near looks the place up and the list is fetched around it with the radius
+  and bands you have set, the filter cleared. Words that are no place say so where the offer was, and a
+  name that is several places waits for your pick. The count line says what the filters hide and by
+  which, with one tap to show it all:
+  "21 of 25 shown · nearest first — 4 hidden by On-air only · Show all". The bands are one segmented
+  control and FM / +Digital / On-air only one **Show** group, and Auto says its radius in words
+  ("50 mi: about how far 2m+70cm reach from a car or a handheld"). A row's actions say what they do,
+  each with its own icon: **Tune**, **Save to Memories** (a bookmark) and **Add to channel list** (a
+  list); the channel list says it is for programming a radio.
+- **Repeaters has the Conditions look.** The page is three cards on the app's ground, each with a
+  section header as the Conditions boxes have: **Search** (where to look and Fetch repeaters),
+  **Results** (the count, Save all shown and ＋ Add all shown in its header, then the filters, the map
+  and the list) and **Channel list**. The lists a search read show as chips with their age, a
+  repeater's callsign leads its row in heavier type, and the row you point at or select carries an
+  accent bar. From a 1920×1080 window (and 1366×768 at the default scale) the page uses up to 1600 px
+  of width instead of 1100, so the map is wider. Every word reads at 4.5:1 or better in every theme.
+- **Program is now Repeaters.** The view the navigation bar called **Program** is called **Repeaters**
+  everywhere: the navigation button, its tooltip, the view's title, Settings ▸ Appearance ▸ Features, the
+  window title, the RepeaterBook token's notes and the guide, in all five languages. Your saved channel
+  list, your settings and the RepeaterBook token are unchanged.
+- **The channel list's Save to Memory Bank is Save list to Memories.** It always wrote the list into
+  Memories, the same place a repeater row's **Save to Memories** writes to, and its name now says so, in
+  all five languages.
+- **The HUNT look reads under every accent in the dark themes.** Repeaters' **Tune**, **Save to
+  Memories** and **Add to channel list**, and the POTA / SOTA board's **HUNT** that shares their look
+  wherever the board shows, letter in the accent on its own tint, and under the Blue and Violet accents
+  and the Nebula and Blue VFD themes that read as low as 3.65:1 in the dark themes. There they now letter
+  in a lighter shade of the accent (the standard cyan a little paler), at least 4.6:1 under every accent;
+  the tint and the border are as they were.
+- **Connect is now Conditions, and it opens in Frame + bar.** The view the navigation bar called
+  **Connect** is **Conditions (formerly Connect)**: the button reads Conditions, and its tooltip and
+  the window's title say "(formerly Connect)". Your saved layouts and settings are unchanged. After
+  the update Conditions opens in **Frame + bar (default)** once, in the main window, the dashboard
+  window and on the TV page, whatever layout it had. If you had arranged it yourself, your
+  arrangement is kept: **Layout ▸ Your earlier layout** brings it back exactly, boxes, tabs, widths
+  and splits, in one tap. **Standard** is still the first choice in **Layout**, and **Reset layout**
+  still puts every pane back. The switch happens once and never again, even after a reinstall or a
+  restore from a backup, and a dashboard window you never arranged follows the main window, as it
+  always has. On the TV page Frame + bar leaves out the boxes the page can never fill (Chase and its
+  tabs, the rotor, the amplifier and the band scope): Space Wx and the Kp outlook take Chase's
+  place. In all five languages, and in the Portuguese translation kit.
+- **Connect has no radio controls, so its map and panes get the whole height.** The bar across the
+  top of the window, with the frequency, the band list, TX Off, Tune and Stop TX, is no longer shown
+  on Connect; every other screen still has it. To stop a transmission while Connect is on screen,
+  press **Esc**, or go to any other screen and press **Stop TX** there.
+- **Connect keeps the clock.** The radio bar's UTC clock is at the end of Connect's own header now,
+  in every layout, with your local time beside it if you turned that on in **Settings ▸ Workspace**.
+  The dashboard window and the TV page keep the big clock in the bar across their top.
+- **Connect's boxes have clearer names, and their menus are grouped by what the boxes are for.**
+  The headline box is now **Best band**, the card that floats over the map is **Propagation**, and
+  **Best Band → Region** is **Bands by region**, so nothing else on Connect is called "Conditions"
+  and the two band boxes no longer read alike. A box's picker and **⋯ ▸ Add a tab** list the boxes
+  under **Bands**, **Space weather**, **Activity** and **Station** instead of Panels, B2 and B3.
+- **On a small window the top bar takes two lines instead of four.** A small window is one under
+  1100 pixels wide after the text scale: 1024×768 at 100 % or more, 1366×768 at 125 % or more,
+  1920×1080 at 175 %. There, Connect, Needed, Spots, DXped, Logbook, Awards, Stats, Field Day,
+  POTA/SOTA, Memories, Program and Settings leave the FT items out of the bar: the eleven mode
+  buttons, the Tx cycle, the slot countdown, Sync and DT. Those are on FT and Tempo. TX Off, Tune,
+  Stop TX and Hold Tx stay in the bar on all twelve; on Field Day that is still the screen's Stop
+  TX. On FT and Tempo the eleven mode buttons become one button that shows the mode in use and
+  opens the list of all eleven, and Auto, Tx 1st and Tx 2nd lose their small "cycle", "even" and
+  "odd" captions, so FT's bar fits on one line at 1024×768 and 100 %. At 1024×768 and 175 % the
+  twelve screens' bar is three lines. Larger windows are unchanged, and the Remote changes the
+  same way.
+- **JS8: replies are skipped when JS8Call skips them.** No automatic reply is made while your
+  message box holds text (you are typing, a reply waits there, or a message of yours is going out)
+  or while a message to you is still arriving; a reply already queued waits until the box is
+  free. A heartbeat acknowledgement waits for no message to be arriving, as in JS8Call, rather
+  than for your own queue to be empty. While the idle watchdog stands nothing is filed or held
+  either, and a message to your call as you set it (a /P or a prefixed call) is yours, as JS8Call
+  reads "to me".
+- **JS8: with AUTOREPLY off, a reply goes in your message box for you to send, as in JS8Call.**
+  JS8Call still answers a query to you with AUTO unchecked: it types the answer (an SNR, GRID,
+  INFO, STATUS or HEARING reply, the ACK for a MSG, a relay) into its message box, and you send it
+  or not. Nexus did nothing. Now the answer is put in the JS8 message box, the To box and command
+  cleared, exactly as it would go out, once the box is empty and nothing of yours is going out; it
+  never keys by itself, and Send keys it as your own message. QUERY MSGS and heartbeats are still
+  answered only with AUTOREPLY on, as in JS8Call. A relay with AUTOREPLY off now waits in the box
+  too, where it used to go out by itself.
+- **JS8: an automatic reply goes out in the next period, as JS8Call sends it.** JS8Call keys a
+  reply in the period right after the one the query came in; Nexus first counted it down for one
+  period and two seconds and so answered two periods late, by which time the other station had
+  often moved on. Now a reply made by itself (the confirmation off) is queued as it is made, in
+  view in the dock's queue, and keys at the next boundary, through every TX check as before (the
+  TX latch, your callsign and locator, your privileges, the idle watchdog, one frame per period,
+  Stop TX, and Drop queue to take it back). A reply you confirm goes at the boundary after your
+  Yes. The countdown and its Cancel are gone; No is the veto now.
+- **JS8: @APRSIS and @JS8NET can no longer be joined as groups, as in JS8Call.** While either is
+  in the JS8 Groups field, Settings will not save, whatever else you changed: it says "… is a
+  group that cannot be joined" and where to take it out, as JS8Call's Settings refuses its OK.
+  Messages can still be sent to both. If an earlier Nexus saved one in your settings, it stays in
+  the file and in the field but is not joined, so traffic to it gets no automatic replies, and
+  your next Save asks you to take it out. Nothing that saves by itself is held up: window places,
+  band and radio state, and the switches that save when you click them.
+
+- **JS8: a HEARING? reply no longer names the station that asked, as in JS8Call.** A station asking
+  who you hear used to find its own call in your reply, usually first, taking one of the four
+  places. The reply now lists the four stations you heard most recently, not counting the one
+  asking.
+
+- **A band says the same thing everywhere.** The map's Band conditions list, the Band Advisor,
+  the band menu and the NOW bar now show the same word and the same colour for each band.
+  - A band you are hearing now is Open and green, even when the propagation model calls it
+    closed. A summer Es opening on 10 m or 6 m used to show a grey "Open".
+  - The NOW bar says what the band menu says, in the same word. For a band the model calls open
+    but nobody has heard yet it now says "20m Open" (it used to say "quiet"), and "20m Marginal"
+    where the list says Marginal. A closed band shows in grey instead of red.
+  - Open, Marginal and Closed are shown in English in every language, like the band names, on
+    the list, the Band Advisor, the band menu, the NOW bar and the band tiles. The NOW bar used
+    to put them in the interface's language.
+  - The Band Advisor's word is the same outlined word as the list's. A closed band's row is no
+    longer faded to half strength, which made its text too faint to read; its band name and word
+    are dimmer instead.
+
+- **JS8: heartbeat acknowledgements go on a free spot between 500 and 1000 Hz, as JS8Call's
+  do.** With HB-ack on, the acknowledgement of a heartbeat you heard used to go out on your own
+  offset. It now takes a free spot between 500 and 999 Hz, picked the same way as your
+  heartbeat's, and the Activity pane shows it there. Unlike the heartbeat, it does this even when
+  your own offset is 1000 Hz or lower, as in JS8Call.
+
+- **JS8: a heartbeat that comes due while TX is off is skipped, as in JS8Call.** With HB on and
+  TX off, the heartbeat that came due used to wait and go out the moment you turned TX back on.
+  Now it is dropped and the next one is counted from then, so turning TX on sends nothing until
+  the next heartbeat is due.
+
+- **JS8: no automatic replies to questions sent to @ALLCALL, as in JS8Call.** A station asking
+  everyone (@ALLCALL) for SNR, INFO, STATUS, GRID or HEARING used to get an answer from every
+  Nexus station with autoreply on. JS8Call stations never answer those, and Nexus now doesn't
+  either. Questions sent to your call, or to a group you joined, are answered as before. Nexus
+  also stays quiet where JS8Call does: no reply to INFO? when your info is empty or to GRID?
+  when no locator is set, and an @ALLCALL QUERY MSGS gets an answer only when a message is
+  waiting for that station (at most once every 15 minutes), never a NO.
+
+- **JS8: nothing is transmitted until Settings has your locator, as in JS8Call.** With the Grid
+  field in Settings (Operator & Radio) empty, JS8 used to transmit anyway, and heartbeats and CQs
+  went out without your square. Now Send, CQ and the query buttons are refused with a message
+  saying where to set it, and an automatic reply or heartbeat that comes due is dropped, with the
+  same message in the JS8 cockpit. A message already going out when the locator is cleared still
+  finishes.
+
+- **JS8: a malformed locator stops JS8 transmitting, as a missing one does.** JS8 used to send
+  with whatever was typed in the Grid field, so a slip such as "EN5" made every heartbeat go out as
+  two frames. JS8 now takes only a locator JS8Call's own Settings would accept: 4 to 12 characters
+  in whole pairs (EN52, EN52HW, EN52HW12 and so on), in upper or lower case. Anything else is
+  refused with the same message as no locator. FT8 and FT4 keep their own rule.
+
+- **JS8: what is waiting to go is dropped when a missing or malformed locator stops it, as in
+  JS8Call.** Messages queued when the locator was cleared or mistyped, a repeating CQ's call
+  among them, used to wait and go out the moment a locator was set, however long afterwards. They
+  are now dropped when the start is refused, as JS8Call drops its queue. A repeating CQ and the
+  heartbeat stay armed and carry on at their next times once the locator is fixed.
+
+- **JS8: the free spot for a heartbeat or its acknowledgement is chosen from everything heard,
+  as in JS8Call.** A spot used to count as taken only when a station whose callsign had been
+  decoded was heard there in the last 30 seconds. Now every decoded frame counts, including the
+  middle frames of a long message, which carry no callsign, and a signal that drifts counts once,
+  where it is now. Your own offset always counts as free, as it does in JS8Call.
+
+- **JS8: a message can be addressed to @APRSIS or @JS8NET, as in JS8Call.** With either in the
+  To field, Send used to refuse, saying JS8Call refuses them. JS8Call sends to both like any
+  group; it only stops you joining them. A JS8Call station that gates to APRS-IS forwards what it
+  hears addressed to @APRSIS: `@APRSIS GRID <locator>` puts your position on APRS-IS, and
+  `@APRSIS CMD <text>` puts `<text>` on APRS-IS as a packet from your call, such as an APRS
+  message to another station or to a gateway (JS8Call's own example is the EMAIL-2 email
+  gateway). The command list and a typed `@APRSIS …` line already sent these; now the To field
+  does too.
+- **Phone: Space presses the buttons in ⊞ Panels.** When a button in the ⊞ Panels menu has the
+  focus (an Arrange move, **Undo last change** or **Reset layout**), Space now presses it, as it
+  does anywhere else. Before, Space keyed the transmitter there and the button did nothing.
+  Everywhere else in Phone, Space is still push-to-talk. Letting go of Space still unkeys, wherever
+  the focus has moved.
+
+- **The dividers no longer take room of their own.** In Phone, CW, JS8 and Operate, the divider
+  under a scope or waterfall and the dividers between panes now sit in the space that was already
+  between them, so the panes and columns beside each one get back 12 px (8 px in Operate), as
+  RTTY's, PSK's and SSTV's new dividers do.
 
 - **ON AIR is now a solid red sign you cannot miss.** While the rig is keyed, the TX state in the
   cockpit header (Phone, CW, RTTY, PSK, SSTV, JS8 and Tempo), Operate's **▲ TRANSMITTING** in the
@@ -155,6 +934,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   frequency digits is a deeper shade of the same blue. Words in it, and white words on it, now
   meet the usual 4.5:1 reading contrast on the light panels, where they were about 3.5:1. The
   dark theme is unchanged, and so is a colour you picked in Settings ▸ Appearance ▸ Colours.
+- **The Gold warning colour no longer looks like Amber or Yellow.** In Settings ▸ Appearance ▸
+  Colours, Gold was almost the same colour as Amber in the dark theme, and as Yellow in the light
+  theme. It is now a deeper gold in the dark theme and a duller, brass-like gold in the light
+  theme, clearly apart from both in each, and it still passes the same readability checks as the
+  others. Amber and Yellow look exactly as before, and nothing changes unless you picked Gold.
+- **Teal and Mint no longer look alike in the light theme.** In Settings ▸ Appearance ▸ Colours,
+  the OK / green choices Teal and Mint were almost the same colour in the light theme, and Mint was
+  close to Green as well. Teal is now a deeper, slightly bluer teal there and Mint a touch lighter,
+  so the three greens are clearly apart, and they pass the same readability checks as before, on
+  every built-in theme too. Teal still stays furthest from the reds for a red-green colour-blind
+  operator. The dark theme is unchanged, and nothing changes unless you picked Teal or Mint.
 - **Density's middle setting is called Standard.** It was labelled Comfortable while Density had
   two choices; Comfortable is now the roomier setting beside it. Whichever you had picked stays
   picked, and nothing on the screen moves.
@@ -185,6 +975,635 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Program never shows a repeater list it could not read as "no repeaters".** A search could
+  come back saying "No FM repeaters within 50 mi." where there are plenty, with nothing to say
+  why: the hearham list kept on this PC was whatever hearham's address had last answered, an
+  error page included, and it was read as an empty list for up to a week. Now only a list that
+  reads is kept, a kept one that does not is fetched again on the next search, and a list that
+  still cannot be read is an error with Retry, not an empty area. When RepeaterBook answered but
+  hearham's list could not be read, the machines shown are RepeaterBook's and Program says that
+  hearham's are missing (in the list's place when nothing is shown), where before they went
+  missing without a word.
+
+- **Remote as a stream: the browser's microphone works on the hosted page.** The hosted page told
+  the browser that none of its pages could use a microphone, so pressing **Mic off** in a stream
+  never turned the microphone on: every press ended with "The browser did not allow the
+  microphone", whatever the browser's own setting said. The page's own address may now use the
+  microphone, still only after you allow it in the browser. The camera and your location stay
+  refused, and no other site can use the microphone through the page.
+- **Remote as a stream: the stream no longer ends the moment it starts (Windows).** Every
+  **Start the stream** was answered by the shack and then ended in the same second, and the page
+  went back to **Start the stream** saying the connection to the station was lost. While the
+  station and the browser look for a way through each other's routers, some of their first tries
+  are refused, and Windows reports such a refusal as if the station's connection had failed. The
+  station took it at its word and ended the stream before anything could connect. A browser whose
+  network has IPv6 could end the same way. Now the station keeps looking for its usual 20 seconds,
+  and the stream connects when there is a way through.
+- **Remote as a stream: one stray packet no longer ends a working stream (Windows).** A stream
+  could end with "The connection to the station was lost" because of a single packet: one
+  larger than the station reads, which anyone who can reach the stream's address can send, or a
+  router's "time exceeded" answer to one of the station's checks for a way through. Windows
+  reports each as an error on the station's connection, though it is about that one packet. The
+  station now drops the packet and carries on, as it already did for a refused check.
+- **Remote as a stream: turning off "Stream this station from my browser" at the shack ends a
+  stream that is running.** The switch (Settings → Station → Remote access) was read only when a
+  stream started, so a browser already streaming kept the picture, its control of Nexus and its
+  hold on the transmitter until it left. Now turning it off and saving ends a running stream
+  within about a second, the same way revoking the browser does: anything it was transmitting
+  stops, and the page says streaming is off at the shack.
+- **Remote: Listen plays the station's audio.** Since Listen arrived in 1.13.0 it never played on
+  the hosted page: the page's own security policy refused the audio player the page builds, so
+  every press ended with "The station has no audio to send right now." while the station was
+  sending audio. Behind that, the player also failed on the first packet it was given, and in a
+  stream the Listen button turned itself on, showing "Listening to the station" over silence
+  before anyone pressed it. Now Listen starts only when you press it, on the Remote page and in a
+  stream, and you hear the station.
+
+- **Connect: the Space Wx gauges sit two to a row.** They were meant to, but stood one per row,
+  so the box ran six gauges deep and its 30-day lines were out of sight below them. Now the
+  gauges take three rows, and at 1920 × 1080 and larger the lines show in the box's usual place
+  along the bottom without scrolling; on smaller windows the box still scrolls to them. In the
+  narrowest column the solar-wind speed's km/s drops under the number so it stays inside the
+  gauge.
+
+- **Connect: a Chase row's country moves under the call when there is no room beside it.** In a
+  narrow Chase or Chase Feed box the country and its beam heading were cut short ("South Orkney
+  Is." showed as a few letters), and with the box's text at its largest they were not shown at
+  all. Now, where the call, its need chip, the point button and the age leave them no room, they
+  go on the line under the call, whole; those four stay where they were. Where even those four
+  do not fit on one line (the largest text, or the narrowest column), they take the lines they
+  need instead of running under the ▶ Work button beside them.
+
+- **Connect: the Chase DX button says which map it opens.** Its tooltip said "Beam map,
+  need-colored, live openings", but Chase DX, like every intent, has opened on the Globe since the
+  map picker arrived. It now says "Globe, need-colored, live openings", in every language.
+
+- **Program at a large zoom: Tune and Add can be clicked again.** With the app pinned at 100 % on
+  a 1024×768 screen (or 125 % on 1366×768, 175 % on 1920×1080), Program puts the search above the
+  channel list, and the channel list covered the search results, so no Tune or Add button in them
+  could be clicked. Each half now keeps room for what it holds and Program scrolls instead. At the
+  automatic zoom nothing moves.
+- **Operate at a large zoom: Call Roster, Band Activity and Rx Frequency show their rows.** With
+  the app pinned at 100 % on a 1024×768 screen, Operate squeezed the decode panes down to their
+  title bars with nothing to scroll, and at 125 % on 1366×768 they disappeared. Now the waterfall
+  gives way first, each pane keeps a usable box that you scroll between, and past that the cockpit
+  scrolls. The QSO strip with Stop TX and Tune stays on screen while you scroll. At 175 % on
+  1366×768 the strip used to sit below the bottom of the window, where the mouse could not reach
+  it; the cockpit now scrolls to it. At the automatic zoom on a 1024×768 or larger screen nothing
+  moves, except that a very tall waterfall drag now stops short of squeezing the panes below it.
+- **Tempo at a large zoom: the station list, the conversation and the waterfall rail no longer
+  sit on top of each other.** With the app pinned at 100 % on a 1024×768 screen (or 125 % on
+  1366×768, 175 % on 1920×1080), all of Tempo's panes landed in the same place: the waterfall rail
+  covered the station list and the conversation, and the station search box sat over the first
+  Band Activity rows. They now stack one under another and Tempo scrolls.
+- **Program: an off-air repeater fades by colour and stays readable.** With "On-air only" off, a
+  repeater listed as off the air was drawn see-through, which made every word on its row hard to
+  read. Its call, frequency and buttons are now in the dimmer text colour, Tune and Add lose their
+  tint, and the OFF-AIR tag is in the normal text colour with its warning colour as an outline, so
+  the row reads clearly in every theme and still stands out as off the air.
+- **On the Globe map, an opening's wedge no longer shows through the planet.** The Opening sectors
+  layer drew each opening's wedge from its corners, so a part of it behind the planet was drawn on
+  the side facing you, where a line from it straight through the Earth comes out. On a globe
+  centred on the US Midwest, a 20 m F2 opening 15,000 km long toward Southeast Asia ended over the
+  Arctic, tagged "20m F2" there, and with the globe turned to Australia a 2 m tropo opening at home
+  still showed, tag and all, over the western Pacific. Now the wedge stops at the edge of the
+  globe, as range rings and satellite footprints do. Its band and mode tag stays at the wedge's far
+  end while that end is on your side of the planet; when the far end is behind the planet, the tag
+  is written just inside the edge of the globe, where the wedge meets it, so that F2 opening is
+  still labelled "20m F2". A wedge wholly behind the planet shows nothing, tag included. On the
+  Flat map a long wedge now follows its bearings as well: that F2 wedge, which runs over the pole,
+  was drawn as a thin sliver straight across the Atlantic and Africa. The Beam map and the 3D globe
+  are unchanged.
+- **Esc stops transmit on every operating screen and on Satellites.** It did nothing on Tempo,
+  SSTV, APRS and Satellites, and on Phone it stopped only the voice keyer. Now on each of them it
+  does what **Stop TX** does (on Tempo, the top bar's; APRS and Satellites draw no Stop TX of
+  their own), from anywhere on the screen, a text field included, as it already did on FT, CW,
+  RTTY, PSK and JS8. A menu or dialog that Esc closes still closes on the same press. Phone's
+  space bar is unchanged.
+- **On the hosted page, Esc on FT follows the same rule as Stop TX.** For an observer it does
+  nothing, where it used to show "Could not stop transmit"; for the browser in control it stops
+  the station as before. On FT, CW, RTTY, PSK and JS8 Esc is now heard the way it is on the other
+  operating screens, before anything else on the screen, so no control there can ever keep it from
+  stopping. What Esc does is unchanged: on FT it is still the WSJT-X halt, the same as **Stop TX**.
+- **On the hosted page, Esc stops transmit on CW, RTTY, PSK and JS8 for the browser in control.**
+  It did nothing there, while **Stop TX** on the same screen stopped the station. Now Esc sends the
+  same stop as that Stop TX, from anywhere on the screen, stale readings included. For an observer
+  it still does nothing and shows nothing. The desktop is unchanged.
+- **Settings has the switch to follow the radio's own split.** 1.9.1 added following the radio's
+  own split and said to turn it on in Settings, but there was never a switch for it: the only way
+  was to edit settings.json. Settings › Radio › Rig & CAT now has **Follow the radio's split**,
+  beside Split operation, off by default. Turn it on and a split you set at the radio is the one
+  Nexus checks your licence privileges against; if the radio says it is split but not where it
+  transmits, Nexus will not transmit. Nexus never asks a radio whose split can only be read by
+  moving it. From a browser the switch is shown but cannot be changed.
+- **Settings says which Rig & CAT controls belong to every radio.** With two or more radios, the
+  note over the radio cards said that editing another radio would not change the one you are
+  operating, and the manual said every Rig & CAT control is per radio. Seven are station-wide, one
+  setting for all your radios: Interface keys RTS on the CAT port, Split operation, Follow the
+  radio's split, Wheel tuning sensitivity, and under Advanced, Sharing port, Serial handshake and
+  Keying line at startup. The note and the manual now name them, so changing one while you edit
+  another radio no longer surprises the radio you are operating.
+- **Less work for the computer while nothing is happening.** The main window redrew itself two and
+  a half times a second on a timer, even with nothing new to show, on top of the redraw that each
+  new reading from the radio already brings. It now redraws only when something has changed. The
+  unread counts in the Tempo station list update exactly as before.
+- **JS8: a message sent to you is kept in the Inbox, as JS8Call keeps it.** A MSG addressed to
+  you, or to a group you joined, now lands in the JS8 Inbox as unread, with the path it was
+  relayed along. The station that sent it is flagged ⚑ in the Stations pane and moves to the top of
+  the list, just under any station you pinned with ★, and a notice says a new message arrived.
+  Mark it read or delete it in the Inbox. Before, a message to you went by in the activity list
+  and was kept nowhere, although the Inbox said such messages appear there. Nexus now also answers
+  it with an ACK, as JS8Call does (see Added). Messages to you stay until you delete them (the
+  newest 100 are kept); messages held for other stations still go after 48 hours, and a flood of
+  messages to you can never push one of those out.
+- **JS8: the Stations pane shows each station's offset the way JS8Call does.** The offset is whole
+  hertz with the fraction dropped, so a station at 1508.9 Hz reads 1508 Hz, where it used to be
+  rounded up to 1509. It now matches the Band activity pane and JS8Call's own call list.
+- **Connect at a large zoom: the side panes can be used again.** With the app pinned at a large
+  zoom on a smaller screen (for example 175 % on 1920×1080), the top bar and Connect's header leave
+  the pane grid little height. The bottom row kept its full height, and each side pane shrank to a
+  sliver: its title was cut off and its pane picker and ✕ could not be reached (in Japanese, none
+  of the four). Now every pane keeps its title bar, with its picker and ✕, in view and a line of
+  the pane under it: the bottom row gives up the height it was holding, and where even that does
+  not fit, Connect scrolls. At the usual sizes and zooms nothing moves; on a 1024×768 screen with
+  the zoom pinned at 100 %, the side panes also take a little of the bottom row's height, so a
+  two-line title still shows a line of its pane.
+- **CW: a message that could not go out is dropped, not sent later on its own.** When CW could not
+  be sent because transmit was off (for example after leaving the CW screen part-way through a
+  message) or the frequency was outside your license privileges, what was still waiting used to be
+  held, and it went out by itself as soon as transmitting was allowed again: TX back on, or a tune
+  back inside your privileges. It is now dropped, and the CW screen's warning line says why.
+  Moving from the CW screen to another mode's screen (Phone, RTTY, PSK or a digital mode) drops
+  what was still to go too, and the CW screen's warning line says so when you come back: send it
+  again. Before, the rest of a message kept keying from Phone, RTTY or PSK, or was dropped under a
+  note blaming your privileges. The word already being keyed finishes, since the keyer is handed
+  one word at a time; on the soundcard keyer a move to a digital mode, which turns transmit off,
+  still cuts it, as before. Screens that are not a mode's own, such as the map or the logbook, do
+  not count, and the CW ID after an FT8 73 is sent from the FT8 screen as before. A message you
+  send once transmitting is allowed goes out exactly as before, and Stop TX, the keyer and its
+  speed work as they did.
+- **The Globe map no longer shows what is behind the planet on its face.** On Connect's Globe map, a
+  spot, a decoded station, a park, a DXpedition, an APRS station or a satellite on the far side of
+  the planet was drawn on the side facing you, where a line from it straight through the Earth
+  comes out: a 20 m spot in Sydney showed over the eastern Pacific on a globe centred on the US
+  Midwest. Now only what is on your side of the planet is drawn, and only that answers a hover or a
+  click. The same goes for your QTH marker when you turn the globe away from it, a satellite's
+  trail, the long path of the Selected path layer, Band heat, the Ionosonde MUF, Aurora oval,
+  Proton polar cap and Flare blackout markers, the grid labels and the CQ-zone numbers. A ★
+  satellite's footprint still shows the part on your side while the satellite itself is behind the
+  planet, and "No located stations yet" still shows only while none of your decoded stations has a
+  grid. The Flat and Beam maps and the 3D globe are unchanged.
+- **RTTY and PSK: an over that could not go out is dropped, not sent later on its own.** The same
+  rule as CW. When RTTY or PSK could not be sent because transmit was off (for example after
+  leaving the RTTY or PSK screen for FT8 with more typed ahead) or the frequency was outside your
+  license privileges, what was still waiting used to be held, and it went out by itself as soon as
+  transmitting was allowed again. It is now dropped, and that screen's warning line says why. If
+  one of those RTTY overs belonged to an auto-sequencer QSO, the auto QSO stops and says so, as it
+  already did when an over could not be queued. Moving from the RTTY or PSK screen to another
+  mode's screen (Phone, CW, the other of the two, or a digital mode such as FT8) drops what was
+  still typed ahead too, and that screen's warning line says so when you come back, so nothing
+  keys on your return: send it again. Screens that are not a mode's own, such as the map or the
+  logbook, do not count: what you typed ahead keeps going out. An RTTY auto QSO ends when you
+  leave the RTTY screen, and says so. An over already going out is treated as before: it finishes
+  if you move to Phone, CW, RTTY or PSK, and stops if you move to a digital mode, which turns
+  transmit off. Overs you send once transmitting is allowed go out exactly as before, and Stop
+  TX, the watchdog and continuous TX work as they did.
+- **Voice keyer: a message that could not go out is dropped, and a refused one says why.** A
+  message you played on a frequency outside your license privileges did nothing and said nothing;
+  the keyer's "Could not play F1" note now says why, and so do its other failures. A message
+  already waiting when transmit went off (for example after leaving the Phone screen for FT8
+  before it started) or when the dial left your privileges used to be held, and it played by
+  itself as soon as transmitting was allowed again. It is now dropped. Messages you play once
+  transmitting is allowed go out exactly as before, and ■ Stop, Stop TX and PTT work as they did.
+- **JS8: an automatic reply or heartbeat that comes due outside your privileges is dropped, not
+  sent later.** The rule CW, RTTY and PSK keep. With TX on and the frequency outside your license
+  privileges, a reply counting down (to an SNR?, INFO? or other query) or a heartbeat that came due
+  was held, and it went out by itself as soon as you tuned back inside them. It is now dropped, as
+  it already was with TX off or with no locator in Settings, and the JS8 screen says why.
+- **JS8: what is queued is dropped when transmit goes off or the dial leaves your privileges, not
+  sent later.** The same rule as CW, RTTY and PSK. A message you sent, the rest of a message
+  already going out and a repeating CQ's call used to wait while TX was off or the frequency was
+  outside your license privileges, and went out by themselves as soon as TX came back on or you
+  tuned back inside them. They are now dropped, and the JS8 screen says why (with TX off, when a
+  message of yours was among them). The frame on the air when you turn TX off still finishes, as
+  before, and a repeating CQ keeps its schedule.
+- **JS8: with RELAY off, a message left for another station is no longer held.** Holding MSG TO:
+  messages for the stations they are addressed to is what Settings lists under Relay, and JS8Call
+  holds them only with relaying on; Nexus held them with Relay off too, and offered and delivered
+  them later. Holding another station's message is third-party traffic, so with RELAY off it is now
+  neither held nor acknowledged.
+- **JS8: replies to a portable station keep its /P, as JS8Call's do.** Every automatic reply
+  (SNR?, GRID?, INFO?, STATUS?, HEARING?, QUERY MSGS, a message delivered from your store, and the
+  heartbeat acknowledgement) named a station heard as W1AW/P as W1AW. Each now names the station as
+  it was heard, as a JS8Call station's reply does, and a message delivered from your store names
+  its sender as it was heard too. A message held for W1AW is still offered and delivered to W1AW/P.
+- **JS8: a message left for a station with a prefix or suffix is held for its base call, as in
+  JS8Call.** A MSG TO: for VE3/W1AW or W1AW/MM was held under that whole call, so W1AW asking
+  QUERY MSGS was told NO, and a message held for W1AW was never offered to VE3/W1AW. JS8Call holds
+  every such message under the base call, W1AW, and offers it to a station by the call it is heard
+  under or by its base call; Nexus now does the same, in the heartbeat acknowledgement's MSG ID,
+  the answer to QUERY MSGS, QUERY MSG and the count in the Stations list. A message already held
+  is still found under the call it was held for.
+- **JS8: a message left with no text is held but never offered, as in JS8Call.** A MSG TO:W1AW
+  with nothing after the call was held and acknowledged, then offered to W1AW: its QUERY MSGS was
+  answered YES MSG ID 1, its heartbeat acknowledgement carried that ID, and QUERY MSG 1 delivered
+  a message with nothing in it. JS8Call holds and acknowledges such a message but passes over it
+  whenever it looks for one to offer, and Nexus now does the same: W1AW is offered the next
+  message held for it that has text, or told NO, and a QUERY MSG for the empty one draws no
+  reply. It stays in the Inbox, held.
+- **JS8: nothing is answered while the idle watchdog stands, even after you change a setting.**
+  When the idle watchdog had turned auto-reply, relay and the heartbeat off, changing any setting
+  put those switches back on underneath while the watchdog still stood, so a query heard then
+  counted down a reply, and the reply went out after your next send. Now nothing is answered,
+  relayed or delivered while the watchdog stands, as JS8Call does, and nothing heard meanwhile goes
+  out later.
+- **JS8: what you do in the JS8 screen restarts the idle watchdog, as in JS8Call.** After the idle
+  watchdog had turned auto-reply, relay and the heartbeat off, turning a switch or the repeating CQ
+  back on ended it for one second only: the watchdog still counted from your last send and tripped
+  again, with its notice. Now each send, each switch on or off, Drop queue, Yes or No, Read or
+  Delete in the Inbox and a speed choice starts the idle count again, as each key press or click
+  does in JS8Call. A send did end the watchdog, but left auto-reply and relay off while the dock
+  showed them on: a query heard afterwards waited in your message box instead of being answered,
+  and a MSG TO: for another station was not held. They now come back on, as the dock shows them.
+  The heartbeat and the repeating CQ stay off until you turn them on.
+- **JS8: the idle watchdog's notice and the dock's line say what comes back.** The notice said any
+  send or switch re-arms the heartbeat, auto-reply and relay, and the dock's line said they were
+  off until you send something. Now both say what happens: your next send, switch, speed choice,
+  or Read or Delete in the Inbox brings back AUTOREPLY, RELAY and HB ACK as Settings has them, and
+  HB and the repeating CQ stay off until you switch them on. In all five languages.
+- **JS8: the Auto-reply hint and tooltip say what is answered.** Settings' Auto-reply hint now
+  names the ACK for a message to you or a group you joined and for a MSG TO: you hold, and says
+  that on @ALLCALL only QUERY MSGS is answered; the cockpit's AUTOREPLY tooltip no longer says
+  @ALLCALL queries are answered, which stopped being true when JS8 stopped answering them, as
+  JS8Call does. In all five languages.
+- **Program lists the FM repeaters whose directory entry also names a digital mode.** The hearham
+  directory writes a machine that runs FM and a digital mode as `YSF/FM`, `DMR/FM`, `D-STAR/FM` or
+  `P25/FM`, and a narrow-FM machine as `NFM`. Program took only a plain `FM` as FM, so 514 such
+  machines, most of them in Florida, New England, Missouri and Minnesota, were hidden unless the
+  digital filter was on, and could not be added to a channel list. They are now listed and can be
+  added, starred and exported as FM channels, and a `YSF/FM` machine keeps its +YSF badge. An `NFM`
+  machine is programmed as ordinary FM, since Program does not write narrow channels yet.
+- **Program writes a narrow repeater as a narrow channel.** A machine whose directory marks it
+  narrow, hearham's `NFM` or a RepeaterBook bandwidth of 12.5 kHz, now goes out as `NFM` in the
+  CHIRP and CSV files (the Remote's export too) and is starred into Memories as NFM, so the radio
+  uses the narrow deviation the machine expects. That is 55 machines in the hearham directory.
+  A narrow machine you had already starred as FM is still that one memory: Memories counts NFM and
+  FM on the same frequency and tone as the same channel, so starring it again or importing it adds
+  no second copy. **Tune now** and recalling the memory still set the radio to ordinary FM: Nexus
+  has no narrow-FM setting for the rig on any radio yet.
+- **Program exports the DCS code of a hearham repeater.** The hearham directory writes a DCS
+  machine's code in its tone field (`DCS023`, `D023`, `DCS 043`, `DPL411` and a few other
+  spellings), and Program read none of them, so 138 FM machines went out with no code and would not
+  open. They now export with their code, in the CHIRP and CSV files and when starred into
+  Memories. **Tune now** still sets no code on the radio: Nexus has no DCS setting for the rig. A code
+  that is not one of the 104 standard ones, or an entry that lists a tone and a code together, still
+  gets none rather than a guess.
+- **A repeater that takes its DCS code only on its input is programmed that way.** When the
+  directory gives a machine's DCS code for its input alone (32 hearham machines, and a RepeaterBook
+  machine with a DCS code in PL but not in TSQ), Program now exports it as DCS on transmit only,
+  CHIRP's Cross mode `DTCS->`, with the receiver left open: in the CHIRP and CSV files, the Remote's
+  export and when starred into Memories. As DCS both ways, it kept the radio squelched on a machine
+  whose output carries no code. A machine that lists the same code on its output stays DCS both
+  ways, and the 4 hearham machines that list a tone or a different code on their output, which got
+  no code before, now go out the same send-only way. CHIRP files from Program and Memories carry two
+  more columns at the end, `RxDtcsCode` and `CrossMode`.
+- **Program no longer loses your saved channel lists to a file it cannot read.** When the file
+  that holds them was damaged, cut short, or written by a newer Nexus with a setting this one does
+  not know, Program opened on an empty list and saved that over the file moments later, and every
+  saved list was gone. Now Program keeps that file, untouched, under a new dated name in the same
+  folder (such as `radioprog.unreadable-20260930-142233.json`), starts a new list, and says at the
+  top of Program where the kept file is. If the file cannot be moved aside, it stays where it is
+  and Program saves nothing until it is moved or repaired. A file from a newer Nexus that only adds
+  new fields opens as it always has.
+- **A QSO waiting in the “Log this QSO?” popup is no longer lost to a file Nexus cannot read.**
+  Nexus keeps the QSOs waiting for your confirmation in a file, so a crash or a power cut does not
+  lose them. When that file could not be read (damaged, or written by a newer Nexus with a value
+  this one does not know), Nexus restored nothing and wrote the next waiting QSO over it, and every
+  contact in it was gone. Now Nexus keeps that file, untouched, under a new dated name beside it
+  (such as `pending_qso.unreadable-20260930-142233.json`), and says where, once, when it starts.
+  If the file cannot be moved aside, Nexus leaves it where it is and does not write over it.
+- **Field Day and contest contacts are no longer lost to a backup Nexus cannot read in full.**
+  Nexus keeps a backup of the contest log beside your settings and rewrites it with every contact,
+  so a restart mid-event loses nothing. When part of that backup could not be read (cut off by a
+  crash, or damaged), Nexus restored what it could and the next contact rewrote the backup
+  without the rest; a backup it could not open at all restored nothing, and the next contact
+  replaced every earlier contact of the event. Now Nexus restores the contacts it can read and
+  keeps the backup itself, untouched, under a new dated name beside it, and says where. If the
+  backup cannot be moved aside, Nexus leaves it where it is, does not write over it, and keeps
+  this session's contest contacts in memory, where switching between Run and S&P keeps them.
+- **The JS8 inbox is no longer lost to a file Nexus cannot read.** When the file that keeps your
+  stored JS8 messages could not be read (damaged, or written by a newer Nexus with a value this one
+  does not know), Nexus started an empty inbox and the next message that arrived wrote over the
+  file. Now Nexus keeps that file, untouched, under a new dated name beside it, and says where. If
+  it cannot be moved aside, Nexus leaves it where it is and does not write over it.
+- **Tempo messages waiting to send are no longer lost to a file Nexus cannot read.** When the file
+  that holds them could not be read (damaged, or written by a newer Nexus in a way this one cannot
+  read), Nexus started with none waiting and the next message you sent wrote over the file. Now
+  Nexus keeps that file, untouched, under a new dated name beside it, and says where. If it cannot
+  be moved aside, Nexus leaves it where it is and does not write over it.
+- **The Assistance record is no longer lost to a file Nexus cannot read.** The record of which
+  QSO-finding assistance was running, and when (Settings ▸ Contesting ▸ Contest Category), is
+  evidence for an unassisted entry. When its file could not be read, Nexus started an empty record
+  and wrote over the file the moment it started. Now Nexus keeps that file, untouched, under a new
+  dated name beside it, and says where. If it cannot be moved aside, Nexus leaves it where it is
+  and does not write over it.
+- **Tempo conversations are no longer lost to a file Nexus cannot read.** When the file that keeps
+  your Tempo chat history could not be read, Nexus started with no conversations and wrote over
+  the file a few seconds later. Now Nexus keeps that file, untouched, under a new dated name
+  beside it, and says where. If it cannot be moved aside, Nexus leaves it where it is and does not
+  write over it.
+- **A settings file Nexus cannot read is kept under a name of its own, and Nexus says so.** Nexus
+  already set an unreadable `settings.json` aside as `settings.json.corrupt` before starting from
+  the default settings, but always under that one name, so a second set-aside replaced the first,
+  and nothing on screen said it had happened. Now each one is kept under a new dated name beside
+  it (such as `settings.unreadable-20260930-142233.json`), never replacing an earlier one, and
+  Nexus says where, once, when it starts. If the file cannot be moved aside, Nexus leaves it where
+  it is and saves no setting over it, rather than writing the default settings over yours.
+- **Armed satellite and DXpedition alarms survive a reset of Nexus's window storage.** They were
+  meant to be kept with your settings, like the satellites and DXpeditions you chase, but were
+  kept only in the window's own storage, which a reinstall or a reset of the webview's data clears.
+  They now live with your settings, so an armed alarm, and a pass or a window that already fired,
+  survive both.
+- **A notice that names a long file path wraps it instead of pushing its × off the screen.** A
+  path has no spaces to break at, so a notice naming one grew wider than the notice column and its
+  × close button ended up outside the window. The path now wraps inside the notice, and the × stays
+  where you can reach it.
+- **Program exports the tone of a repeater whose directory entry lists several modes'
+  settings together.** For a machine that runs FM and a digital mode, the hearham directory can
+  write the FM tone beside the digital settings, as `CC1/146.2` or `NAC293/100.0`. Program read
+  that as no tone, so the channel went out with no tone and would not open the machine. It now
+  takes the FM tone and the DMR colour code from such an entry: 40 machines get their tone, most
+  of them FM machines that Program has only just started listing. An entry that holds two
+  different tones still gets no tone, rather than a guess.
+- **SSTV: a picture that could not go out is dropped, not sent later on its own.** After Send, a
+  picture waits until the radio is free to key it: a moment, or longer while another
+  transmission ends or the radio is being switched. If transmit went off in that time, or the
+  frequency left your license privileges, the picture used to be held, and it went out by itself
+  as soon as transmitting was allowed again. It is now dropped, and a warning line beside Send
+  says why until the next picture goes out. Moving to another mode's screen (CW, RTTY, PSK or a
+  digital mode) while a picture waits drops it too, and the warning line says so; before, CW, RTTY
+  and PSK held it, and it went out when you came back to Phone. A picture already going out is
+  untouched, and Stop, Stop TX and the TX switch work as they did.
+- **SSTV: a picture stops going out when its transmission stops.** Leaving the SSTV screen for FT8
+  while a picture was being sent turned transmit off and dropped PTT, but Nexus went on feeding
+  the rest of the picture to the sound card. On a radio keyed by its audio (VOX, or a data port
+  that keys on audio) that put the radio straight back on the air, and the rest of the picture, up
+  to five minutes of it, went out with transmit off. The same happened when a tune, a radio switch
+  or another screen's Stop ended the transmission part-way through a picture. Now the picture
+  stops with the transmission, at once, and the warning line beside Send says it was stopped and
+  why. SSTV's own Stop, TX Off and Stop TX work as before, and a picture that plays out ends
+  exactly as it did.
+- **SSTV: a picture you stop is announced as stopped, not finished.** With a screen reader, a
+  picture stopped part-way with TX Off or Stop TX used to be announced as "SSTV transmit
+  finished", and SSTV's own Stop said "SSTV transmit stopped" and then "finished". Now a picture
+  that ends before its end is announced once, as "SSTV transmit stopped", and "finished" is said
+  only when the whole picture went out. A picture Nexus stopped for you still shows its warning
+  line beside Send instead. Nothing about when or how a picture is sent or stopped changed.
+- **APRS: a beacon or message that could not go out is dropped, not sent later on its own.** A
+  beacon, a message or an automatic ack waits a moment until the radio is free to key it.
+  Turning transmit off (the APRS screen's TX On/Off, or anywhere else) used to leave what was
+  waiting in place, and it went out by itself as soon as transmit came back on; so did one
+  waiting when the frequency left your license privileges. It is now dropped, and the APRS
+  screen's status line says why. A frame waiting only because something else is on the air
+  still goes out when the radio is free, a beacon already going out is handled as before, and
+  there is still no automatic beaconing: every beacon is one you send.
+- **Settings: commas, and spaces in the quick-reply chips, can be typed in the list fields
+  (#370).** Six boxes on Settings ▸ Digital that hold a list ate the separator as it was typed,
+  so `W1ABC,K2DEF` came out as `W1ABCK2DEF` and a chip could not say `TNX QSO`: APRS-IS Watched
+  calls, the digipeater path, JS8 Groups, and the Chat, QSO and Band / CQ quick-reply chips. Each
+  box now keeps what you type, and shows the list as it was read when you leave it (`@ARES,
+  @SKCC`). Save keeps what is in the box even when you press Enter without leaving it. A pasted
+  list worked before and still does, and every list is read exactly as before: an empty
+  digipeater path still means direct, with no digipeaters.
+- **Space Wx says how old its solar-wind reading is.** While NOAA's DSCOVR data is not coming in,
+  Nexus keeps its last good reading, and the Bz gauge used to show that reading as if it were
+  current. Each reading now carries the time it was made. Past 30 minutes the gauge says when that
+  was ("last reading 45m ago") instead of how the field looks now, and with no reading at all it
+  says "no solar-wind reading" instead of leaving Bz off the box. The solar-wind speed is not shown
+  from a reading that old, in the Wind gauge or on the dashboard bar. The Insights feed no longer
+  raises a solar-wind warning ("turned stormy", "fast stream") from a reading more than 30 minutes
+  old.
+- **No more "wind 0 km/s" when NOAA's plasma data is missing.** When DSCOVR's plasma product does
+  not answer, or its newest reading is not from the same half hour as the magnetic field's, the
+  solar wind's speed and density are now sent as not known, instead of 0. So is the field's total
+  (Bt) when the magnetometer's reading carries Bz without it. The Insights feed's southward-Bz line
+  then leaves out what is not known, rather than reporting a solar wind of 0 km/s or a Bt of 0.0 nT.
+- **Stop TX stands out in every theme.** In the dark themes, Stop TX in Operate, in the top bar and
+  in the log dialog on the Remote page had an outline barely darker than the strip around it, and
+  it wrote white on the red when the pointer was over it, which was hard to read. The cockpit
+  headers' Stop TX had a faint outline in the dark themes too, and its word faded under the
+  pointer. Now every Stop TX has a solid red outline in every theme, dark and light, high
+  contrast and night. It turns solid red under the pointer, with the word in the page colour. On
+  a strip lighter than the page, it sits on the page colour so the red word reads. SSTV's Stop
+  sits on the page colour too while a picture is going out, and so does Roam's Stop, which shares
+  the look. Nothing else about the buttons changed: the same place, size, words and keys.
+- **One update prompt.** On Windows, macOS and the Linux AppImage, where Nexus updates itself,
+  the "update available" notice with its Download button no longer turns up beside the prompt
+  that installs the update. Settings ▸ Check for updates now works the same way: it downloads a
+  newer version and offers to install it (again, even if you chose Not now), or tells you that
+  you are up to date. If an update fails to install, its message now has a Download button that
+  opens the download page. The notice still appears when Nexus cannot check for updates itself,
+  and it stays on the .deb packages (the PC one and both Raspberry Pi ones). The PC .deb no
+  longer downloads the AppImage in the background and offers an Install button that could not
+  work there. Installing is still your call: Install waits while you transmit, tune, work a
+  station, run CQ or have TX enabled, and the beta channel works as before.
+- **JS8: the Band activity by offset pane groups Fast and Turbo signals as JS8Call does.** A
+  station drifting a little at Fast or Turbo could show as two rows, because the pane joined
+  decodes within 10 Hz at every speed. It now allows 16 Hz at Fast and 32 Hz at Turbo, JS8Call's
+  own tolerances, and keeps 10 Hz at Normal and Slow.
+
+- **JS8: the Band activity by offset pane files each signal on the row JS8Call does.** An offset
+  reads in whole hertz as JS8Call shows it (a signal at 1500.9 Hz is on the 1500 row, not 1501). A
+  signal at an offset already on the list stays on that row, and one near two rows joins the lower
+  of them. Before, a signal joined whichever row had been listed first, and two rows could show
+  the same offset.
+
+- **JS8: the idle time is counted, in the STATUS reply and on the cockpit's idle chip.** With no
+  STATUS text set, a STATUS? reply said "IDLE 0" however long you had been away, and the JS8
+  cockpit's idle chip always read 0. Both now count the minutes since you last sent something or
+  opened JS8, and the reply writes it as JS8Call does: "IDLE 5M", "IDLE 1H", "IDLE 2D".
+
+- **A rotator controller switched on after Nexus comes online by itself.** Nexus runs Hamlib's
+  rotator program for you, and that program quits at once when the controller's port is not
+  there, which is what a USB controller that is still switched off looks like. Nexus used to start
+  it again only when you saved Settings or switched radios, so every command failed with
+  "Connection refused (os error 61)" until you did. Now it tries again every 5 seconds while a
+  rotator is set up, and the rotator answers a few seconds after you switch it on, with nothing to
+  save. The Connections log says once that it could not start, not every 5 seconds. While the
+  controller is off, a command says "The rotator controller isn't answering. Is it switched on and
+  plugged in?", and the Rotor pane and the rotor strip say the same, where the pane used to say
+  that pointing and STOP still work. A rotator that answers but reports no position, such as the
+  Hy-Gain DCU-1, keeps its own message. An external rotctld that refuses the connection is named by
+  its address.
+- **Pointing the rotator at a callsign aims at the station, not the middle of its country.** The
+  → button on a cockpit's rotor strip, the ↗ on Needed rows and the other point-at buttons used to
+  turn the beam to the centre of the station's country: from JO21EV that is 207° for EC1DD, whose
+  own grid is at 227°, and 299° for AA1AA instead of 291°. They now aim at the station itself when
+  Nexus already knows where it is: the grid in the log form (typed, or filled in from the
+  callbook), a grid the station sent on FT8, FT4 or JS8 this session, what a callbook lookup
+  returned, or the grid on your last contact with it. A closer location, such as a six-character
+  grid or the callbook's own position, is used only when it lies inside the square the station is
+  sending, so a callbook address never overrides where a portable station says it is. Nothing is
+  looked up when you point. The message after pointing says what the bearing was taken to: the
+  station's grid, its callbook position, or the centre of its country when nothing closer is known.
+  The long path is still the exact opposite heading. Pointing from Nexus Remote in a browser still
+  aims at the country centre.
+- **Connect at 1024×768: the Layers panel no longer covers the band list.** When the map is too
+  narrow for both, the Layers panel now starts folded, so it no longer hides the band names in
+  the Conditions panel on the map's right. It opens again by itself on a wider window. Once you
+  fold or unfold it yourself, your choice is kept. The 2-D map and the 3-D globe both work this
+  way.
+
+- **The S-meter and the receive controls come back on a radio that answers slowly (#385,
+  #376).** Nexus reads the radio's settings back a few at a time and stops when a poll has used
+  its time. Each poll started again at the top of the list, so on a radio that takes a while to
+  answer each read it never reached the bottom. The Yaesu FTX-1 is one: its Hamlib driver waits
+  50 ms after every command. There the S-meter stayed blank, and the Receiver pane listed RF,
+  NB, NR, the notches, AGC and SQL under "Not on this radio" although the radio has all of them.
+  The radio's mode, the VOX, COMP and monitor switches and the monitor level were never read
+  either, and a receive filter width you picked was never sent. A poll that runs out of time now
+  hands the rest of the list to the next one, so every setting gets its turn. A radio that
+  answers quickly is read exactly as before. Not yet checked on the air: on an FTX-1, the
+  S-meter should move within a few seconds of connecting, and the Receiver pane should show RF,
+  NB, NR, the notches, AGC and SQL.
+- **Nexus no longer turns a TS-590S down to 5 W (#381).** Nexus reads the radio's power back so
+  the power slider follows the radio's own knob. On some radios the Hamlib driver answers that
+  read by setting the power to learn its range: it turns the radio up to full power for an
+  instant and then leaves it at its minimum, 5 W on a TS-590S. It did this on every connect and
+  after every mode change, so switching to FT8 or RTTY did it again. Nexus no longer asks these
+  radios for their power: the Kenwood TS-590S, TS-590SG, TS-2000, TS-50S, TS-450S and TS-930, the
+  TRC-80, the Elecraft K2, the Hilberling PT-8000A, the QRP Labs QCX/QDX, the (tr)uSDX, the FX4,
+  SDRuno and SDR Console. A power you set in Nexus still goes to the radio and still stays under
+  your per-mode limits. On these radios the slider no longer follows the knob, so a power turned
+  up at the radio is not pulled back under a limit. Not yet checked on the air: on a TS-590S, set
+  80 W at the radio, connect Nexus, and switch to FT8 and then RTTY; the radio should still be at
+  80 W.
+- **A sound card on the radio's rear jack now transmits under CAT PTT: a new Transmit audio
+  source setting (#381).** When Nexus keyed a radio over CAT, the radio transmitted from its
+  microphone input, so on a TS-590S with a SignaLink on the rear ACC2 jack nothing from Nexus went
+  out, although VOX worked. Settings › Radio › Rig & CAT now has **Transmit audio source (CAT
+  PTT)**, **Front/Mic** or **Rear/Data**, per radio. With Rear/Data, Nexus keys the radio's data
+  input instead, as WSJT-X's Rear/Data choice does, for everything whose audio Nexus plays: FT8
+  and the other digital modes, RTTY sent as audio, PSK, SSTV, APRS, the voice keyer, the soundcard
+  CW keyer and Tune. The Phone cockpit's PTT and RTTY sent on an FSK keying line key the radio as
+  before. **Front/Mic is the default and keys every radio exactly as before.** The choice appears
+  only for CAT PTT on a radio whose Hamlib driver can key either input: the Kenwood TS-480,
+  TS-590S, TS-590SG, TS-890S and TS-990S, the Yaesu FTDX-5000, the ELAD FDM-DUO and a few more.
+  On an FTDX-5000, Hamlib selects the rear input by changing the radio's menu 103, and nothing
+  changes it back, so check that menu before you work phone. Not yet checked on the air: on a
+  TS-590S with a SignaLink on ACC2, choose Rear/Data and press Tune, then send an FT8 over; the
+  radio should put out power both times.
+- **Yaesu FTX-1: Nexus no longer sends the three commands its Hamlib driver gets wrong (#385).**
+  Checked against Yaesu's own FTX-1 CAT reference, the Hamlib driver Nexus uses for the FTX-1
+  turns three of Nexus's controls into different commands. The monitor switch becomes MOX, which
+  makes the radio transmit. The monitor level becomes the monitor's on/off switch. The ATU button
+  changes the radio's TUNER SELECT menu to INT (FAST) and tunes nothing. No control in Nexus sent
+  the monitor switch yet, but the ATU button did, and the monitor level would have now that the
+  radio's settings are all read. On an FTX-1, Nexus now sends none of the three: there is no ATU
+  button (press TUNE on the radio), and the Transmitter pane lists MON under "Not on this radio"
+  although the radio has a monitor, so set it on the radio. Everything else is sent as before.
+  Not yet checked on the air: on an FTX-1, there should be no ATU button and no MON slider, and
+  the radio's TUNER SELECT menu should stay as you set it.
+- **Connect: the Band conditions list on the map is readable in every theme (#382).** The band
+  names are now drawn in the theme's own text colour. Before, they used the computer's default
+  button colour, so with Windows in light mode they came out black on the dark theme and could
+  hardly be seen. The Open, Marginal and Closed words are now lettered in the text colour too,
+  and the band's green, amber or grey shows as the tint and outline of each word. In the light
+  theme those words had been too faint to read comfortably. A closed band's word is dimmer, so it
+  recedes.
+
+- **Turning the beam keeps an az/el rotator's elevation where it is.** On a rotator with an
+  elevation axis, such as a Yaesu G-5500 on its GS-232B or GS-232A interface, every azimuth move
+  made by hand also sent the elevation to 0°: a click on the Rotor pane's compass, a typed bearing,
+  the ↗ on a Needed row and the → and LP buttons on a rotor strip each laid the antenna flat on the
+  horizon. Nexus now reads where the antenna is and sends its elevation back with the new bearing.
+  It asks the rotator's control program (Hamlib's rotctld) whether the rotator has an elevation
+  axis rather than going by its name, so an azimuth-only rotator, such as a Rotor-EZ, a DCU-1, a
+  SPID Rot1Prog or a Green Heron RT-21, gets exactly the command it always did. If that program is
+  too busy to answer, the move is refused with a message saying so rather than guessed. A
+  satellite pass steers both axes as before.
+- **Turning the beam from Nexus Remote keeps an az/el rotator's elevation too.** A bearing sent from
+  the Remote page in a browser, typed or from a callsign, still set the elevation of an az/el
+  rotator such as a Yaesu G-5500 to 0°. It now goes through the same check as the desktop: the
+  elevation goes back with the new bearing, an azimuth-only rotator gets exactly the command it
+  always did, and when the rotator's control program is too busy to say which kind it is, nothing
+  is sent.
+- **The Rotor pane's ■ STOP is easy to read in the light theme.** Its red was the dark theme's, and
+  on a light theme's pane it read faintly (about 2.2:1), on the one button that stops the antenna
+  turning. It now takes the same red as the cockpits' Stop TX in every theme, dark and light,
+  high-contrast and night included, and when you point at it, it turns solid red with the pane's
+  own colour for its letters.
+- **The Rotor pane's → lines go away when you press ■ STOP.** The line that shows where the antenna
+  is going (`→ 200°`, and `→ EL 30°` for an elevation) and the dashed target on the compass stayed
+  after STOP until the antenna reached a heading it was no longer going to, so a stopped antenna
+  looked as if it were still turning. They now clear as soon as the rotator confirms the stop. If
+  the stop does not reach it, they stay, since the antenna may still be moving.
+- **The rotator guide names the DF9GR ERC entry as Settings does.** Its list of rotator models still
+  called it "DF9GR ERC (az)" after the picker renamed it "DF9GR ERC, DCU-1 mode (az)" to say which
+  of the board's modes it drives, so the guide sent readers looking for an entry that was not there.
+  The list is now checked against the picker, entry by entry.
+- **The Rotor pane's ■ STOP no longer runs off the edge of a narrow Connect rail.** Beside the
+  compass, the stock 300 px rail left too little room for the bearing box and STOP, so STOP was
+  cut off at the pane's edge with no way to scroll to it: a little at 300 px, most of it at the
+  248 px the rail takes on a smaller window, and all of it, with the bearing box, at 200 px. The
+  controls now move under the compass when they do not fit beside it, and the line that shows
+  where the antenna is going sits under STOP, so STOP no longer moves down when the antenna starts
+  to turn.
+- **JS8: the heartbeat goes out once per interval, on the offset JS8Call would use.** With a
+  six-character locator in Settings, every heartbeat went out on two periods in a row, because
+  the last two characters spilled into a second frame. It now carries the four-character square,
+  as JS8Call's does, and is one frame. The Activity pane, Band Activity and ALL.TXT showed each
+  heartbeat at your own offset even though it was sent between 500 and 1000 Hz; they now show
+  the offset it was sent on. If your offset is 1000 Hz or lower, the heartbeat now stays on it,
+  as in JS8Call; above that it takes a free spot between 500 and 999 Hz by JS8Call's rule. The
+  timer counts as JS8Call's does: the first heartbeat goes one interval after the next period
+  starts, each one after that an interval and one period later, and anything you send, or a
+  message addressed to you, restarts the count. Stop TX, the TX switch, the watchdogs and
+  heartbeat acknowledgements are unchanged. Not yet checked on the air: turn HB on with a
+  5-minute interval and check that one heartbeat goes out about five minutes later, shown in the
+  Activity pane at an offset between 500 and 1000 Hz.
+- **JS8: a CQ goes out as one frame when your locator has six characters.** With a
+  six-character locator in Settings, every CQ, clicked or repeated, went out on two periods in
+  a row: first a CQ with no locator, then the locator on its own. It now carries the
+  four-character square, as JS8Call's CQ does, so it is one frame again. A four-character
+  locator is unchanged.
+- **JS8: with a compound callsign, directed messages announce your square, as JS8Call's do.**
+  A compound callsign such as KD9TAW/QRP starts each directed message and reply with a frame
+  that announces the callsign, and JS8Call puts your four-character square in that frame. Nexus
+  sent it without one; it now carries the square. A /P callsign is not compound and is
+  unchanged.
+- **JS8: Nexus no longer relays, stores or answers traffic addressed to other stations.** With
+  relay on (the default), Nexus relayed any relay request it heard on the band, even one
+  addressed to another station or to @ALLCALL. It also stored MSG TO: messages meant for someone
+  else, and could hand a stored message to a QUERY MSG sent to another station. JS8Call acts only
+  on what is addressed to your call or to a group you joined, and so does Nexus now. A QUERY MSG
+  for a message that isn't there now gets no answer, as in JS8Call.
+- **Operate Classic: moving the divider between the Rx Frequency column and Stations no longer
+  narrows Band Activity.** Its first step used to take Band Activity from about 41 % of the
+  width to about 37 % (76 px on a 1920 px window) as well as moving the two columns it sits
+  between. Now only those two move.
+- **Two windows sharing one data folder no longer undo each other's changes.** With two Nexus
+  windows on one data folder (the two-radio setup), a change you made to a contact in one window
+  could, rarely, undo a change the other window had just made to the same contact: an upload
+  stamp, a QSL mark, an edit. It could also bring back a contact the other window had just
+  deleted, and neither window said so. The logbook now refuses to save over a change it has not
+  seen. Your change is made again on the contact as it now stands, and both changes stay. If
+  the other window deleted the contact, or changed what you were editing, you are told so
+  instead. A change that had to wait while the logbook was busy, and finds the contact changed
+  in the meantime, is not saved over it: the save notice and the quit prompt name it, so you can
+  make it again. Update both windows, because a window still running 1.15 can still undo the
+  other's changes.
+- **Clear log removes only the contacts this window had.** With two windows on one data folder,
+  Clear log also removed any contact the other window had logged since this window last took
+  the log in. It now removes exactly the contacts this window had when you pressed it.
+- **A contact the other window logs while this one starts is no longer missed.** With two
+  windows on one data folder, a contact the other window logged or changed while this window
+  was starting up could be missing from this window's duplicate check, worked-before marks and
+  badges until the other window changed something else. It now arrives a moment later, like any
+  other change the other window makes.
+- **The NEW tag on a propagation opening reads in the light theme.** Its letters were the page's
+  colour on the amber tag, 3.6:1 against it; they are black now, 4.8:1 or better whichever Amber
+  you picked. The dark theme is unchanged.
 - **The top bar's TX plate lights for every transmission.** It lit only for FT8/FT4-style timed
   overs, so during a Phone over, CW, RTTY, PSK or SSTV, a tune carrier, or with the mic keyed at
   the radio itself, it read a green RX while the cockpit's ON AIR sign was red. It now shows TX
@@ -215,6 +1634,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings file but not in the window you went on to operate in, so the next setting you changed
   there turned it back on, and the picker returned at the next launch. The window now keeps the
   choice too.
+- **Saving in one place no longer undoes a change made in another.** The Contest view's bonus and
+  power chips, switching CW macro sets, and Save in Settings each saved a copy of every setting,
+  taken when that screen opened. Whatever had changed since, anywhere else, went back: "use one
+  radio" turned simultaneous radios on again, a seat swap made in the pop-out scoreboard was undone,
+  and the radio was sent back to the frequency it was on when the screen opened. Each now saves only
+  what you changed there, over the settings as they are at that moment.
 - **The band chip's band name is readable in the light theme.** The band chip (the top bar, the
   cockpit headers, Phone's and CW's band picker, and Settings ▸ Station) spelled the band name in
   the band's own colour, which barely shows on a light background: 20m's green read about 1.5:1.
@@ -224,6 +1649,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   23cm are lettered in a slightly lighter violet on the chip, so each reads at least 4.5:1. Every
   other band looks exactly as before, and the map, the globes and the Field Day board keep their
   colours.
+- **Band names on the Logbook globe and the Field Day board are readable in the light theme.** The
+  band picker on the Logbook's globe and the band column of the Field Day band board spelled each
+  band in its own colour, as the band chip did, and it barely showed on a light background. In the
+  light theme the name is now in the normal text colour. The band's colour stays on the picker's
+  border, and on the board it moves to an underline beneath the band name. A clash on the board
+  keeps its red. The dark theme and the globe's dots look exactly as before.
+- **The amplifier's Operate button is readable in both themes.** The amplifier strip's buttons in
+  the cockpit header (Operate/Standby and the band ◀ ▶) were drawn as your computer's own
+  buttons, whose colour follows the computer's light or dark setting rather than Nexus's theme.
+  So the green word "Operate" could sit on a grey of almost the same shade: in the light theme on
+  a computer set to dark, it all but disappeared. The buttons now look like the rest of the
+  header in both themes. The word is in the normal text colour, and Operate shows its green on
+  the button's border and as a green tint. While a transmission locks them they dim slightly, and
+  the word stays readable: it is the amplifier's state, which matters most during an over.
+- **Checkboxes, sliders and other built-in controls follow Nexus's theme.** The parts of the
+  screen your computer draws for Nexus — checkbox boxes, slider tracks, the arrows on number
+  fields and a few plain buttons — followed your computer's light or dark setting rather than
+  the theme you picked. With Nexus in the light theme on a computer set to dark, or the other way
+  round, some of their words could not be read. They now follow Nexus's theme. Nothing changes
+  when your computer's setting matches the theme, which it always does with the System theme.
+- **POTA's Start and Download and the Satellites ⧉ look like the rest of Nexus.** They were still
+  plain grey browser buttons with a raised edge beside Nexus's own buttons. Start and Download now
+  match the Import buttons next to them, and Start still looks greyed out until you type a park
+  reference. The Satellites ⧉, which opens Satellites in its own window, matches the refresh chip
+  beside it and stays where it was.
+- **The watch list's × can be read in the dark theme.** In Settings ▸ Spots & Alerts, the red ×
+  that removes a watch-list entry sat on a grey box drawn by the browser, and in the dark theme it
+  could hardly be seen. It now sits on the panel's colour, like the SSTV overlay's remove, and reads
+  clearly in both themes and on every built-in theme.
+- **Keys that could go blank now always show their words.** SSTV's manual-receive Start, the
+  SSTV picture viewer's Previous, Next and Save, JS8's station queries, inbox Read and Delete,
+  Cancel and Drop, and the Remote page's Refresh, retry and SSTV Save keys took the colour of
+  their words from your computer's light or dark setting, and could be invisible when it differed
+  from Nexus's theme. They now use the theme's text colour, like the other keys.
+- **Three more buttons are readable in both themes.** The status chips at the top of Settings ▸
+  Radio ("Rig responding", "RX audio …"), the Spot button in Operate's call roster and the ×
+  that removes an SSTV text overlay were drawn as your computer's own grey buttons. Their words
+  could be hard to read, and the roster's Spot and the overlay × were hard to read in the dark
+  theme even when your computer was set to dark too. Each now has a border and a background
+  from Nexus's theme and stays the same size. A Spot button with no station selected now dims.
 - **The SSTV picture viewer no longer misses an arrow key pressed as it opens.** On a busy
   computer, a ← or → pressed the moment the pictures appeared could be ignored, because the keys
   were connected to the pictures a moment after they were drawn. They are now connected as the
@@ -249,6 +1714,129 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   what reached WSPRnet: set to 1500 Hz on a 10.1387 MHz dial, it was spotted at 10.140202
   instead of 10.140200. The tones are now centred on the offset, the way WSJT-X sends WSPR. The
   message, the timing and the schedule are unchanged.
+- **LP on the rotator strip turns the antenna the long way.** In 1.15.0 the **LP** button on the
+  Phone, CW and FT screens turned the antenna the short way, exactly like **→ CALL**, and its
+  message gave the heading without saying which path. LP now asks for the long-path heading, and
+  its message says "long path". → CALL is unchanged. (#338)
+- **Pointing the antenna at a station from the Remote page works again.** Since 1.15.0, **→ CALL**
+  on the Remote page's rotator strip, and ↗ on a Needed row, were stopped in the browser before
+  they reached the station, and the message said the command was not confirmed. They reach the
+  station again and turn the antenna the short way, as before 1.15.0. **LP** stays on the desktop.
+  Nothing changes at the station.
+- **The park fills in for every POTA or SOTA activator you click.** Clicking a second activator's
+  spot while the first one's park was still in the log strip could leave the park box empty,
+  though the hunt line above it named the park. Whether it happened depended on timing, which is
+  why some parks filled and others did not. With no callbook, the first activator's park could
+  stay in the box instead and be logged on the second contact. The box now takes the park of the
+  station you clicked, and a park you type yourself for the station you are working is still
+  kept. A park filled in from a spot leaves the box when you type a different station's call,
+  even if that spot's hunt has moved on or ended, so it is never logged on someone else's
+  contact. An activator spotted again at another park fills the new park. An activator spotted
+  with a portable suffix (KE7G/P) now fills too, a prefix form
+  (VE7/KE7G) no longer shows the "call ≠ hunt" warning, and two different portable stations
+  (KE7G/P and KF7XYZ/P) are no longer taken for the same one. Clicking a station also tells your
+  own call apart the same way, so an operator signing VE7/ followed by their call can work other
+  VE7/ stations.
+- **The park box no longer comes back empty or stale (#383).** Clicking an activator's spot could
+  still leave the park box empty under a hunt line naming the park, when you had typed a park
+  before entering the previous station's call and your callbook had looked that call up. And
+  after you logged a hunted contact, the empty log strip showed that contact's park again and
+  kept it. The box now fills with the clicked activator's park, and clears once its contact is
+  logged.
+- **A park you type before the call belongs to the call you type next (#383).** Type a park, then
+  the station's call, and the park stays that station's even if a spot for it names another park.
+  Click an activator's spot instead and it is a new station: the box fills with the spot's park,
+  and the park you typed is not logged on that contact, with or without a callbook. After a
+  hunted contact is logged the strip now comes up empty every time, including when the next
+  update arrives straight away.
+- **Connect's stacked panes no longer sit on top of each other.** When a Connect window is narrow
+  enough that its panes stack in one column under the map (a dashboard window dragged narrow, for
+  example), the side panes were drawn over each other and over the bottom row, and in the main
+  window the bottom of the tallest pane could not be scrolled into view. Each pane now takes its
+  own full height in the stack, and the stack scrolls.
+- **The data-source chip and the update button are easy to read in the light themes.** The LIVE,
+  PARTIAL, CACHED and NO LIVE DATA chip on Connect's Conditions pane, on the map's bar and in
+  DXpeditions lettered its word in a green or amber that was hard to read on the light page colour,
+  and the update prompt's Install and restart (or Download) button lettered near-black on its blue.
+  In every light theme the chip's word now takes the theme's text colour, with the green or amber
+  kept on its border, and the button letters in white. The dark themes look exactly as before.
+- **Connect's coloured words are easy to read in the light themes.** Connect letters a word in
+  green, amber, red or grey to say how things stand: the Band Advisor's Open / Marginal / Closed,
+  Band Outlook's Excellent / Good / Fair and its mode chips, the band names in the 24-hour chart
+  and the Best Band table, the Space Wx lines and scale chips, the Kp outlook's storm line, the
+  Chase panes' need chips and "open now" lines, the openings' band names, Getting Out's reports,
+  and the satellite, rotor and amplifier panes' warnings. In every light theme those words were
+  hard to read. They now take the theme's text colour, and the colour stays beside them: as an
+  underline, as a bar beside a line, or on the chip's or row's border. A closed band in the Band
+  Advisor fades by its lettering instead of turning nearly invisible. The dark themes look exactly
+  as before.
+- **The NOW bar's coloured words are easy to read in the light themes.** The band's condition,
+  who hears you, the top need, the Cluster, Phone and PSKR pills and PROP LIVE / PARTIAL / CACHED
+  were lettered in green, amber or red, and some were hard to read on the light page colour. In
+  every light theme they now take the theme's text colour, with the colour kept on the chip's
+  border. The same goes for Connect's boxes in the dashboard rail beside the cockpits, and for the
+  BAND OPEN and NEW PARK badges in the POTA/SOTA box. The dark themes look exactly as before.
+- **Need chips are easy to read in the light and dark themes, wherever they appear.** The NEW ONE,
+  ZONE, BAND, MODE, GRID, STATE, LoTW, DXPED, POTA, SOTA and WATCH chips in Band Activity, on the
+  Call Roster and the Stations list, on the Needed board, in Spots and in the Satellites section
+  lettered their word in the need's own colour, which was hard to read in every light theme and
+  in many places in the dark ones; a DXPED chip nearly vanished. The word now takes the theme's
+  text colour everywhere, as on Connect, and the need's colour stays on the chip's border. On a
+  Band Activity row already in a need's colour, that need's chip is an outline in the colour and
+  the row carries the tint. In night mode a chip's own fill is fainter, so its word stays easy to
+  read on the dimmed screen, and its border keeps the full colour. In the dark themes the POTA and
+  SOTA chips, and their marks on the band strip, the band map and the spot legend, now take the
+  theme's own green and purple, as in the light themes.
+- **Connect's MUF, next satellite pass and scope source are easy to read in the light themes.**
+  Band Outlook's MUF (14.2 MHz), Satellite Passes' next pass time (in 10 min) and the scope's
+  source badge (AUDIO) were lettered in the accent colour, which was hard to read on the light
+  page. In the light themes they now take the theme's text colour, underlined in the accent, and so
+  does the same AUDIO badge on the audio spectrum in Settings ▸ Audio. The dark themes look exactly
+  as before.
+- **Closed bands and the NEW ONE chip are easy to read in the dark themes.** The Band Advisor
+  faded a closed band's row, and Band Outlook a closed mode chip, by making them see-through, which
+  left the row's "Closed" and its reason and the struck-through mode very hard to read in the dark
+  themes (and the mode chip in the light ones too). They now fade by their colour instead, and a
+  closed band's name in the 24-hour chart and the Best Band table takes the same dimmer grey. The
+  NEW ONE need chip letters its word in the theme's text colour in every theme, with its magenta
+  kept on the chip.
+- **The Kp outlook and the TV page use the theme's own warning colours.** The Kp outlook's bars
+  and storm line, and the TV page's "stale" and "no link" chips, were drawn in a fixed amber and
+  red in every theme, whatever the theme or the amber colour picked in Settings. They now take the
+  theme's warning and critical colours: in the dark themes the amber is a little lighter and the
+  storm red becomes the critical orange, and in the light themes the bars are dark enough to see.
+- **The POTA / SOTA board's HUNT button and park reference are easy to read in the light themes.**
+  In the POTA / SOTA view, its pop-out and on the Remote page, HUNT and each spot's park or summit
+  reference were lettered in the accent colour, which was hard to read on the light page, and HUNT
+  on its own tint harder still. They now take the theme's text colour, with the accent kept on
+  HUNT's border and as the reference's underline. So do the board's NEW PARK and BAND OPEN badges,
+  with their colour kept on their border, and its WORKED TODAY badge reads in the dim text colour.
+  The park and call in the Hunting line above the list take the text colour too, underlined in the
+  accent.
+- **The hunted POTA / SOTA row, WORKED TODAY and Program's Tune and Add buttons are easy to read in
+  every theme.** On the hunted row the frequency was hard to read on the paper theme and in the dark
+  themes, and HUNT on the Slate and Lagoon themes and at night; WORKED TODAY was dim in the dark
+  themes. Both words on the hunted row now take the theme's text colour, HUNT with the accent kept
+  on its border, and WORKED TODAY takes the dim text colour. Program's Tune and Add buttons, which
+  look like HUNT, take its light-theme look, and ✓ Added keeps its green on its border.
+- **Dividers stay under the pointer and never go dead.** On a 1024×768 screen, Phone's scope
+  divider could be dragged past the height the screen can actually give the scope. The extra
+  distance was dead: dragging back up moved nothing until the pointer had come all the way
+  back. Operate's waterfall divider did the same near its limit. In CW the divider jumped
+  ahead of the pointer as soon as you dragged it. Each of these dividers now stops exactly
+  where the scope or waterfall stops, and follows the pointer at any UI scale. The Tempo
+  dividers now follow the pointer when the UI scale is not 100 %. A saved scope or waterfall
+  height is fitted to the window whenever the window changes size, and when you first open
+  Operate after starting Nexus in another section.
+- **Tempo's side panels no longer squeeze the conversation out.** Panel widths saved on a wide
+  monitor, or panels dragged wide on a big window that was then made smaller, could leave the
+  conversation between the stations list and the waterfall with no width at all. The two
+  panels now always leave it at least 360 pixels, about a phone's width. When they have to
+  give way, the panel you moved last keeps its width. A double-click on one of these dividers
+  now resets only that panel; Reset layout still resets both.
+- **Connect's Getting Out box in a narrow column.** At a Connect rail's narrowest (200 pixels),
+  the line beside the compass that says where you are heard strongest ran past the box's edge and
+  was cut off. It now moves under the compass when there is no room beside it.
 
 ### Corrections to 1.15.0
 
@@ -3743,7 +5331,7 @@ A released section is history and is not rewritten, so two credits it got wrong 
   TV" served a plain digest — a band table and some numbers. It now serves Connect
   itself: the same map with every layer (grayline, spots, MUF, aurora, satellites,
   parks on the air), the same panes, live in any browser on your network — a shack TV,
-  a Fire Stick's browser, a tablet — as a HamClock-style wall display. Still read-only
+  a Fire Stick's browser, a tablet — as a wall display. Still read-only
   in the strict sense: the server accepts nothing but reads, a short fixed list of
   propagation and space-weather feeds is all a browser can ask for, and everything
   else is refused. Your log, your needs board and the frequency you are on are still
@@ -10267,7 +11855,7 @@ ever fired during a Field Day event, and said so nowhere.
 **Settings ▸ Logging & Connectors ▸ N1MM+ Integration** now has a **Broadcast every QSO** switch.
 Turn it on and each logged contact goes out as an N1MM contact packet, event or not — from the
 digital modes, from the CW and Phone cockpits, from a hand-typed logbook entry, all of them. Point
-OpenHamClock or GridTracker at the address and every QSO plots on its map as you log it. The
+a map app such as GridTracker at the address and every QSO plots on its map as you log it. The
 packet leaves at the moment the QSO is logged, in the same breath as the HRD one. Turn the switch
 on with the address field empty and Nexus fills in the usual local target for you. The address
 field now also states which of the two it is doing, so a configured-but-silent output can never

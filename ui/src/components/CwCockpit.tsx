@@ -6,6 +6,7 @@ import { useRemoteScopeClick } from '../remote-web/useRemoteScopeClick'
 import { RemoteRecallEntry } from '../remote-web/RemoteRecall'
 import { CollectionStatus, useRemoteCollection } from '../remote-web/collections'
 import { useStationCapability, useStationControl } from '../stationAccess'
+import { useEscStop } from '../useEscStop'
 // ⚠️ THIS FILE IS ON THE **MIGRATED** LIST (i18n/hardcoded-strings.test.ts): every
 // operator-visible string in it is in the catalog under `cw.*`. Nothing was deferred —
 // CW's stop line is Stop TX (→ stopCw + haltTx) and Tune, both drawn by CockpitHeader, plus
@@ -14,7 +15,7 @@ import { useStationCapability, useStationControl } from '../stationAccess'
 // transmit path and move exactly as PTT Method did. WPM, pitch and filter width in Hz, the
 // scope spans and reference levels, the macro TEXTS with their {MYCALL}/{RST}/{NAME}/{EXCH}
 // tokens and every <select> value are invariant tokens and stay in the code.
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { AppSnapshot, FieldDayStatus, NeedTag, Settings, SpotRow } from '../types'
 import { PhoneScope } from './PhoneScope'
 import { useSmeterDb } from './LiveMeters'
@@ -24,27 +25,35 @@ import { BandPicker } from './BandPicker'
 import { BandStrip } from './BandStrip'
 import { TuningStrip } from './TuningStrip'
 import { CockpitHeader } from './CockpitHeader'
+import { CockpitTxStrip } from './CockpitTxStrip'
 import { ZeroBeat } from './ZeroBeat'
 import { CockpitPaneFrame } from './panes/CockpitPaneFrame'
+import { RegionColumnSeams } from './panes/RegionColumnSeams'
 import { isFieldDay } from '../fdEvent'
 import { PaneCloseButton } from './panes/PaneCloseButton'
 import { MemoryStrip, MemoryStripUnavailable } from './MemoryStrip'
 import { IS_MAC, FN_KEY_HINT } from '../platform'
 import type { Memory } from '../features/memories'
-import { Splitter, SCOPE_SPLIT_MAX, SCOPE_SPLIT_MIN } from './Splitter'
+import { PaneSeam } from './PaneSeam'
+import { SCOPE_SPLIT_MAX, SCOPE_SPLIT_MIN } from '../features/paneSeam'
+import { regionColsStyle } from '../features/paneColumns'
 import { PanelsMenu } from './PanelsMenu'
+import { ArrangePanes } from './panes/ArrangePanes'
 import {
   panelHost,
   NO_DSP_FUNCS_REASON,
   NO_DSP_LEVELS_REASON,
   NOTHING_SENT_REASON,
 } from '../features/panelHost'
-import { CW_PANEL_IDS, type CwPanelId, type PanelLayoutApi } from '../features/panelState'
+import { CW_PANEL_IDS, CW_PANELS, type CwPanelId, type PanelLayoutApi } from '../features/panelState'
+import { isStockPlacement, regionGroups } from '../features/panelPlace'
 import { LogEntry } from './LogEntry'
 import { SpotDialog } from './SpotDialog'
+import { SpotsPanel, type SpotsPanelProps } from './SpotsPanel'
+import { NeededPanel, type NeededPanelProps } from './NeededPanel'
+import type { ModeClass } from '../neededFilters'
 import {
   getSettings,
-  setSettings,
   sendCw,
   setCwKeyer,
   setCwWpm,
@@ -54,7 +63,6 @@ import {
   setAiCw,
   selectPeer,
   previewCw,
-  pointRotatorAtCall,
   setScopeSpan,
   setYaesuScopeMode,
   setScopeRef,
@@ -69,6 +77,7 @@ import {
   stopQsoRecording,
   getCatCwUnprovenRigModels,
 } from '../api'
+import { patchSettings } from '../settings/patch'
 import { bandLabelForMhz, sidebandForQsy } from '../band'
 import { pushToast, withErrorToast } from '../toast'
 import { pollSingleFlight } from '../singleFlight'
@@ -76,6 +85,7 @@ import { controlFailureMessage } from '../remote-web/control-failure'
 import { latestOnly } from '../remote-web/latest-only'
 import { SplitControl } from './SplitControl'
 import { RotorStrip } from './RotorStrip'
+import { rotorPointAt } from './rotorPointAt'
 import { SubReceiverStrip, MainReceiverPlate } from './SubReceiverStrip'
 import { subRowShown } from '../features/rigControls'
 import { useWheelTune } from '../useWheelTune'
@@ -262,7 +272,25 @@ interface Props {
   /** Panel visibility/resize record — host-owned (App) so it survives this view's remounts.
    *  Optional: without it every pane shows and there's no ⊞ menu. */
   panels?: PanelLayoutApi<CwPanelId>
+  /** The Spots board exactly as App wires the Spots VIEW — Phone's #345 prop, the same object —
+   *  so working a row from CW's Spots pane is the view's own act. `spots` above is the feed.
+   *  Absent ⇒ there is no Spots pane to show, ticked or not. */
+  spotsBoard?: Omit<SpotsPanelProps, 'spots' | 'pane'>
+  /** The Needed board exactly as App wires the Needed VIEW. Absent ⇒ no Needed pane. */
+  neededBoard?: Omit<NeededPanelProps, 'pane' | 'onPopOut'>
 }
+
+/** CW's Spots pane: CW spots on the radio's band, Phone's pane with CW for voice (#345, plan H8).
+ *  `mode` is the backend's frequency-derived class and `submode` a skimmer's token (see Phone's
+ *  twin), and the board filters on `submode ?? mode`: a human spot in a CW segment ('CW') and a
+ *  skimmer's CW decode ('CW') both show; a skimmer's RTTY or FT8 decode in a CW segment does not.
+ *  Its chips widen it. `scope` names its copy of the board's session filters. */
+const CW_SPOTS_SCOPE = 'cw'
+const CW_SPOT_MODES: readonly string[] = ['CW']
+/** CW's Needed pane's own filter record (never the board's `neededFilters`, nor Phone's), and what
+ *  it opens on while that record is empty: the CW needs. Its chips widen it. */
+const CW_NEEDED_FILTERS = 'nexus.cw.neededFilters'
+const CW_NEEDED_MODES: readonly ModeClass[] = ['CW']
 
 /** Display labels for the CW removable panels (the ⊞ Panels menu). Resolved when the menu is
  *  BUILT — a module constant would freeze the first locale loaded. */
@@ -280,6 +308,9 @@ const cwPanelLabels = (): Record<CwPanelId, string> => ({
   copilot: t('cw.panel.copilot'),
   decode: t('cw.panel.decode'),
   sent: t('cw.panel.sent'),
+  // The Spots and Needed boards as CW panes, named as the views they come from (Phone's words).
+  spots: t('cw.panel.spots'),
+  needed: t('cw.panel.needed'),
 })
 
 /** One F-key macro row as the dock renders it.
@@ -394,6 +425,8 @@ export function CwCockpit({
   onOpenSettings,
   onOpenLogbook,
   panels,
+  spotsBoard,
+  neededBoard,
 }: Props) {
   const display = useRemotePresentation()
   const quick = display?.presentation === 'quick'
@@ -411,6 +444,7 @@ export function CwCockpit({
   const [sendScopeRef] = useState(() => latestOnly((tenths: number) => setScopeRef(tenths), scopeFailed))
   const [sendFlexRef] = useState(() => latestOnly((dbm: number) => setFlexPanRef(dbm), scopeFailed))
   const spotsRead = useRemoteCollection('spots')
+  const needsRead = useRemoteCollection('needs')
   // Live S-meter (shared 100 ms poll, lock-free backend) — used to arrive via the 300 ms
   // snapshot on top of the backend's own sampling, which read as a laggy needle. smeterDb-only
   // subscription: the cockpit re-renders when the S-meter changes, never on RX-level churn.
@@ -611,8 +645,6 @@ export function CwCockpit({
   // exactly when the operator wants to re-read a callsign that just scrolled
   // off. Pinned follows the copy; scrolled-up reading is never yanked.
   const decodePin = usePinnedScroll<HTMLDivElement>()
-  // Cockpit root: the scope-height splitter measures + writes its CSS var here.
-  const cockpitRef = useRef<HTMLElement>(null)
   // Decode sensitivity for the internal pitch decoder (now WPM-estimation + AI-off
   // fallback only — the slider left with the classic pane; the stored value still applies).
   const sensitivityRef = useRef<number>(
@@ -684,6 +716,8 @@ export function CwCockpit({
           sent: sent.length > 0 ? undefined : NOTHING_SENT_REASON,
           txmeters: TX_METERS_WHEN,
         },
+        // Spots and Needed ship unticked: the stock ⊞ button must not read "2 hidden" (Phone's rule).
+        shipsHidden: CW_PANELS.defaultRemoved,
       })
     : null
   const shown = (id: CwPanelId) => (host ? host.shown(id) : true)
@@ -716,8 +750,8 @@ export function CwCockpit({
   // F-key macros come from the ACTIVE named CW profile (Settings ▸ CW). A rotating
   // operator can switch profiles right here in the cockpit bar; an empty profile falls
   // back to the built-in defaults — which swap to the Field Day set (with the {EXCH}
-  // exchange tokens) while FD mode is on. Keep the full settings so the switcher can
-  // persist the new active-profile index without dropping other fields.
+  // exchange tokens) while FD mode is on. The settings as they were when the view opened,
+  // for display only: the switcher saves through the patch seam, never from this copy.
   const [cwSettings, setCwSettings] = useState<Settings | null>(null)
   // Models whose CAT CW keyer is UNPROVEN and cannot report its own failure. Fetched from the
   // backend, which owns the rule (`rigmodels::cat_cw_unproven_rig_models`) — the SAME list
@@ -761,14 +795,14 @@ export function CwCockpit({
       : DEFAULT_CONTEST_MACROS
     : DEFAULT_MACROS
   const macros: CwMacro[] = profileMacros && profileMacros.length ? profileMacros : builtIn
-  // Switch the active macro profile from the cockpit (optimistic) and persist it.
+  // Switch the active macro profile from the cockpit (optimistic) and persist it — the index
+  // alone, over the live settings. Saving the view's copy with the index merged in wrote every
+  // field changed since the view opened back to what it was, the dial the operator had tuned
+  // to among them (and the radio loop then retuned the rig there).
   const switchProfile = (i: number) => {
     if (!control) return
     setActiveProfile(i)
-    if (!cwSettings) return
-    const next = { ...cwSettings, macros: { ...cwSettings.macros, activeCwProfile: i } }
-    setCwSettings(next)
-    void setSettings(next)
+    void patchSettings((s) => ({ macros: { ...s.macros, activeCwProfile: i } }))
       .then((s) => onSnap?.(s))
       .catch(() => pushToast(t('cw.macroProfile.failed'), 'error'))
   }
@@ -979,18 +1013,21 @@ export function CwCockpit({
 
   // Keyboard: F1–F8 fire macros; Esc aborts; PgUp/PgDn nudge speed (±2, Shift ±4).
   // Live ref so the document listener (bound once) always reads current state.
+  // Esc's ABORT rides the shared capture listener (useEscStop, operator 2026-10-01), so no
+  // control on the screen can swallow it; here its default is cancelled, as it always was, and it
+  // is checked first so the stop key can never also fire a macro.
+  useEscStop(control, abort)
   const stateRef = useRef({ wpm, text })
   stateRef.current = { wpm, text }
   useEffect(() => {
     if (!control) return
     const onKey = (e: KeyboardEvent) => {
       const macro = macrosRef.current.find((m) => m.key === e.key)
-      if (macro) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+      } else if (macro) {
         e.preventDefault()
         send(macro.text)
-      } else if (e.key === 'Escape') {
-        e.preventDefault()
-        abort()
       } else if (e.key === 'PageUp') {
         e.preventDefault()
         wpmTouched.current = true
@@ -1010,7 +1047,7 @@ export function CwCockpit({
   // Every operator-content block under the scope renders through a CockpitPaneFrame in ONE
   // .cockpit-panes grid; the ⊞ Panels 'removed' gating is unchanged (shown()). TX chrome
   // never enters the region — the F-key macros and the type-ahead send bar live in the
-  // pinned .cockpit-txdock, and Tune and Stop TX up in the header.
+  // pinned .cockpit-txdock, and Tune and Stop TX up in the TX strip.
   //
   // ONLY THE HEADER PAIR IS THE STOP LINE. Stop TX (→ stopCw + haltTx) and Tune render
   // OUTSIDE every ⊞-removable pane and have no id, so no tick can take CW's way to stop off
@@ -1038,11 +1075,14 @@ export function CwCockpit({
   const hasSubRow = subRowHere && shown('rxdsp')
   const hasBandPane = shown('bandActivity') && onWorkSpot != null
   const hasCopilotPane = shown('copilot')
+  // THE TWO FEEDS (Phone's #345, plan H8): the Spots and Needed boards. Each needs its board's wiring
+  // from the host as well as the tick — Band Activity's `onWorkSpot` rule — and ships unticked
+  // (CW_PANELS.defaultRemoved), so a stock CW screen is exactly what it was.
+  const hasSpotsPane = spotsBoard != null && shown('spots')
+  const hasNeededPane = neededBoard != null && shown('needed')
   // The three rig-control groups share ONE frame (see rigCtlPane), so the frame renders when
   // ANY of them can — each group is still gated on its own ⊞ id inside it.
   const hasRigCtlPane = hasScopeCtlPane || hasDspPane || hasRxDspPane || hasSubRow
-  const mainPresent = hasDecodePane || hasSentPane
-  const auxPresent = hasRigCtlPane || hasBandPane || hasCopilotPane
   // Three columns are decode+sent | aux | log, so the tier is only offered when BOTH the
   // leading (transcript) column and the aux column have something to hold — otherwise a
   // track would sit empty, the operator's "band of empty black" rebuilt. Same collapse
@@ -1053,9 +1093,45 @@ export function CwCockpit({
   // ⊞-removable): a 2-col template with an empty leading minmax(0,1fr) track is that
   // same band of black at full height. At tier 1 rows are `auto`, so an empty column
   // simply takes no space (fix-round, 2026-07-31).
-  const { ref: panesRef, cols } = useRegionCols<HTMLDivElement>(
-    mainPresent && auxPresent ? 3 : mainPresent || auxPresent ? 2 : 1,
+  // WHERE EACH PANE STANDS (layout L3, ⊞ Panels ▸ Arrange): the record's placement, or the stock
+  // grouping (features/panelPlace). The Rig controls frame is not a vocabulary pane: it stays at the
+  // head of the middle column, and counts for that column's track.
+  const place = panels?.layout.place
+  const paneShown = (id: CwPanelId): boolean =>
+    ({
+      decode: hasDecodePane,
+      sent: hasSentPane,
+      bandActivity: hasBandPane,
+      copilot: hasCopilotPane,
+      spots: hasSpotsPane,
+      needed: hasNeededPane,
+    })[id as string] ?? false
+  const placed3 = regionGroups(CW_PANELS.arrange!, place, 3, paneShown)
+  // BELOW THREE TRACKS the leading and middle columns are one (regionGroups): column a then b once
+  // anything is arranged, and on the stock placement `stockMerged`, the two feeds after every strip
+  // (Phone's rule), so ticking one never pushes the Rig controls, Band Activity or the copilot down
+  // the column. The Rig controls frame stands where the middle column's panes begin, and on the
+  // stock placement ahead of the feeds too.
+  const merged = regionGroups(CW_PANELS.arrange!, place, 2, paneShown)[0].ids
+  const stockPlace = isStockPlacement(CW_PANELS.arrange!, place)
+  const midAt = merged.findIndex(
+    (id) => !placed3[0].ids.includes(id) || (stockPlace && (id === 'spots' || id === 'needed')),
   )
+  const rigAt = midAt < 0 ? merged.length : midAt
+  const leadCount = placed3[0].ids.length
+  const midCount = placed3[1].ids.length + (hasRigCtlPane ? 1 : 0)
+  // Stock, this is exactly the rule it replaced (the lead column's decode + sent, and the middle's
+  // rig controls, Band Activity and copilot, each present or not).
+  const { ref: panesRef, cols } = useRegionCols<HTMLDivElement>(
+    leadCount > 0 && midCount > 0 ? 3 : leadCount + midCount > 0 ? 2 : 1,
+  )
+  // The columns, for the dividers between them to measure (panes/RegionColumnSeams).
+  const mainColRef = useRef<HTMLDivElement>(null)
+  const auxColRef = useRef<HTMLDivElement>(null)
+  const logColRef = useRef<HTMLDivElement>(null)
+  // The divider between the two feeds measures and repaints their frames (PaneSeam).
+  const spotsFrameRef = useRef<HTMLElement>(null)
+  const neededFrameRef = useRef<HTMLElement>(null)
 
   // DECODE's own head row is DELETED, and its controls render in the frame head's action
   // cluster — which was rendering EMPTY on every CW pane (2026-08-04 density pass). The row's
@@ -1352,12 +1428,9 @@ export function CwCockpit({
     </CockpitPaneFrame>
   ) : null
 
-  const auxPanes = (
-    <>
-      {rigCtlPane}
-
-      {/* CW spot band-activity strip; ⧉ pops the vertical band map into its own window. */}
-      {hasBandPane && onWorkSpot && (
+  // One element per pane (layout L3): ⊞ Arrange places each where the operator put it.
+  /* CW spot band-activity strip; ⧉ pops the vertical band map into its own window. */
+  const bandPane = hasBandPane && onWorkSpot ? (
         <CockpitPaneFrame title={t('cw.pane.bandActivity.title')} paneId="bandActivity" fit="content" {...closeProps('bandActivity')}>
           {control || spotsRead?.phase === 'ready' ? <BandStrip
             band={snap.radio.band}
@@ -1378,12 +1451,12 @@ export function CwCockpit({
           /> : <p className="dim" role="status">{t('remote.spotsUnavailable')}</p>}
           {!control && <CollectionStatus name="spots" />}
         </CockpitPaneFrame>
-      )}
+  ) : null
 
-      {/* CW copilot — decoded-call chips + (Guided) the next-step prompt. Configurable for
-          new hams (Guided: plain-English prompts + the next key highlighted) vs experienced
-          ops (Expert: just the chips). Nothing here transmits — the operator always keys. */}
-      {hasCopilotPane && (
+  /* CW copilot — decoded-call chips + (Guided) the next-step prompt. Configurable for
+     new hams (Guided: plain-English prompts + the next key highlighted) vs experienced
+     ops (Expert: just the chips). Nothing here transmits — the operator always keys. */
+  const copilotPane = hasCopilotPane ? (
         <CockpitPaneFrame title={t('cw.pane.copilot.title')} paneId="copilot" fit="content" {...closeProps('copilot')}>
           <div className="cw-copilot panel expert">
             <div className="cw-copilot-chips">
@@ -1417,9 +1490,7 @@ export function CwCockpit({
             </div>
           </div>
         </CockpitPaneFrame>
-      )}
-    </>
-  )
+  ) : null
 
   const logPane = (
     <CockpitPaneFrame title={quick && !fieldDay ? t('remote.quick.logbook') : t('cw.pane.log.title')} paneId="log">
@@ -1452,8 +1523,127 @@ export function CwCockpit({
     </CockpitPaneFrame>
   )
 
+  // ── THE SPOTS AND NEEDED FEEDS (Phone's #345 in CW, plan H8) ──────────────────────────────────
+  // The REAL boards (SpotsPanel / NeededPanel) with the wiring App gives their views, hosted as FILL
+  // panes — a list stretches to what it is given — exactly as Phone hosts them: Spots at the foot of
+  // the leading (Decode's) column, Needed at the foot of the middle one at three tracks, and below
+  // that both at the foot of the one merged column, after every strip. Neither sends (a row QSYs
+  // through its board's handler, keying nothing), neither holds a stop control, and a hide ends
+  // nothing, so THE STOP LINE is not near them and their ⊞ entries carry no note. On Remote each
+  // shows the station's existing `spots` / `needs` collection, or the existing unavailable status.
+  //
+  // The wrapper that sizes a board inside its pane (styles.css `.pane-body > .np-pane`, Phone's):
+  // the board's rows scroll at the bounded tiers, and in the stacking flow it takes a floor.
+  const feedWrap = `np-pane${cols === 1 ? ' np-pane--stacked' : ''}`
+  // The two feeds are a PAIR only while a divider between them is on screen: when Needed stands
+  // directly under Spots in one column the region bounds (tier 2 or 3). Stock, that is tier 2, where
+  // the merged column ends with them (Phone's shape); at three tracks they are in different columns
+  // unless ⊞ Arrange puts them together. Then each carries the operator's share (Phone's rule).
+  const renderedCols: string[][] =
+    cols === 3
+      ? [placed3[0].ids, [...(hasRigCtlPane ? ['rigctl'] : []), ...placed3[1].ids], placed3[2].ids]
+      : [[...merged.slice(0, rigAt), ...(hasRigCtlPane ? ['rigctl'] : []), ...merged.slice(rigAt)], placed3[2].ids]
+  const feedsAdjacent = renderedCols.some((c) => {
+    const i = c.indexOf('spots')
+    return i >= 0 && c[i + 1] === 'needed'
+  })
+  const feedsSplit = hasSpotsPane && hasNeededPane && feedsAdjacent && cols >= 2 && panels != null
+  const spotsPane =
+    hasSpotsPane && spotsBoard ? (
+      <CockpitPaneFrame
+        title={t('cw.pane.spots.title')}
+        paneId="spots"
+        split={feedsSplit ? 1 : undefined}
+        share={feedsSplit ? panels?.layout.share.spots : undefined}
+        paneRef={spotsFrameRef}
+        {...closeProps('spots')}
+      >
+        <div className={feedWrap}>
+          {control || spotsRead?.phase === 'ready' ? (
+            <SpotsPanel
+              {...spotsBoard}
+              spots={spots ?? []}
+              pane={{ scope: CW_SPOTS_SCOPE, modes: CW_SPOT_MODES, band: snap.radio.band }}
+            />
+          ) : (
+            <p className="dim" role="status">{t('remote.spotsUnavailable')}</p>
+          )}
+          {!control && <CollectionStatus name="spots" />}
+        </div>
+      </CockpitPaneFrame>
+    ) : null
+  const neededPane =
+    hasNeededPane && neededBoard ? (
+      <CockpitPaneFrame
+        title={t('cw.pane.needed.title')}
+        paneId="needed"
+        split={feedsSplit ? 1 : undefined}
+        share={feedsSplit ? panels?.layout.share.needed : undefined}
+        paneRef={neededFrameRef}
+        {...closeProps('needed')}
+      >
+        <div className={feedWrap}>
+          {(control || needsRead?.phase === 'ready') && (
+            <NeededPanel {...neededBoard} pane={{ filterKey: CW_NEEDED_FILTERS, modes: CW_NEEDED_MODES }} />
+          )}
+          {!control && <CollectionStatus name="needs" />}
+        </div>
+      </CockpitPaneFrame>
+    ) : null
+  // The divider between the two feeds, rendered between them wherever they are a pair (`feedsSplit`):
+  // the operator's split, painted live and committed to the CW record on release (Phone's seam).
+  const feedSeam =
+    feedsSplit && panels ? (
+      <PaneSeam
+        above={spotsFrameRef}
+        below={neededFrameRef}
+        varName="--pane-share"
+        onCommit={(av, bv) => panels.setShares({ spots: av, needed: bv })}
+        onReset={() => panels.setShares({ spots: null, needed: null })}
+        label={t('cw.seam.spotsNeeded.label')}
+        className="in-column"
+      />
+    ) : null
+
+  // Each placed pane by its id, KEYED by it (layout L3): a move within a column is a React move, not
+  // a remount, and only a change of column remounts a pane (the log form, keyed apart, never moves).
+  // The feeds' divider rides with Spots.
+  const paneEls: Partial<Record<CwPanelId, React.ReactNode>> = {
+    decode: decodePane,
+    sent: sentPane,
+    bandActivity: bandPane,
+    copilot: copilotPane,
+    spots: spotsPane,
+    needed: neededPane,
+  }
+  const placedPane = (id: CwPanelId) => (
+    <Fragment key={id}>
+      {paneEls[id]}
+      {id === 'spots' && feedSeam}
+    </Fragment>
+  )
+  const rigCtlSlot = <Fragment key="rigctl">{rigCtlPane}</Fragment>
+  const logSlot = <Fragment key="log-form">{logPane}</Fragment>
+
+  // THE TX STRIP — FT's cluster (2026-10-01): the TX-enable latch READ-ONLY (the mode change
+  // arms TX here), Tune, the rig's ATU and Stop TX (→ stopCw + haltTx, the same abort Esc runs),
+  // sticky so they never leave the window. A shell child with no ⊞ id: under the scope, or after
+  // the contact in the hosted Quick presentation (below).
+  const txStrip = (
+    <CockpitTxStrip
+      radio={snap.radio}
+      onSnap={onSnap}
+      onTune={(on) => void setTune(on).then((s) => onSnap?.(s))}
+      onAtuTune={() =>
+        void atuTune()
+          .then((s) => onSnap?.(s))
+          .catch((e) => pushToast(String(e), 'error'))
+      }
+      onStopTx={abort}
+    />
+  )
   return (
-    <main className={`layout single cw-cockpit${quick ? ' remote-quick-contact' : ''}`} ref={cockpitRef}>
+    <main className={`layout single cw-cockpit${quick ? ' remote-quick-contact' : ''}`}>
       <CockpitHeader
         snap={snap}
         onSnap={onSnap}
@@ -1474,6 +1664,18 @@ export function CwCockpit({
               onUndo={panels.undo}
               canUndo={panels.canUndo}
               onReset={panels.reset}
+              // ⊞ Arrange (layout L3): where each region pane stands. Undo and Reset above cover it.
+              lead={
+                panels.movePane ? (
+                  <ArrangePanes
+                    spec={CW_PANELS.arrange!}
+                    layout={panels.layout}
+                    shown={paneShown}
+                    labels={cwPanelLabels()}
+                    onMove={(id, move) => panels.movePane!(id, move, paneShown)}
+                  />
+                ) : undefined
+              }
             />
           ) : undefined
         }
@@ -1491,13 +1693,6 @@ export function CwCockpit({
             showReadout={false}
           />
         }
-        onTune={(on) => void setTune(on).then((s) => onSnap?.(s))}
-        onAtuTune={() =>
-          void atuTune()
-            .then((s) => onSnap?.(s))
-            .catch((e) => pushToast(String(e), 'error'))
-        }
-        onStopTx={abort}
       >
         <label
           className="cw-wpm"
@@ -1620,19 +1815,7 @@ export function CwCockpit({
         {control || rotatorControl ? <RotorStrip
           onOpenSettings={onOpenSettings}
           targetCall={guide.workedCall}
-          onPointAt={(call) =>
-            pointRotatorAtCall(call)
-              .then((bearing: number | null | undefined) =>
-                // A browser gets no bearing back: the station resolves it.
-                pushToast(bearing == null ? t('remote.b1.rotatorPointing', { call }) : t('cw.rotator.pointed', { call, bearing: Math.round(bearing) }), 'info'),
-              )
-              .catch((e) =>
-                pushToast(
-                  control ? t('cw.rotator.failed', { error: e instanceof Error ? e.message : String(e) }) : controlFailureMessage(e),
-                  'error',
-                ),
-              )
-          }
+          onPointAt={rotorPointAt(control)}
         /> : <span className="dim" role="status" aria-label={t('remote.rotatorUnavailable')} title={t('remote.rotatorUnavailable')}>{t('rotor.strip.aria')} —</span>}
         {/* ⭐ A REAL SPLIT CONTROL, not a read-only plate. Until 2026-08-26 this header only
             DISPLAYED that split was on; there was no way to set it from the CW cockpit at all.
@@ -1699,7 +1882,7 @@ export function CwCockpit({
           `.cockpit-panes { flex: 1 1 0 }` takes the freed height with no rule change.
 
           Nothing here stops a transmission: the strip is a display plus click- and scroll-to-tune,
-          and Stop TX / Tune sit in the header, outside every ⊞ id (THE STOP LINE). Scroll-to-tune
+          and Stop TX / Tune sit in the TX strip, outside every ⊞ id (THE STOP LINE). Scroll-to-tune
           survives a hide/show because useWheelTune re-attaches on the TARGET's identity, not the
           hook's mount — which it did not do until this change; see the note there. */}
       {shown('scope') && (
@@ -1813,10 +1996,10 @@ export function CwCockpit({
           interactive={details && (control || scopeClick.allowed) && catOk && !snap.radio.txBusyReason && !snap.radio.transmitting && snap.radio.dialMhz > 0}
         />
       </section>
-      {details && <Splitter
+      {details && <PaneSeam
         axis="y"
         varName="--cw-scope-h"
-        target={cockpitRef}
+        strip={scopeRef}
         storageKey="nexus.split.cw.scope"
         min={SCOPE_SPLIT_MIN}
         max={SCOPE_SPLIT_MAX}
@@ -1825,6 +2008,9 @@ export function CwCockpit({
       />}
         </>
       )}
+
+      {/* THE TX STRIP (`txStrip` above), under the scope. */}
+      {!quick && txStrip}
 
       {/* THE PANE REGION — one CockpitPaneFrame grid for every operator-content block.
           useRegionCols OWNS data-cols (measured from the region itself, stamped
@@ -1849,34 +2035,60 @@ export function CwCockpit({
           wiped every in-progress LogEntry field mid-QSO (fix-round D1, 2026-07-31;
           guarded by CwCockpit.structure.test.tsx). Aux panes still change columns on a
           2↔3 flip and do remount — their state (guide, candidates, slider values) lives
-          in this component, so the residual is cosmetic and accepted. */}
-      <div className={`cockpit-panes${quick ? ' cockpit-panes--contact' : ''}`} ref={panesRef}>
+          in this component, so the residual is cosmetic and accepted.
+
+          THE COLUMN DIVIDERS (layout L2) ride the region after its columns and move only the
+          boundaries between them — Phone's twin, which says why. */}
+      <div
+        className={`cockpit-panes${quick ? ' cockpit-panes--contact' : ''}`}
+        ref={panesRef}
+        style={quick ? undefined : regionColsStyle(panels?.layout.cols)}
+      >
+        {/* Each column's children are ONE flat keyed list at every tier: a pane that stays in its
+            column keeps its fiber across a 2↔3 flip only if its place in the tree is the same
+            shape at both (a nested list at one tier and a flat one at the other remounts it). */}
         {cols === 3 ? (
           <>
-            <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="main">
-              {decodePane}
-              {sentPane}
+            <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="main" ref={mainColRef}>
+              {placed3[0].ids.map(placedPane)}
             </div>
-            <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="aux">{auxPanes}</div>
-            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log">
-              {logPane}
+            <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="aux" ref={auxColRef}>
+              {[rigCtlSlot, ...placed3[1].ids.map(placedPane)]}
+            </div>
+            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log" ref={logColRef}>
+              {[...placed3[2].ids.map(placedPane), logSlot]}
             </div>
           </>
         ) : (
           <>
-            {(mainPresent || auxPresent) && (
-              <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="main">
-                {decodePane}
-                {sentPane}
-                {auxPanes}
+            {leadCount + midCount > 0 && (
+              <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="main" ref={mainColRef}>
+                {[...merged.slice(0, rigAt).map(placedPane), rigCtlSlot, ...merged.slice(rigAt).map(placedPane)]}
               </div>
             )}
-            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log">
-              {logPane}
+            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log" ref={logColRef}>
+              {[...placed3[2].ids.map(placedPane), logSlot]}
             </div>
           </>
         )}
+        {!quick && panels?.setCols && (
+          <RegionColumnSeams
+            region={panesRef}
+            cols={cols}
+            tracks={cols === 3 ? [mainColRef, auxColRef, logColRef] : [mainColRef, logColRef]}
+            stored={panels.layout.cols}
+            setCols={panels.setCols}
+            splitLabel={t('cw.seam.columns.label')}
+            widthLabel={t('pane.seam.logWidth.label')}
+          />
+        )}
       </div>
+
+      {/* THE HOSTED QUICK PRESENTATION puts the contact first (`.cockpit-col--contact`), so there
+          the strip follows the contact column instead of preceding it, right above the dock: a
+          strip under the header pushed the call field below the quick navigation on a phone. Still
+          a shell child with no id, still sticky above the dock. */}
+      {quick && txStrip}
 
       {/* TX DOCK — the transmit chrome, pinned OUTSIDE the pane region so no pane layout,
           stored or hand-edited, can move, hide or scroll it away. Tune and Stop TX are up in

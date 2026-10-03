@@ -1346,6 +1346,12 @@ pub(crate) struct RowChange {
     pub(crate) bulk: bool,
     /// `log_meta` keys the store sets with its last chunk (the fill job's `fill_ver`).
     pub(crate) meta: Vec<(&'static str, i64)>,
+    /// Whether the store checks that each row the change writes or takes out is still the row its
+    /// plan read ([`tempo_core::logbook::writer::Change::expect`]) and turns the change back when
+    /// another window changed one since. Every planned change is checked but a take-in of
+    /// `log.adi`: its file is accepted as soon as the change is made, before the store holds it,
+    /// so a take-in turned back would leave the file's contacts to the mirror to write over.
+    pub(crate) checked: bool,
 }
 
 /// A change to one row: the row as the plan read it, and as the change leaves it (`None`: the row
@@ -1986,7 +1992,11 @@ impl StationCore {
             let Ok((_, planned)) = plan_import(&plan, text) else {
                 return;
             };
-            if planned.is_empty() || self.commit_bulk(&plan, planned, "take in log.adi").is_ok() {
+            if planned.is_empty()
+                || self
+                    .commit_bulk_as(&plan, planned, "take in log.adi", false, false)
+                    .is_ok()
+            {
                 if let Some(stamp) = stamp {
                     self.store.accept_log_file(stamp);
                     self.store.refresh_mirror();
@@ -2026,7 +2036,7 @@ impl StationCore {
                 if planned.is_empty() {
                     Some((0, 0))
                 } else {
-                    self.commit_bulk(&plan, planned, "take in log.adi")
+                    self.commit_bulk_as(&plan, planned, "take in log.adi", false, false)
                         .ok()
                         .map(|_| (added, merged))
                 }
@@ -2084,6 +2094,8 @@ impl StationCore {
     /// ([`Self::unchanged_since`]); the index takes them in off the lock
     /// ([`crate::engine::sync_shared_log`]).
     pub fn log_plan(&mut self) -> LogPlan {
+        // A change the store turned back leaves what the plan reads first.
+        self.store.take_in_conflicts();
         self.log_view()
     }
 
@@ -2186,6 +2198,9 @@ impl StationCore {
         let appends = !change.purged && change.pairs.iter().all(|(before, _)| before.is_none());
         let store = &mut self.store;
         let mut c = Change::of_pairs(marks, change.purged, &change.pairs, store.resolved());
+        if !change.checked {
+            c.expect.clear();
+        }
         if change.bulk {
             c = c.in_bulk();
         }
@@ -2268,6 +2283,7 @@ impl StationCore {
                 purged: false,
                 bulk,
                 meta,
+                checked: true,
             },
             context,
         ))
@@ -2295,7 +2311,7 @@ impl StationCore {
         ),
         Stale,
     > {
-        self.commit_bulk_as(plan, planned, context, false)
+        self.commit_bulk_as(plan, planned, context, false, true)
     }
 
     /// [`Self::commit_bulk`]; `from_file` for a change whose rows came FROM `log.adi` — the 1.13
@@ -2308,6 +2324,7 @@ impl StationCore {
         planned: Planned,
         context: &str,
         from_file: bool,
+        checked: bool,
     ) -> Result<
         (
             Option<tempo_core::logbook::writer::Ticket>,
@@ -2355,6 +2372,7 @@ impl StationCore {
                 purged: false,
                 bulk: true,
                 meta: Vec::new(),
+                checked,
             },
             context,
             from_file,
@@ -2393,6 +2411,8 @@ impl StationCore {
             purged: false,
             bulk: false,
             meta: Vec::new(),
+            // An append reads nothing, and goes to the store as it is ([`Change::appended`]).
+            checked: false,
         });
         // An append: on the 1.13 path its rows are appended to `log.adi`, as 1.13 appended them
         // (SPEC-2 v3 C19, D1-A), where the database takes them as any change.
@@ -3042,6 +3062,9 @@ impl StationCore {
     /// keyed on them reads the store again. Whether there were any.
     pub(crate) fn take_in_foreign_stamps(&mut self) -> bool {
         let store = &mut self.store;
+        // The count first, then its kind: the writer counts a look's index moves before the
+        // look's commits, so a commit read here is never short of its index move
+        // ([`LogWriter::foreign_index_moves`]).
         if !store.foreign_changed() || store.foreign_index_changed() {
             return false;
         }
@@ -3102,9 +3125,10 @@ impl StationCore {
                 }
             }
         }
-        // Another window changed what the index reads, or the index let go of the log.
+        // Another window changed what the index reads, the index let go of the log, or the store
+        // turned back a change of this window's that the index had followed.
         let current = hot_at(&self.hot) == Some(self.marks.revision);
-        if !current || store.foreign_index_changed() {
+        if !current || store.foreign_index_changed() || store.index_owed() {
             return Some(SharedLogJob::Rebuild(store.index_read(
                 self.dxcc_resolve.clone(),
                 hot_session_key(&self.hot),
@@ -3150,7 +3174,7 @@ impl StationCore {
                 if !planned.is_empty() {
                     let from_file = matches!(from, FileFrom::Lane { .. });
                     if self
-                        .commit_bulk_as(&plan, planned, "take in log.adi", from_file)
+                        .commit_bulk_as(&plan, planned, "take in log.adi", from_file, false)
                         .is_err()
                     {
                         return Taken::Again;
@@ -3202,7 +3226,8 @@ impl StationCore {
         self.recent.note_any(marks.revision);
         *hot_mut(&mut self.hot) = rows.index.holding(marks.revision);
         self.marks = marks;
-        self.store.foreign_taken(rows.foreign, rows.foreign_index);
+        self.store
+            .foreign_taken(rows.foreign, rows.foreign_index, rows.conflicts);
     }
 
     /// ★ The freshness poll in one breath — [`crate::engine::sync_shared_log`] for an owner
@@ -3217,6 +3242,7 @@ impl StationCore {
     /// ⚠️ It READS THE STORE when something changed: never under the Engine lock (a debug build
     /// panics).
     pub(crate) fn take_in_shared_log(&mut self) -> bool {
+        self.store.take_in_conflicts();
         let mut took = self.take_in_foreign_stamps();
         let mut files = true;
         for _ in 0..PLANS {
@@ -3537,6 +3563,7 @@ impl StationCore {
                 purged: n > 0,
                 bulk: true,
                 meta: Vec::new(),
+                checked: true,
             },
             "clear_logbook",
         );

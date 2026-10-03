@@ -10,7 +10,8 @@ import { useStationCapability, useStationControl } from '../stationAccess'
 // ⚠️ THIS FILE IS ON THE **PARTIAL** LIST (i18n/hardcoded-strings.test.ts), and for one
 // reason only: THE PTT ROW, the pinned dock row this cockpit's stop line rests on, is still
 // written in English here — the button's four labels (which ARE the accessible name
-// components/stop-line.test.tsx matches), its three-armed tooltip, the Lock toggle that
+// components/stop-line.test.tsx matches; the fifth, "Armed — talk to transmit", shows while a
+// streamed press waits for the voice, named "ON AIR — release to stop"), its three-armed tooltip, the Lock toggle that
 // decides whether the Space bar is a stop at all, and the Field Day exchange chip that
 // shares the row. It moves in the transmit-path batch, with the stop-line sweeps re-run.
 // Everything else is in the catalog under `phone.*` — the refusal TOASTS that row raises
@@ -18,8 +19,9 @@ import { useStationCapability, useStationControl } from '../stationAccess'
 // reading, split offset, filter and scope width, reference level, percentage, band and mode
 // name and the rig's own group plates (DSP, NR, AGC, BW, REC, SPLIT) are invariant tokens
 // and stay in the code.
-import { useEffect, useState, useRef } from 'react'
+import { Fragment, useEffect, useState, useRef } from 'react'
 import { PHONE_PANEL_IDS, PHONE_PANELS, type PhonePanelId, type PanelLayoutApi } from '../features/panelState'
+import { isStockPlacement, regionGroups } from '../features/panelPlace'
 import { panelHost } from '../features/panelHost'
 import { composingText } from '../features/contestExchange'
 import type { AppSnapshot, FieldDayStatus, NeedTag, SpotRow } from '../types'
@@ -27,13 +29,17 @@ import { PhoneScope } from './PhoneScope'
 import { TxMeters, TX_METERS_WHEN } from './TxMeters'
 import { BandStrip } from './BandStrip'
 import { PanelsMenu } from './PanelsMenu'
+import { ArrangePanes } from './panes/ArrangePanes'
 import { SpotDialog } from './SpotDialog'
 import { TuningStrip } from './TuningStrip'
 import { CockpitHeader } from './CockpitHeader'
+import { CockpitTxStrip } from './CockpitTxStrip'
 import { CockpitPaneFrame } from './panes/CockpitPaneFrame'
+import { RegionColumnSeams } from './panes/RegionColumnSeams'
 import { PaneCloseButton } from './panes/PaneCloseButton'
-import { Splitter, SCOPE_SPLIT_MAX, SCOPE_SPLIT_MIN } from './Splitter'
-import { SplitterSeam } from './SplitterSeam'
+import { PaneSeam } from './PaneSeam'
+import { SCOPE_SPLIT_MAX, SCOPE_SPLIT_MIN } from '../features/paneSeam'
+import { regionColsStyle } from '../features/paneColumns'
 import { SpotsPanel, type SpotsPanelProps } from './SpotsPanel'
 import { NeededPanel, type NeededPanelProps } from './NeededPanel'
 import type { ModeClass } from '../neededFilters'
@@ -59,9 +65,12 @@ import {
 } from '../features/rigControls'
 import { SMeter } from './SMeter'
 import { SubReceiverStrip, MainReceiverPlate } from './SubReceiverStrip'
+import { WheelRange } from './WheelRange'
 import { LogEntry } from './LogEntry'
 import {
   setPtt,
+  armStreamMic,
+  releaseStreamMic,
   setRfPower,
   setScopeSpan,
   setYaesuScopeMode,
@@ -79,12 +88,14 @@ import {
   setMonitorGain,
 } from '../api'
 import { pushToast } from '../toast'
+import { isStreamInput } from '../remote-native/stream-input'
 import { controlFailureMessage } from '../remote-web/control-failure'
 import { latestOnly } from '../remote-web/latest-only'
 import { RotorStrip } from './RotorStrip'
+import { rotorPointAt } from './rotorPointAt'
 import { MemoryStrip, MemoryStripUnavailable } from './MemoryStrip'
 import type { Memory } from '../features/memories'
-import { setFrequency, openPanelWindow, getSettings, pointRotatorAtCall } from '../api'
+import { setFrequency, openPanelWindow, getSettings } from '../api'
 import { bandLabelForMhz, sidebandForQsy } from '../band'
 import { isRfScopeSource, NO_NATIVE_SCOPE_REASON } from '../waterfall'
 import { useWheelTune } from '../useWheelTune'
@@ -565,6 +576,13 @@ const FLEX_SPANS = [
   { label: '2M', hz: 2_000_000 },
 ] as const
 
+/** #384: how far one wheel notch moves a Phone slider (`WheelRange`). 2 % on a 0–100 % level:
+ *  fifty notches end to end, about two turns of an ordinary wheel, fine enough to ride AF gain and
+ *  quick enough to cross the range. RF power moves 1 %, its own step and the finest it has: an
+ *  amplifier's drive is set to within a few watts, and a flick is bounded to four notches. The
+ *  notch, the scope references and the scope's G and Z move one of their own steps. */
+const LEVEL_WHEEL_STEP = 2
+
 export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsumeWork, onSnap, fieldDay, phoneMode, wheelSensitivity, spots, needByCall, typeByCall, onWorkSpot, onRecallMemory, onOpenMemories, onOpenSettings, onOpenLogbook, panels, spotsBoard, neededBoard }: Props) {
   const display = useRemotePresentation()
   const quick = display?.presentation === 'quick'
@@ -885,8 +903,10 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
   // The last output power the rig actually measured — see the transmit contract below.
   const lastPoW = useRef<number | null>(null)
   const scopeRef = useRef<HTMLDivElement>(null)
-  // Cockpit root: the scope-height splitter measures + writes its CSS var here.
-  const cockpitRef = useRef<HTMLElement>(null)
+  // The scope strip its height divider sizes: the divider sets its CSS var on the strip's
+  // container (this cockpit's root) and measures the range the layout honours (on a short window
+  // the pane region's floor stops the strip below its own max-height).
+  const scopePanelRef = useRef<HTMLElement>(null)
   useWheelTune(scopeRef, {
     remoteFrequency: true,
     radioId: snap.activeRadioId,
@@ -1021,6 +1041,25 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
   // reads the CURRENT TX-allowed privilege state through key() — not whatever existed when bound.
   const snapRef = useRef(snap)
   snapRef.current = snap
+  // A PRESS THROUGH THE REMOTE STREAM ARMS THE STREAMED OPERATOR'S MICROPHONE, never `set_ptt`
+  // (the operator's ruling "Arms your mic", 2026-09-27). `set_ptt` keys the rig on its own
+  // modulation source, which on SSB is the SHACK's microphone: the voice of an empty room, for
+  // the one operator who is not in it. The press is told apart by the stream dispatcher's mark
+  // (`isStreamInput`), true only while it is dispatching; the over it arms is keyed by their
+  // audio alone (the audio design's M1), and the page says so when their microphone is off.
+  // `micArmed` is whether THIS cockpit armed one; its release follows the arm in order (`micCall`),
+  // because the two are separate commands and a release that overtook its arm would leave an over
+  // armed with nobody holding it.
+  const micArmed = useRef(false)
+  const micChain = useRef<Promise<unknown>>(Promise.resolve())
+  const micCall = (call: () => Promise<unknown>) => {
+    micChain.current = micChain.current.then(call).catch(() => {})
+  }
+  const releaseMic = () => {
+    if (!micArmed.current) return
+    micArmed.current = false
+    micCall(releaseStreamMic)
+  }
   const key = (on: boolean) => {
     if (!control) return
     // Don't key (or show ON-AIR) outside license privileges — the engine blocks it anyway.
@@ -1057,8 +1096,30 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
         .catch(() => {})
       return
     }
+    if (on && isStreamInput()) {
+      // Lock refuses it: no hands-free microphone over from Remote (the audio design's M5). The
+      // Lock box itself stays operable, so a Lock left on at the shack can be unticked from here.
+      if (lock) {
+        pushToast(t('phone.tx.remoteLock'), 'info', 4000)
+        return
+      }
+      setKeyed(true)
+      micArmed.current = true
+      micCall(() =>
+        armStreamMic().then((armed) => {
+          // Refused at the station (another transmitter owner, presence gone): nothing is held.
+          if (!armed && micArmed.current) {
+            micArmed.current = false
+            setKeyed(false)
+          }
+        }),
+      )
+      return
+    }
     setKeyed(on)
     void setPtt(on)
+    // A release from either side lets go of both: the shack's key and the streamed over.
+    if (!on) releaseMic()
   }
   const onPttDown = () => {
     if (!control) return
@@ -1072,6 +1133,23 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
     if (!control) return
     if (!lock) key(false)
   }
+  // THE ARMED LABEL (the operator's pick "Show Armed until keyed", 2026-09-28). DISPLAY ONLY: the
+  // text changes and nothing else does. The accessible name stays the one the stop-line sweep finds,
+  // the colours stay the held ones, and a release still lets go of the over. A press made through
+  // the stream arms the over and the voice keys it, so it reads "Armed — talk to transmit" until the
+  // station reports the voice keyed (`streamMic`, on a snapshot up to 300 ms away). `micReported`
+  // tells "not reported yet" from "reported, then gone": an over that ended while the press is still
+  // held reads as it always did. `micArmed` can be read here because every change to it comes with
+  // a setKeyed in the same handler, so the render that follows sees it.
+  const streamMic = snap.radio.streamMic ?? null
+  const [micReported, setMicReported] = useState(false)
+  useEffect(() => {
+    if (!keyed) setMicReported(false)
+    else if (micArmed.current && streamMic !== null) setMicReported(true)
+  }, [keyed, streamMic])
+  const pttArmed =
+    keyed && snap.radio.txAllowed && snap.radio.txEnabled && micArmed.current &&
+    (streamMic === 'armed' || (streamMic === null && !micReported))
   const changePower = (pct: number) => {
     if (!control) return
     setPower(pct)
@@ -1108,13 +1186,19 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
       .finally(() => setRecBusy(false))
   }
 
-  // Spacebar = push-to-talk (hold), unless typing in a field.
+  // Spacebar = push-to-talk (hold), unless typing in a field or pressing a control in the ⊞ menu.
   useEffect(() => {
     if (!control) return // observation owns no PTT; mounting/leaving it cannot unkey the station
     const isField = (t: EventTarget | null) =>
       t instanceof HTMLElement && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')
+    // THE ⊞ POPOVER IS BUTTONS (⊞ Arrange's moves, Undo, Reset), and Space is how a keyboard presses
+    // a focused button. As a talk key there it keyed the rig AND swallowed the press, so inside
+    // the popover Space presses the button, as it does everywhere else in a browser (operator
+    // ruling, 2026-09-29). The PRESS only: the release below is untouched, so an over keyed from
+    // outside still unkeys when Space comes up with focus in the menu.
+    const inPanelsMenu = (t: EventTarget | null) => t instanceof Element && t.closest('.panels-menu-pop') != null
     const down = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !e.repeat && !isField(e.target) && !lock) {
+      if (e.code === 'Space' && !e.repeat && !isField(e.target) && !inPanelsMenu(e.target) && !lock) {
         e.preventDefault()
         key(true)
       }
@@ -1139,6 +1223,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       void setPtt(false) // safety: never leave the rig keyed on unmount
+      releaseMic()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lock])
@@ -1156,7 +1241,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
   // pane transmits (F1–F6 key the rig) and hosts a ■ Stop of its own, and it renders inside
   // .cockpit-panes with a ⊞ id. What is true is THE STOP LINE (features/panelState.ts): the
   // controls this cockpit's census rests on stay out of the region — the PTT row lives in the
-  // pinned .cockpit-txdock, Stop TX and Tune in the header — and none of them has an id in the
+  // pinned .cockpit-txdock, Stop TX and Tune in the TX strip — and none of them has an id in the
   // pane vocabulary, so moving or hiding one is unrepresentable. Whether a pane transmits has
   // no bearing on whether it may be hidden.
   //
@@ -1324,12 +1409,40 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
   // is NEVER stamped on the region (useRegionCols owns data-cols='1|2|3'). At that tier
   // Spots holds the leading track as Band Activity does and Needed the middle one as a
   // strip does (see the feeds below), so each counts for its own track.
+  // WHERE EACH PANE STANDS (layout L3, ⊞ Panels ▸ Arrange): the record's placement, or the stock
+  // grouping (features/panelPlace). `paneShown` is the gate each pane renders under, above.
+  const place = panels?.layout.place
+  const arranged = !isStockPlacement(PHONE_PANELS.arrange!, place)
+  const paneShown = (id: PhonePanelId): boolean =>
+    ({
+      bandActivity: hasBandPane,
+      voiceKeyer: hasKeyerPane,
+      spots: hasSpotsPane,
+      needed: hasNeededPane,
+      rigscope: hasRigScopePane,
+      receiver: hasReceiverPane,
+      transmitter: hasTransmitterPane,
+    })[id as string] ?? false
+  const placed3 = regionGroups(PHONE_PANELS.arrange!, place, 3, paneShown)
+  // An arranged region offers a track per column that holds something; the stock one keeps its own
+  // rule above (a keyer alone does not earn the leading track its own column).
   const { ref: panesRef, cols } = useRegionCols<HTMLDivElement>(
-    (auxPresent || hasNeededPane) && (hasBandPane || hasSpotsPane) ? 3 : leadPresent ? 2 : 1,
+    arranged
+      ? placed3[0].ids.length > 0 && placed3[1].ids.length > 0
+        ? 3
+        : placed3[0].ids.length + placed3[1].ids.length > 0
+          ? 2
+          : 1
+      : (auxPresent || hasNeededPane) && (hasBandPane || hasSpotsPane) ? 3 : leadPresent ? 2 : 1,
   )
-  // The divider between the two feeds measures and repaints their frames (SplitterSeam).
+  const groups = regionGroups(PHONE_PANELS.arrange!, place, cols, paneShown)
+  // The divider between the two feeds measures and repaints their frames (PaneSeam).
   const spotsFrameRef = useRef<HTMLElement>(null)
   const neededFrameRef = useRef<HTMLElement>(null)
+  // The columns, for the dividers between them to measure (panes/RegionColumnSeams).
+  const mainColRef = useRef<HTMLDivElement>(null)
+  const auxColRef = useRef<HTMLDivElement>(null)
+  const logColRef = useRef<HTMLDivElement>(null)
 
   // ── WHAT THIS RIG DRIVES, one boolean per control ────────────────────────────────────
   // Read through `reports`, so each one is "reporting now, or reported at some point this
@@ -1640,12 +1753,24 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
   // shown the leading column is never empty, so `cols === 1` IS the stacking flow — and a floor
   // at the bounded tiers would overflow a pane squeezed to its fill floor into a second scroller.
   const feedWrap = `np-pane${cols === 1 ? ' np-pane--stacked' : ''}`
+  // The two feeds are a PAIR only while the divider between them is on screen (tier 2, both
+  // shown — see feedPanes below): then each carries the operator's share, and its floor follows
+  // that share (CockpitPaneFrame `split`), so the divider moves them even in a column too short
+  // for both floors. Anywhere else each is the only feed in its column and keeps the stock floor.
+  // Stock, that is tier 2; arranged, wherever Needed sits directly under Spots in a column the region
+  // bounds (tier 2 or 3).
+  const feedsAdjacent = groups.some((g) => {
+    const i = g.ids.indexOf('spots')
+    return i >= 0 && g.ids[i + 1] === 'needed'
+  })
+  const feedsSplit = hasSpotsPane && hasNeededPane && feedsAdjacent && cols >= 2 && panels != null
   const spotsPane =
     hasSpotsPane && spotsBoard ? (
       <CockpitPaneFrame
         title={t('phone.pane.spots.title')}
         paneId="spots"
-        share={panels?.shareOf('spots')}
+        split={feedsSplit ? 1 : undefined}
+        share={feedsSplit ? panels?.layout.share.spots : undefined}
         paneRef={spotsFrameRef}
         {...closeProps('spots')}
       >
@@ -1668,7 +1793,8 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
       <CockpitPaneFrame
         title={t('phone.pane.needed.title')}
         paneId="needed"
-        share={panels?.shareOf('needed')}
+        split={feedsSplit ? 1 : undefined}
+        share={feedsSplit ? panels?.layout.share.needed : undefined}
         paneRef={neededFrameRef}
         {...closeProps('needed')}
       >
@@ -1680,36 +1806,30 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
         </div>
       </CockpitPaneFrame>
     ) : null
-  // Below tier 3, the two together with the divider between them when both are shown: the
-  // operator's split, painted live and committed to the Phone record on release (the Operate side
-  // rail's seam). Only at tier 2, where they share a column in the bounded flow — at tier 3 they
-  // are in different columns, and with a feed shown `cols` is 1 only when the region measured
+  // The divider between the two feeds, rendered between them wherever they are a pair (`feedsSplit`):
+  // the operator's split, painted live and committed to the Phone record on release (the Operate side
+  // rail's seam). Stock, that is tier 2, where they share a column in the bounded flow — at tier 3
+  // they are in different columns, and with a feed shown `cols` is 1 only when the region measured
   // narrow, where every pane is content height and a drag would rewrite a share nothing reads.
-  // Spots is the FIRST child of this fragment and of the tier-3 one alike, so it keeps its fiber.
-  const feedPanes =
-    cols === 3 ? (
-      <>{spotsPane}</>
-    ) : (
-      <>
-        {spotsPane}
-        {hasSpotsPane && hasNeededPane && cols === 2 && panels && (
-          <SplitterSeam
-            above={spotsFrameRef}
-            below={neededFrameRef}
-            varName="--pane-share"
-            onCommit={(av, bv) => panels.setShares({ spots: av, needed: bv })}
-            label={t('phone.seam.spotsNeeded.label')}
-          />
-        )}
-        {neededPane}
-      </>
-    )
+  const feedSeam =
+    feedsSplit && panels ? (
+      <PaneSeam
+        above={spotsFrameRef}
+        below={neededFrameRef}
+        varName="--pane-share"
+        onCommit={(av, bv) => panels.setShares({ spots: av, needed: bv })}
+        onReset={() => panels.setShares({ spots: null, needed: null })}
+        label={t('phone.seam.spotsNeeded.label')}
+        className="in-column"
+      />
+    ) : null
 
   /* Aux panes — rig-scope / DSP / RX-DSP-levels control strips. In the 3-column tier
      they share the middle column with the voice keyer; below that they append to the
      main column. civScope and flexScope are mutually exclusive (one scope feed), so at
      most one "rigscope" frame renders. */
-  const auxPanes = (
+  // One element per strip (layout L3): ⊞ Arrange places each where the operator put it.
+  const rigscopePane = (
     <>
       {/* Rig scope controls (native Icom CI-V only) — drive the RADIO's real panadapter: span
           changes the hardware sweep width, ref sets weak-signal visibility. Distinct from the
@@ -1740,7 +1860,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             </div>
             <label className="ph-rigscope-ref" title={t('phone.rigScope.ref.title')}>
               <span>{t('phone.scope.ref.label')}</span>
-              <input disabled={!scopeControl}
+              <WheelRange wheelStep={5} disabled={!scopeControl}
                 type="range"
                 min={-200}
                 max={200}
@@ -1778,7 +1898,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             </div>
             <label className="ph-rigscope-ref" title={t('phone.flexPan.ref.title')}>
               <span>{t('phone.scope.ref.label')}</span>
-              <input disabled={!scopeControl}
+              <WheelRange wheelStep={5} disabled={!scopeControl}
                 type="range"
                 min={-140}
                 max={-20}
@@ -1793,8 +1913,9 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
           </div>
         </CockpitPaneFrame>
       )}
-
-      {hasReceiverPane && (
+    </>
+  )
+  const receiverPane = hasReceiverPane ? (
         <CockpitPaneFrame title={t('phone.pane.receiver.title')} paneId="receiver" fit="content" {...closeProps('receiver')}>
           {/* ⭐ THE S-METER, AT THE HEAD OF THE RECEIVE CHAIN. It was an arc floating alone in
               the scope region first, and it read as an ornament — a meter belongs WITH what it
@@ -1880,7 +2001,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="RF">
               <label className="ph-dsplev" title={t('phone.analog.rf.title')}>
                 <span>{RF}</span>
-                <input {...levels.input('rfGain')} disabled={dead('RF') || !levels.can('rfGain')}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} {...levels.input('rfGain')} disabled={dead('RF') || !levels.can('rfGain')}
                   aria-describedby={describedBy('rx')}
                   type="range"
                   min={0}
@@ -1911,7 +2032,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="NRLVL">
               <label className="ph-dsplev" title={t('phone.rxDsp.nr.title')}>
                 <span>{NR}</span>
-                <input {...levels.input('nr')} disabled={dead('NRLVL') || !levels.can('nr')}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} {...levels.input('nr')} disabled={dead('NRLVL') || !levels.can('nr')}
                   aria-describedby={describedBy('rx')}
                   type="range"
                   min={0}
@@ -1948,7 +2069,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="NOTCHF">
               <label className="ph-dsplev" title={t('phone.rxDsp.notchFreq.title')}>
                 <span>{NOTCH}</span>
-                <input {...levels.input('notch')} disabled={dead('NOTCHF') || !levels.can('notch')}
+                <WheelRange wheelStep={10} {...levels.input('notch')} disabled={dead('NOTCHF') || !levels.can('notch')}
                   aria-describedby={describedBy('rx')}
                   type="range"
                   min={300}
@@ -2001,7 +2122,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="AF">
               <label className="ph-dsplev" title={t('phone.analog.af.title')}>
                 <span>{AF}</span>
-                <input {...levels.input('afGain')} disabled={dead('AF') || !levels.can('afGain')}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} {...levels.input('afGain')} disabled={dead('AF') || !levels.can('afGain')}
                   aria-describedby={describedBy('rx')}
                   type="range"
                   min={0}
@@ -2031,7 +2152,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="SQL">
               <label className="ph-dsplev" title={t('phone.analog.sql.title')}>
                 <span>{SQL}</span>
-                <input {...levels.input('squelch')} disabled={dead('SQL') || !levels.can('squelch')}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} {...levels.input('squelch')} disabled={dead('SQL') || !levels.can('squelch')}
                   aria-describedby={describedBy('rx')}
                   type="range"
                   min={0}
@@ -2064,11 +2185,11 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
               radio's pane is exactly what it was. On the Remote page too: its sliders go through
               the station's `radio.subLevel` intent. A component of its own, not a widened shared
               one — see its header. */}
-          <SubReceiverStrip radio={snap.radio} radioId={snap.activeRadioId} catOk={catOk} describedBy={describedBy('rx')} onSnap={onSnap} />
+          <SubReceiverStrip radio={snap.radio} radioId={snap.activeRadioId} catOk={catOk} describedBy={describedBy('rx')} onSnap={onSnap} wheelStep={LEVEL_WHEEL_STEP} />
         </CockpitPaneFrame>
-      )}
+  ) : null
+  const transmitterPane = hasTransmitterPane ? (
 
-      {hasTransmitterPane && (
         <CockpitPaneFrame title={t('phone.pane.transmitter.title')} paneId="transmitter" fit="content" {...closeProps('transmitter')}>
           <div className="ph-chain" role="group" aria-label={t('phone.chain.transmitter.aria')}>
             {noCatBanner('tx')}
@@ -2079,7 +2200,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="MIC">
               <label className="ph-dsplev" title={t('phone.mic.title')}>
                 <span>{t('phone.mic.label')}</span>
-                <input {...levels.input('micGain')} disabled={dead('MIC') || !levels.can('micGain')}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} {...levels.input('micGain')} disabled={dead('MIC') || !levels.can('micGain')}
                   aria-describedby={describedBy('tx')}
                   type="range"
                   min={0}
@@ -2109,7 +2230,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="COMPLVL">
               <label className="ph-dsplev" title={t('phone.rxDsp.comp.title')}>
                 <span>{COMP}</span>
-                <input {...levels.input('compression')} disabled={dead('COMPLVL') || !levels.can('compression')}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} {...levels.input('compression')} disabled={dead('COMPLVL') || !levels.can('compression')}
                   aria-describedby={describedBy('tx')}
                   type="range"
                   min={0}
@@ -2146,7 +2267,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             <div className="ph-chain-item" data-chain="MON">
               <label className="ph-dsplev" title={t('phone.chain.mon.title')}>
                 <span>{MON}</span>
-                <input disabled={dead('MON') || !control}
+                <WheelRange wheelStep={LEVEL_WHEEL_STEP} disabled={dead('MON') || !control}
                   aria-describedby={describedBy('tx')}
                   type="range"
                   min={0}
@@ -2164,9 +2285,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             {absentLine('tx')}
           </div>
         </CockpitPaneFrame>
-      )}
-    </>
-  )
+  ) : null
 
   const logPane = (
     <CockpitPaneFrame title={quick && !fieldDay ? t('remote.quick.logbook') : t('phone.pane.log.title')} paneId="log">
@@ -2196,8 +2315,46 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
     </CockpitPaneFrame>
   )
 
+  // Each placed pane by its id, KEYED by it (layout L3): a pane that moves up or down in its column
+  // is moved by React, not remounted, and only a change of column remounts one — which the voice
+  // keyer (pinned) and the log form (no id) never make. The feeds' divider rides with Spots.
+  const paneEls: Partial<Record<PhonePanelId, React.ReactNode>> = {
+    bandActivity: bandPane,
+    voiceKeyer: keyerPane,
+    spots: spotsPane,
+    needed: neededPane,
+    rigscope: rigscopePane,
+    receiver: receiverPane,
+    transmitter: transmitterPane,
+  }
+  const placedPane = (id: PhonePanelId) => (
+    <Fragment key={id}>
+      {paneEls[id]}
+      {id === 'spots' && feedSeam}
+    </Fragment>
+  )
+
+  // THE TX STRIP — FT's cluster (2026-10-01): the TX-enable latch READ-ONLY (Phone arms TX
+  // itself — the mode change arms it and the PTT offers to), Tune, the rig's ATU and Stop TX
+  // (→ halt_tx), sticky so they never leave the window. A shell child with no ⊞ id: under the
+  // scope, or after the contact in the hosted Quick presentation (below). Space as PTT is a WINDOW
+  // listener and stays one: with focus on a strip button, Space still goes to the PTT handler,
+  // which calls preventDefault, so the focused button does not click.
+  const txStrip = (
+    <CockpitTxStrip
+      radio={snap.radio}
+      onSnap={onSnap}
+      onTune={(on) => void setTune(on).then((s) => onSnap?.(s))}
+      onAtuTune={() =>
+        void atuTune()
+          .then((s) => onSnap?.(s))
+          .catch((e) => pushToast(String(e), 'error'))
+      }
+      onStopTx={() => void haltTx()}
+    />
+  )
   return (
-    <main className={`layout single phone-cockpit${quick ? ' remote-quick-contact' : ''}`} ref={cockpitRef}>
+    <main className={`layout single phone-cockpit${quick ? ' remote-quick-contact' : ''}`}>
       <CockpitHeader
         snap={snap}
         onSnap={onSnap}
@@ -2255,6 +2412,18 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
                 panels.undoRemoves.includes('voiceKeyer') ? VOICE_KEYER_UNDO_ENDS : undefined
               }
               onReset={panels.reset}
+              // ⊞ Arrange (layout L3): where each region pane stands. Undo and Reset above cover it.
+              lead={
+                panels.movePane ? (
+                  <ArrangePanes
+                    spec={PHONE_PANELS.arrange!}
+                    layout={panels.layout}
+                    shown={paneShown}
+                    labels={phonePanelLabels()}
+                    onMove={(id, move) => panels.movePane!(id, move, paneShown)}
+                  />
+                ) : undefined
+              }
             />
           ) : undefined
         }
@@ -2276,6 +2445,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
           value: control ? power : snap.radio.rfPower == null ? null : Math.round(snap.radio.rfPower * 100),
           unit: '%',
           onChange: changePower,
+          wheelStep: 1,
           label: t('phone.header.power.label'),
           title: t('phone.header.power.title'),
           onPointerDown: () => {
@@ -2285,14 +2455,6 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             dragging.current = false
           },
         }}
-        txActiveLabel="▲ TX"
-        onTune={(on) => void setTune(on).then((s) => onSnap?.(s))}
-        onAtuTune={() =>
-          void atuTune()
-            .then((s) => onSnap?.(s))
-            .catch((e) => pushToast(String(e), 'error'))
-        }
-        onStopTx={() => void haltTx()}
       >
         {micOffForDax && (
           <span className="ph-mode-mismatch" title={t('phone.micDax.title')}>
@@ -2353,19 +2515,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
         {control || rotatorControl ? <RotorStrip
           onOpenSettings={onOpenSettings}
           targetCall={workedCall || null}
-          onPointAt={(call) =>
-            pointRotatorAtCall(call)
-              .then((bearing: number | null | undefined) =>
-                // A browser gets no bearing back: the station resolves it.
-                pushToast(bearing == null ? t('remote.b1.rotatorPointing', { call }) : t('cw.rotator.pointed', { call, bearing: Math.round(bearing) }), 'info'),
-              )
-              .catch((e) =>
-                pushToast(
-                  control ? t('cw.rotator.failed', { error: e instanceof Error ? e.message : String(e) }) : controlFailureMessage(e),
-                  'error',
-                ),
-              )
-          }
+          onPointAt={rotorPointAt(control)}
         /> : <span className="dim" role="status" aria-label={t('remote.rotatorUnavailable')} title={t('remote.rotatorUnavailable')}>{t('rotor.strip.aria')} —</span>}
         {/* Glyph only (density pass 2026-08-04, the same move the FT cockpit's header made):
             '● Record QSO' spent ~95px of a header region that WRAPS, and the word said what
@@ -2407,11 +2557,11 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
           dragged to rather than the 22% default.
 
           Nothing on this strip stops a transmission (THE STOP LINE, features/panelState.ts):
-          it is a display plus click-to-tune, and Stop TX / Tune are in the header above, PTT in
+          it is a display plus click-to-tune, and Stop TX / Tune are in the TX strip below it, PTT in
           the dock below, none of them reachable from the ⊞ menu. */}
       {shown('scope') && (
         <>
-      <section hidden={!details} className={`ph-scope-panel${!details ? ' ph-scope-panel--quiet' : ''}`}>
+      <section hidden={!details} className={`ph-scope-panel${!details ? ' ph-scope-panel--quiet' : ''}`} ref={scopePanelRef}>
         <div className="ph-scope-head">
           {(() => {
             // Honest per feed: soundcard FFT = the demodulated RX audio; a native
@@ -2515,6 +2665,7 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
           )}
           <PhoneScope
             hideSmeter
+            wheelSliders
             active={active && details}
             transmitting={snap.radio.transmitting}
             theme={theme}
@@ -2532,10 +2683,10 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
           />
         </div>
       </section>
-      {details && <Splitter
+      {details && <PaneSeam
         axis="y"
         varName="--ph-scope-h"
-        target={cockpitRef}
+        strip={scopePanelRef}
         storageKey="nexus.split.phone.scope"
         min={SCOPE_SPLIT_MIN}
         max={SCOPE_SPLIT_MAX}
@@ -2544,6 +2695,9 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
       />}
         </>
       )}
+
+      {/* THE TX STRIP (`txStrip` above), under the scope. */}
+      {!quick && txStrip}
 
       {/* THE PANE REGION — one CockpitPaneFrame grid for every operator-content block.
           useRegionCols OWNS data-cols (measured from the region itself, stamped
@@ -2573,36 +2727,53 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
           feeds says why). Spots is NOT that residual: the strips' slot stays in the leading
           column as a `null`, so it keeps its position among the children and React carries its
           fiber (and the board's scroll and focus) across the flip. Needed IS: it changes column,
-          like the strips, and its filters are stored. */}
-      <div className={`cockpit-panes${quick ? ' cockpit-panes--contact' : ''}`} ref={panesRef}>
-        {cols === 3 ? (
-          <>
-            <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="main">
-              {bandPane}
-              {keyerPane}
-              {null}
-              {feedPanes}
+          like the strips, and its filters are stored.
+
+          THE COLUMN DIVIDERS (layout L2) ride the region after its columns, absolutely positioned
+          over the gaps, and move only the boundaries: every pane keeps its column and its key, so
+          nothing remounts. The widths they set are the tokens on the region's style, read by the
+          two- and three-track templates only. Not in the Remote contact presentation, whose one
+          track has no boundary to move. */}
+      <div
+        className={`cockpit-panes${quick ? ' cockpit-panes--contact' : ''}`}
+        ref={panesRef}
+        style={quick ? undefined : regionColsStyle(panels?.layout.cols)}
+      >
+        {groups.map((g) =>
+          g.col === 'log' ? (
+            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log" ref={logColRef}>
+              {g.ids.map(placedPane)}
+              <Fragment key="log-form">{logPane}</Fragment>
             </div>
-            <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="aux">
-              {auxPanes}
-              {neededPane}
+          ) : // Below three tracks the leading column is not rendered when it holds nothing.
+          cols < 3 && g.ids.length === 0 ? null : (
+            <div
+              className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`}
+              key={g.col === 'a' ? 'main' : 'aux'}
+              ref={g.col === 'a' ? mainColRef : auxColRef}
+            >
+              {g.ids.map(placedPane)}
             </div>
-            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log">{logPane}</div>
-          </>
-        ) : (
-          <>
-            {leadPresent && (
-              <div className={`cockpit-col${!details ? ' cockpit-col--quiet' : ''}`} key="main">
-                {bandPane}
-                {keyerPane}
-                {auxPanes}
-                {feedPanes}
-              </div>
-            )}
-            <div className={`cockpit-col${quick ? ' cockpit-col--contact' : ''}`} key="log">{logPane}</div>
-          </>
+          ),
+        )}
+        {!quick && panels?.setCols && (
+          <RegionColumnSeams
+            region={panesRef}
+            cols={cols}
+            tracks={cols === 3 ? [mainColRef, auxColRef, logColRef] : [mainColRef, logColRef]}
+            stored={panels.layout.cols}
+            setCols={panels.setCols}
+            splitLabel={t('phone.seam.columns.label')}
+            widthLabel={t('pane.seam.logWidth.label')}
+          />
         )}
       </div>
+
+      {/* THE HOSTED QUICK PRESENTATION puts the contact first (`.cockpit-col--contact`), so there
+          the strip follows the contact column instead of preceding it, right above the dock: a
+          strip under the header pushed the call field below the quick navigation on a phone. Still
+          a shell child with no id, still sticky above the dock. */}
+      {quick && txStrip}
 
       {/* TX DOCK — the transmit chrome, pinned OUTSIDE the pane region so no pane
           layout, stored or hand-edited, can move, hide or scroll it away. PTT and Lock
@@ -2769,6 +2940,8 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             snap.radio.txAllowed && !snap.radio.txEnabled ? ' txoff' : ''
           }`}
           aria-pressed={lock ? keyed : undefined}
+          // Armed reads differently and is still named what the held button always was.
+          aria-label={pttArmed ? 'ON AIR — release to stop' : undefined}
           onPointerDown={onPttDown}
           onPointerUp={onPttUp}
           onPointerLeave={onPttUp}
@@ -2803,7 +2976,9 @@ export function PhoneCockpit({ active = true, snap, theme, pendingWork, onConsum
             : !snap.radio.txEnabled
               ? '■ TX OFF — CLICK TO ENABLE'
               : keyed
-                ? 'ON AIR — release to stop'
+                ? pttArmed
+                  ? 'Armed — talk to transmit'
+                  : 'ON AIR — release to stop'
                 : 'PUSH TO TALK'}
         </button>
         <label className="ph-lock" title="Hands-free: click PTT once to key, again to unkey">

@@ -8,6 +8,7 @@ import type { RemoteStationAction, RemoteStationStatus } from './remote-native/t
 import { remoteApplicationTransport } from './applicationTransport'
 import { pollSingleFlight } from './singleFlight'
 import { t } from './i18n'
+import { pushToast } from './toast'
 import type { SelfSpotReport } from './selfSpot'
 import type {
   AppSnapshot,
@@ -36,6 +37,7 @@ import type {
   FeedHealth,
   ImportStats,
   JourneySummary,
+  Js8ComposerPrefill,
   Js8State,
   Js8InboxState,
   Js8Switch,
@@ -45,6 +47,8 @@ import type {
   ModeRequest,
   NeedAlert,
   QrzLookup,
+  PointedAt,
+  RotatorState,
   QrzPushResult,
   RouteMode,
   RoutingRule,
@@ -55,10 +59,11 @@ import type {
   VoiceMessage,
   OtaMapSpot,
   KpForecast,
+  DailySolarIndices,
 } from './types'
 import type { PropagationSnapshot, PathPrediction, GettingOut, AuroraPoint } from './types'
 import type { MufStation, NoaaScalesView, AlertView } from './types'
-import type { RepeaterSearchResult, GeoCandidate, RadioProgProject, ProgChannel } from './types'
+import type { RepeaterSearchResult, GeoCandidate, RadioProgFileNotice, RadioProgProject, ProgChannel } from './types'
 import type { AnswerTo, LogQuestion } from './features/logAnswers'
 import type { WatchKind } from './watchlist'
 import { finishLogStats, type LogStatCounts } from './features/logStats'
@@ -1038,7 +1043,14 @@ export async function discardPendingLog(expectedKey?: string | null): Promise<Ap
 
 /** Open (or focus) a standalone OS window for one panel — multi-monitor tear-off. */
 export async function openPanelWindow(panel: string): Promise<void> {
-  await invoke('open_panel_window', { panel })
+  try {
+    await invoke('open_panel_window', { panel })
+  } catch (error) {
+    pushToast(
+      t('shell.panel.openFailed', { detail: error instanceof Error ? error.message : String(error) }),
+      'error',
+    )
+  }
 }
 
 /** Close a panel's torn-off window if it is open (#263 — re-dock must not leave a second copy
@@ -1051,6 +1063,23 @@ export async function closePanelWindow(panel: string): Promise<void> {
  *  vertical strip (or 'none' to un-dock). The dock + geometry persist across launches. */
 export async function dockBandmapWindow(side: 'left' | 'right' | 'none'): Promise<void> {
   await invoke('dock_bandmap_window', { side })
+}
+
+/** Whether the CALLING window can stay behind other windows (the Connect dashboard, on a
+ *  platform that offers it), and whether it does. */
+export interface WindowBehind {
+  supported: boolean
+  on: boolean
+}
+
+export async function getWindowBehind(): Promise<WindowBehind> {
+  return invoke<WindowBehind>('get_window_behind')
+}
+
+/** Keep the calling window behind other windows (or let it come forward): applied now and
+ *  remembered for its next open. Rejects where the window or the platform cannot. */
+export async function setWindowBehind(on: boolean): Promise<WindowBehind> {
+  return invoke<WindowBehind>('set_window_behind', { on })
 }
 
 /** Switch the Operate mode: 'dx' (FT8/FT4) or 'msg' (Tempo two-way calling).
@@ -1554,6 +1583,22 @@ export async function openDownloadPage(): Promise<void> {
   return invoke('open_download_page')
 }
 
+/** How this install takes an update (Rust `update_route`), decided by the package it was
+ * installed from. Ask it only where the updater plugin's API exists: a page without one (the
+ * Remote page, a plain browser) has nothing to ask. */
+export interface UpdateRoute {
+  /** True for the packages the signed self-updater can replace: the Windows setup, the AppImage
+   *  and the macOS app. False for the .deb packages and a build run straight from cargo, which
+   *  keep the notice that opens the download page. */
+  selfUpdate: boolean
+  /** The download page, for the way out when a self-update fails. */
+  downloadPage: string
+}
+
+export async function updateRoute(): Promise<UpdateRoute> {
+  return invoke<UpdateRoute>('update_route')
+}
+
 /** Liveness of the background live feeds (cluster/RBN + PSK Reporter MQTT) for the
  *  Now-Bar connector pills. */
 export async function getFeedHealth(): Promise<FeedHealth> {
@@ -2024,6 +2069,17 @@ export async function setPtt(on: boolean): Promise<AppSnapshot> {
   return invoke<AppSnapshot>('set_ptt', { on })
 }
 
+/** A Phone PTT press made through the Remote stream's picture: ARMS the streamed operator's
+ *  microphone over, which only their audio keys. Resolves whether an over is armed. */
+export async function armStreamMic(): Promise<boolean> {
+  return invoke<boolean>('arm_stream_mic')
+}
+
+/** Let go of the microphone over a streamed press armed. */
+export async function releaseStreamMic(): Promise<void> {
+  await invoke<void>('release_stream_mic')
+}
+
 /** Set RF output power as a 0.0–1.0 fraction. */
 export async function setRfPower(power: number): Promise<AppSnapshot> {
   return invoke<AppSnapshot>('set_rf_power', { power })
@@ -2390,6 +2446,11 @@ export interface RadioProfilePatch {
    * on every edit of the rig form. A default on the backend hides drift instead of catching it,
    * which is why the guard below now reads this interface directly. */
   icomDataMode: number
+  /** "Transmit audio source (CAT PTT)" for THIS radio (#381): 'front' keys as every release has
+   * (`T 1`), 'rear' keys the DATA input (`T 3`). Rust defaults it for an old settings file but NOT
+   * on the patch, so a form that dropped it would fail the Save loudly rather than quietly put a
+   * SignaLink radio back on Front/Mic. */
+  txAudioSource: string
   /** THIS radio's amplifier, per-radio because the amp is wired to a radio, not to the station.
    * Absent here these had no serde default, so the patch did not silently drop them — it failed
    * to deserialize at all and took the whole Save with it. */
@@ -2456,15 +2517,33 @@ export async function probeCatPorts(radioId?: number): Promise<CatProbeResult> {
   return invoke<CatProbeResult>('probe_cat_ports', { radioId })
 }
 
-/** Point the antenna rotator at an absolute azimuth (degrees) via rotctld. */
-export async function pointRotator(azDeg: number): Promise<void> {
-  return invoke('point_rotator', { azDeg })
+/** Point the antenna rotator at an absolute azimuth (degrees) via rotctld. An az/el rotator's
+ *  elevation stays where it is, unless `elDeg` gives the one to go with it (the Rotor pane, while
+ *  an elevation it set is still on its way). Without it the call is exactly `{ azDeg }`, the only
+ *  shape the Remote transport takes. */
+export async function pointRotator(azDeg: number, elDeg?: number): Promise<void> {
+  return invoke('point_rotator', elDeg === undefined ? { azDeg } : { azDeg, elDeg })
 }
 
-/** Point the rotator at a callsign's DXCC entity; resolves to the bearing it pointed to.
- *  `longPath` takes the reciprocal — the same great circle the other way. */
-export async function pointRotatorAtCall(call: string, longPath = false): Promise<number> {
-  return invoke<number>('point_rotator_at_call', { call, longPath })
+/** Point an az/el rotator at an elevation (degrees, inside the range its backend declares). The
+ *  azimuth stays where it is, unless `azDeg` gives the one to go with it. Desktop only. */
+export async function pointRotatorElevation(elDeg: number, azDeg?: number): Promise<void> {
+  return invoke('point_rotator_elevation', azDeg === undefined ? { elDeg } : { elDeg, azDeg })
+}
+
+/** Point the rotator at a callsign's station: its own grid or callbook position when Nexus
+ *  knows one, else the centre of its country. Resolves to the bearing and what it was taken to
+ *  (a browser gets nothing back: the station resolves it). `longPath` takes the reciprocal — the
+ *  same great circle the other way. */
+export async function pointRotatorAtCall(call: string, longPath = false): Promise<PointedAt> {
+  return invoke<PointedAt>('point_rotator_at_call', { call, longPath })
+}
+
+/** The grid the log form holds for the call it is logging — typed, or filled in from the
+ *  callbook — so pointing the rotator at that call aims at the station. `''` forgets it for
+ *  that call. Fire-and-forget, like `setCwPeerInfo`. */
+export async function setLogFormGrid(call: string, grid: string): Promise<void> {
+  await invoke('set_log_form_grid', { call, grid })
 }
 
 /** Current rotator azimuth (degrees), or null if rotctld is unset/unreachable. */
@@ -2480,6 +2559,12 @@ export async function stopRotator(): Promise<void> {
 
 export async function readRotator(): Promise<number | null> {
   return invoke<number | null>('read_rotator')
+}
+
+/** The Rotor pane's poll: where the rotator is and what the read found, `null` with no rotator
+ *  configured. Desktop only: a browser reads the station's heading through its own collection. */
+export async function readRotatorState(): Promise<RotatorState | null> {
+  return invoke<RotatorState | null>('read_rotator_state')
 }
 
 /** Single-signal CW decode of the recent RX audio (live readout: text + estimated WPM).
@@ -2668,6 +2753,13 @@ export interface AprsHealth {
 /** Poll the APRS decoder's health beside the heard list. */
 export async function getAprsHealth(): Promise<AprsHealth> {
   return invoke<AprsHealth>('get_aprs_health')
+}
+
+/** Why what was queued for APRS was last dropped instead of sent (TX off, or outside the licence
+ *  privileges): the engine's own sentence for the cockpit's status line, or null once a frame
+ *  keys. The desktop's alone — the Remote has no such read. */
+export async function getAprsTxNotice(): Promise<string | null> {
+  return invoke<string | null>('get_aprs_tx_notice')
 }
 
 /** What the APRS-IS internet feed is doing (from `get_aprs_is_status`) — the counterpart to
@@ -2940,6 +3032,12 @@ export async function getJs8State(): Promise<Js8State> {
   return invoke<Js8State>('get_js8_state')
 }
 
+/** Why the JS8 gate would refuse the locator in Settings (the gate's own sentence), or null when
+ *  it would take it. "Send my grid" follows this rather than a copy of the gate's rule. */
+export async function js8LocatorRefusal(): Promise<string | null> {
+  return invoke<string | null>('js8_locator_refusal')
+}
+
 /** Select the TRANSMIT speed (0 Slow | 1 Normal | 2 Fast | 3 Turbo). Persisted; the slot
  * clock and the boundary decode window follow. Never touches the TX latch. */
 export async function js8SetSpeed(speed: number): Promise<Js8State> {
@@ -2983,9 +3081,18 @@ export async function js8CqRepeat(on: boolean, idx: number): Promise<Js8State> {
   return invoke<Js8State>('js8_cq_repeat', { on, idx })
 }
 
-/** Cancel the pending automatic reply (its countdown chip's Cancel). */
-export async function js8Cancel(): Promise<Js8State> {
-  return invoke<Js8State>('js8_cancel')
+/** The native cockpit's compose box, both ways: whether it holds text, and the id of the reply
+ * it took into the box since it last asked; answered with the reply waiting for the box (AUTO
+ * off, as JS8Call fills its compose box), or null. Keys nothing. */
+export async function js8Composer(composing: boolean, taken: number | null): Promise<Js8ComposerPrefill | null> {
+  return invoke<Js8ComposerPrefill | null>('js8_composer', { composing, taken })
+}
+
+/** The operator's Yes or No to the automatic reply the dock asks about (JS8Call's
+ * AutoreplyConfirmation box), named by the `display` and `firesAtMs` it was shown with so an
+ * answer can never reach a different reply. A Yes to one no longer waiting is refused. */
+export async function js8AnswerReply(yes: boolean, display: string, firesAtMs: number): Promise<Js8State> {
+  return invoke<Js8State>('js8_answer_reply', { yes, display, firesAtMs })
 }
 
 /** Drop the outbox — a SENDER-class control, not a stop (Stop TX is haltTx). */
@@ -3503,6 +3610,14 @@ export async function getCatCwUnprovenRigModels(): Promise<number[]> {
   return invoke<number[]>('get_cat_cw_unproven_rig_models')
 }
 
+/** Models whose Hamlib CAT PTT can choose the radio's MIC or DATA input — the only ones Settings
+ *  offers "Transmit audio source (CAT PTT): Rear/Data" on (#381). The set is measured from the
+ *  bundled Hamlib and lives in Rust (`rigmodels::PTT_MIC_DATA_RIGS`); fetched, not copied here.
+ *  An empty array means the rule could not be read, and no radio is offered the choice. */
+export async function getPttMicDataRigModels(): Promise<number[]> {
+  return invoke<number[]>('get_ptt_mic_data_rig_models')
+}
+
 /** One keystroke to a configured SPE amplifier. The set is closed at the Rust boundary; an
  *  unrecognised name is refused there rather than reaching an opcode.
  *
@@ -3535,6 +3650,13 @@ export async function getOtaSpots(program: string, cached = false): Promise<OtaS
  *  draw as a quiet sky. */
 export async function getKpForecast(): Promise<KpForecast> {
   return invoke<KpForecast>('get_kp_forecast')
+}
+
+/** NOAA's daily solar indices: the last thirty days of SFI and sunspot number. Cached an hour
+ *  server-side, and the last good copy is served when a fetch fails — every row carries its own
+ *  date, so the caller can say how old the newest day is. EMPTY = never had the file. */
+export async function getSolarIndices(): Promise<DailySolarIndices> {
+  return invoke<DailySolarIndices>('get_solar_indices')
 }
 
 /** Activators placed for the Connect map's parks layer. Served from a shared cache
@@ -3767,8 +3889,14 @@ export async function repeaterSearch(
   lat: number,
   lon: number,
   radiusKm: number,
+  /** A route's other end: the search is then the machines within `radiusKm` of the line from
+   * (lat, lon) to it, in order along it. */
+  to?: { lat: number; lon: number },
 ): Promise<RepeaterSearchResult> {
-  return invoke<RepeaterSearchResult>('repeater_search', { lat, lon, radiusKm })
+  return invoke<RepeaterSearchResult>(
+    'repeater_search',
+    to ? { lat, lon, radiusKm, toLat: to.lat, toLon: to.lon } : { lat, lon, radiusKm },
+  )
 }
 
 /** City-name → candidates via OSM Nominatim (explicit Search click only). */
@@ -3784,6 +3912,12 @@ export async function setRepeaterbookToken(token: string): Promise<void> {
 /** All saved programming projects (radioprog.json beside settings.json). */
 export async function radioprogListProjects(): Promise<RadioProgProject[]> {
   return invoke<RadioProgProject[]>('radioprog_list_projects')
+}
+
+/** This run's notice about the saved-projects file, when Program could not read it: where the
+ * file is kept, and whether it could be moved aside (if not, saving is refused). */
+export async function radioprogFileNotice(): Promise<RadioProgFileNotice | null> {
+  return invoke<RadioProgFileNotice | null>('radioprog_file_notice')
 }
 
 /** Create/update one programming project (upsert by id). */

@@ -86,7 +86,11 @@ right of every row.*
 - **Classic** is the stock-style Band Activity view, with the Tx1–Tx6 message
   panel, editable DX Call / DX Grid fields, and Generate Std Msgs.
 - **Roster** is a modern sortable call roster — one row per station, sorted by
-  what matters to you.
+  what matters to you. The distance picker in its filter row keeps only the
+  stations within a distance of your grid square (**Within 1000 mi**, say, in the
+  units set in [Settings ▸ Station ▸ Operator & Radio](settings-reference.md#operator--radio)).
+  A station that has not sent a grid yet stays on the list, because its distance
+  is not known, and so does the station you are working.
 
 Use Classic when you want the familiar WSJT-X message-by-message control; use
 Roster when you're scanning a busy band for the one call worth working.
@@ -142,7 +146,7 @@ bar and in [Settings ▸ Digital](settings-reference.md#digital-ft8ft4).
 The [Needed board](needed-dx.md) ranks everything on the air by what it's worth
 to your log. One click on a row QSYs band + mode + exact frequency atomically and
 opens this cockpit with the DX ready to work — the same atomic path as
-double-clicking a spot on the [Connect map](connect.md).
+double-clicking a spot on the [Conditions map](connect.md).
 
 ### Hound a DXpedition (Fox/Hound)
 
@@ -301,6 +305,6 @@ daily-driver load meanwhile.
 - [RTTY](rtty.md) — the sibling digital cockpit, free-running instead of slotted
 - [SSTV](sstv.md) — the same waterfall instrument, carrying pictures
 - [Memories](memories.md) — the bank behind this cockpit's MEM strip
-- [Connect — map + propagation](connect.md)
+- [Conditions — map + propagation](connect.md)
 - [Logbook & QSL](logbook-qsl.md)
 - [Settings reference](settings-reference.md)

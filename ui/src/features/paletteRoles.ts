@@ -285,8 +285,14 @@ const OK: PaletteRole = {
   presets: [
     { id: 'green', labelKey: 'palette.preset.green', dark: okValues('#69d98d'), light: okValues('#007f35') },
     // Bluish green: further from the reds for a red-green colour-blind operator.
-    { id: 'teal', labelKey: 'palette.preset.teal', dark: okValues('#49d9b9'), light: okValues('#007e68') },
-    { id: 'mint', labelKey: 'palette.preset.mint', dark: okValues('#84eeb3'), light: okValues('#0d8557') },
+    // Teal and Mint were #007e68 and #0d8557 in the light theme, ΔE 0.039 apart and Mint 0.044 from
+    // Green, and looked alike (operator, 2026-09-28: "pull the Teal and Mint accents apart in the
+    // light theme"). Now every pair is at least 0.060 apart there: Teal deeper and a little bluer,
+    // keeping its distance from the reds to a colour-blind eye; Mint a little lighter and bluer, the
+    // lightest of the three, as it is in the dark theme. It can go no lighter: the white lettering on
+    // a confirmed journey cell reads 4.53:1 on it. The dark values are unchanged.
+    { id: 'teal', labelKey: 'palette.preset.teal', dark: okValues('#49d9b9'), light: okValues('#167469') },
+    { id: 'mint', labelKey: 'palette.preset.mint', dark: okValues('#84eeb3'), light: okValues('#1b8662') },
   ],
 }
 
@@ -300,7 +306,7 @@ const AMBER: PaletteRole = {
   labelKey: 'palette.amber.label',
   hintKey: 'palette.amber.hint',
   tokens: AMBER_TOKENS,
-  aliases: ['--state-ok'],
+  aliases: ['--state-ok', '--state-warn'],
   swatch: '--snr-marginal',
   hue: [65, 110],
   dimsAtNight: false,
@@ -312,7 +318,13 @@ const AMBER: PaletteRole = {
       dark: { '--alert-warning': '#f7c243', '--snr-marginal': '#f1ca47', '--band-marginal': '#f1ca47' },
       light: { '--alert-warning': '#a76d00', '--snr-marginal': '#a27000', '--band-marginal': '#a27000' },
     },
-    { id: 'gold', labelKey: 'palette.preset.gold', dark: amberValues('#f0cf4c'), light: amberValues('#977500') },
+    // A deeper, metallic gold (operator, 2026-09-27: "Make them distinct"). It was #f0cf4c and
+    // #977500, ΔE 0.012 from Amber in the dark theme and 0.021 from Yellow in the light one. Now at
+    // least 0.071 from both in the dark theme and 0.046 in the light one, the same hue in both.
+    // The light value could only get duller: lighter fails the page's 3:1 and the keyed Tune
+    // button's white ink on it, darker the broadcast button's dark ink and a deutan eye's distance
+    // from the TX red, which holds its lightness to Amber's and Yellow's.
+    { id: 'gold', labelKey: 'palette.preset.gold', dark: amberValues('#e0b030'), light: amberValues('#8e7640') },
     { id: 'yellow', labelKey: 'palette.preset.yellow', dark: amberValues('#f2e252'), light: amberValues('#8c7900') },
   ],
 }

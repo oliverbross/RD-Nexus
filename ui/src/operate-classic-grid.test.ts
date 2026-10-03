@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { CLASSIC_FLOOR, CLASSIC_FR, CLASSIC_VARS, ROSTER_FLOOR, ROSTER_FR, ROSTER_VARS } from './features/operateColumns'
 
 // Guards the DECODE-FIRST Classic rebuild (2026-08, field feedback from an advanced DX
 // operator): the Classic lower region is a THREE-column grid — Band Activity | the
@@ -256,11 +257,13 @@ describe('the Classic lower region is the three-column decode-first grid', () =>
             'min-content floor that can force horizontal blow-out (the pre-overhaul bug class)',
         ).toBe(true)
       }
-      // The column seam (SplitterSeam axis='x') paints --op-col-a/--op-col-b on the
+      // The column seam (a PaneSeam, axis='x') paints --op-col-a/--op-col-b on the
       // grid. A template that stops consuming them makes the operator's drag silently
       // dead — the exact dead-fix mechanism this guard style exists to catch.
       expect(win!.value).toContain('var(--op-col-a')
       expect(win!.value).toContain('var(--op-col-b')
+      // …and Band Activity's own since layout L5 (its divider with the Rx Frequency column).
+      expect(win!.value).toContain('var(--op-col-ba')
     })
   }
 
@@ -294,7 +297,9 @@ describe('the Classic lower region is the three-column decode-first grid', () =>
         ).toEqual(['minmax(0,1fr)'])
         const rows = winner(lowerChain(vp, cols), 'grid-auto-rows')
         expect(rows, 'stacked children need grid-auto-rows to share the height').not.toBeNull()
-        expect(rows!.value.replace(/\s+/g, '')).toBe('minmax(0,1fr)')
+        // Shared above a floor each since 2026-10-01: unfloored shares were 49 px per pane at the
+        // 1024×768 floor at 100 %. The floor and the stack's scroller are guarded below.
+        expect(rows!.value.replace(/\s+/g, '')).toBe('minmax(26em,1fr)')
       })
     }
   }
@@ -386,7 +391,9 @@ describe('TX-cluster position stability: row neighbours resolve state-independen
   })
 
   it('the TX On/Off toggle carries a fixed em min-width (label flips with txEnabled)', () => {
-    const chain = [...STRIP_CHAIN, { classes: new Set(['op-btn', 'monitor']) }]
+    // The toggle sits in the TX cluster's group, as rendered: the sizing rule is scoped to that
+    // group since every screen's TX strip draws the same cluster (2026-10-01).
+    const chain = [...STRIP_CHAIN, { classes: new Set(['op-controls', 'cq-txctl']) }, { classes: new Set(['op-btn', 'monitor']) }]
     const win = winner(chain, 'min-width')
     expect(win, '.op-btn.monitor: no min-width — Tune/Stop TX shift when TX On becomes TX Off').not.toBeNull()
     expect(/^\d+(\.\d+)?em$/.test(win!.value), `min-width is \`${win!.value}\` — must be a fixed em`).toBe(true)
@@ -406,9 +413,9 @@ describe('the deliberate wrap point engages on the EFFECTIVE-width vocabulary', 
   // auto-fit → effective 1607), where the one-row minimum plus the HOUND badge
   // or rotor strip overflowed and wrapped at an arbitrary member — measured
   // 38→70 px mid-QSO. So the break is hidden at xl only.
-  const breakChain = (vp: string): El[] => [
+  const breakChain = (vp: string, dashRail = false): El[] => [
     { classes: new Set(['app']), attrs: { 'data-viewport': vp } },
-    { classes: new Set(['shell']) },
+    { classes: new Set(['shell']), attrs: dashRail ? { 'data-dash-rail': 'on' } : {} },
     { classes: new Set(['layout', 'single', 'operate-cockpit']) },
     { classes: new Set(['cockpit-body']) },
     { classes: new Set(['cockpit-qso', 'panel']) },
@@ -420,6 +427,19 @@ describe('the deliberate wrap point engages on the EFFECTIVE-width vocabulary', 
     expect(win, 'no display rule hides the break at xl').not.toBeNull()
     expect(win!.value, `\`${win!.selector}\``).toBe('none')
   })
+
+  // BESIDE THE DASHBOARD RAIL the strip is narrower than the xl window its one-row decision was
+  // measured for (the rail takes up to 720 px: 2560×1440 leaves ~2172), so it keeps the lg arrangement
+  // at every width while the shell says the rail is taking width.
+  for (const vp of ['xl', 'lg']) {
+    it(`${vp} beside the dashboard rail: .cq-break engages (the stable two-row wrap)`, () => {
+      const win = winner(breakChain(vp, true), 'display')
+      expect(
+        win?.value ?? null,
+        win ? `\`${win.selector}\` hides the break beside the rail — the strip is no longer xl-wide` : '',
+      ).not.toBe('none')
+    })
+  }
 
   for (const vp of ['lg', 'md', 'sm', 'xs']) {
     it(`${vp}: .cq-break engages (stable two-row wrap, never a mid-QSO content wrap)`, () => {
@@ -502,5 +522,187 @@ describe('the merged operating strip replaced the status row and the meters row'
       win!.value,
       `.cq-free input flex is \`${win!.value}\` — must be a shrinkable 16ch basis, never a grower`,
     ).toBe('0 1 16ch')
+  })
+})
+
+// ── OPERATE'S COLUMN DIVIDERS AND THE RAIL SIDE (layout L5) ─────────────────────────────────
+/** The lower grid in either layout, optionally with the rail on the left. */
+function gridChain(mode: 'classic' | 'roster', viewport: string | null, dataCols: string, rail = false): El[] {
+  const chain = lowerChain(viewport, dataCols)
+  chain[chain.length - 1] = {
+    classes: new Set(['cockpit-lower', mode]),
+    attrs: { 'data-cols': dataCols, ...(rail ? { 'data-rail': 'left' } : {}) },
+  }
+  return chain
+}
+/** A track's floor in px, read off `minmax(<floor>, …)` (`0` is 0). */
+function trackFloor(track: string): number | null {
+  const m = /^minmax\((\d+(?:\.\d+)?)(px)?,/.exec(track.replace(/\s+/g, ''))
+  return m && (m[2] === 'px' || m[1] === '0') ? parseFloat(m[1]) : null
+}
+/** A track's token and its fallback, read off `minmax(<floor>, var(--token, <n>fr))`. */
+function trackToken(track: string): [string, number] | null {
+  const m = /var\((--[a-z0-9-]+),\s*([\d.]+)fr\)/.exec(track)
+  return m ? [m[1], parseFloat(m[2])] : null
+}
+
+describe("Operate's column dividers read the sheet's own tracks (layout L5)", () => {
+  it('Classic at three columns: each track reads its divider token, and its default and floor are the dividers’ own', () => {
+    const win = winner(gridChain('classic', 'lg', 'three'), 'grid-template-columns')!
+    expect(splitTracks(win.value).map(trackToken), `\`${win.selector}\``).toEqual(CLASSIC_VARS.map((v, i) => [v, CLASSIC_FR[i]]))
+    expect(splitTracks(win.value).map(trackFloor), 'a divider would stop short of, or past, a floor').toEqual([...CLASSIC_FLOOR])
+    const left = winner(gridChain('classic', 'lg', 'three', true), 'grid-template-columns')!
+    expect(splitTracks(left.value).map(trackFloor)).toEqual([2, 0, 1].map((i) => CLASSIC_FLOOR[i]))
+  })
+
+  it('Classic with the rail on the left: the same three tracks, mirrored (Stations first)', () => {
+    const win = winner(gridChain('classic', 'lg', 'three', true), 'grid-template-columns')!
+    expect(splitTracks(win.value).map(trackToken), `\`${win.selector}\``).toEqual([2, 0, 1].map((i) => [CLASSIC_VARS[i], CLASSIC_FR[i]]))
+    // The rail keeps its own floor on the left, the Rx Frequency column its own on the right.
+    expect(splitTracks(win.value).map((t) => /^minmax\((\S+?),/.exec(t)?.[1])).toEqual(['260px', '0', '300px'])
+  })
+
+  it('Classic at two columns with the rail on the left: the rail keeps the narrow track', () => {
+    const win = winner(gridChain('classic', 'lg', 'two', true), 'grid-template-columns')!
+    expect(splitTracks(win.value).map((t) => t.replace(/\s+/g, '')), `\`${win.selector}\``).toEqual(['minmax(280px,1fr)', 'minmax(0,1.2fr)'])
+  })
+
+  it('the collapse and the narrow stack still win with the rail on the left', () => {
+    const one = winner(gridChain('classic', 'lg', 'one', true), 'grid-template-columns')!
+    expect(splitTracks(one.value).map((t) => t.replace(/\s+/g, '')), `\`${one.selector}\``).toEqual(['minmax(0,1fr)'])
+    for (const vp of ['sm', 'xs']) {
+      for (const cols of ['three', 'two']) {
+        const w = winner(gridChain('classic', vp, cols, true), 'grid-template-columns')!
+        expect(splitTracks(w.value).map((t) => t.replace(/\s+/g, '')), `${vp}/${cols}: \`${w.selector}\``).toEqual(['minmax(0,1fr)'])
+      }
+      const r = winner(gridChain('roster', vp, 'two', true), 'grid-template-columns')!
+      expect(splitTracks(r.value).map((t) => t.replace(/\s+/g, '')), `${vp} roster: \`${r.selector}\``).toEqual(['minmax(0,1fr)'])
+    }
+  })
+
+  it('Roster: its two tracks read the divider’s tokens, and mirror with the rail on the left', () => {
+    const right = winner(gridChain('roster', 'lg', 'two'), 'grid-template-columns')!
+    expect(splitTracks(right.value).map(trackToken), `\`${right.selector}\``).toEqual(ROSTER_VARS.map((v, i) => [v, ROSTER_FR[i]]))
+    const left = winner(gridChain('roster', 'lg', 'two', true), 'grid-template-columns')!
+    expect(splitTracks(left.value).map(trackToken), `\`${left.selector}\``).toEqual([1, 0].map((i) => [ROSTER_VARS[i], ROSTER_FR[i]]))
+    expect(splitTracks(right.value).map(trackFloor)).toEqual([...ROSTER_FLOOR])
+    expect(splitTracks(left.value).map(trackFloor)).toEqual([ROSTER_FLOOR[1], ROSTER_FLOOR[0]])
+  })
+
+  it('the rail goes first by `order` only while the grid says so', () => {
+    for (const mode of ['classic', 'roster'] as const) {
+      const rail = [...gridChain(mode, 'lg', mode === 'classic' ? 'three' : 'two', true), { classes: new Set(['cockpit-side']) }]
+      expect(winner(rail, 'order')?.value, `${mode}: the rail did not move`).toBe('-1')
+      const stock = [...gridChain(mode, 'lg', mode === 'classic' ? 'three' : 'two'), { classes: new Set(['cockpit-side']) }]
+      expect(winner(stock, 'order'), `${mode}: the rail moves with the toggle off`).toBeNull()
+    }
+  })
+
+  it('a divider is placed on the gap before its track, taking no track: absolute in a positioned grid', () => {
+    for (const mode of ['classic', 'roster'] as const) {
+      const grid = gridChain(mode, 'lg', mode === 'classic' ? 'three' : 'two')
+      expect(winner(grid, 'position')?.value, `${mode}: the grid is not the dividers' containing block`).toBe('relative')
+      for (const n of [2, 3]) {
+        const seam = [...grid, { classes: new Set(['pane-splitter', 'col-seam', 'seam', 'op-colseam', `op-colseam-${n}`]) }]
+        expect(winner(seam, 'position')?.value).toBe('absolute')
+        expect(winner(seam, 'grid-column')?.value).toBe(`${n} / ${n + 1}`)
+        // Centred on THIS grid's gap: half of it, and half the divider's 12 px, to the left.
+        const gap = winner(grid, 'gap')!.value
+        expect(winner(seam, 'left')?.value, `${mode}: the divider is not centred on the gap (${gap})`).toBe(`calc(${gap} / -2 - 6px)`)
+        expect(winner(seam, 'width')?.value).toBe('12px')
+      }
+    }
+  })
+})
+
+// ── THE LOWER REGION AT A NARROW EFFECTIVE SIZE (2026-10-01) ────────────────────────────────
+/** Final overflow-y a block computes: the `overflow` shorthand (its second value, or its only
+ *  one) and the longhand, in block order. */
+function blockOverflowY(body: string): string | null {
+  let v: string | null = null
+  for (const decl of body.split(';')) {
+    const m = /^\s*(overflow|overflow-y)\s*:\s*(\S[^]*?)\s*$/.exec(decl)
+    if (!m) continue
+    const parts = m[2].split(/\s+/)
+    v = m[1] === 'overflow-y' ? parts[0] : (parts[1] ?? parts[0])
+  }
+  return v
+}
+
+function winnerOverflowY(chain: El[]): { value: string; selector: string } | null {
+  let win: { value: string; selector: string; spec: number; order: number } | null = null
+  for (const r of RULES) {
+    if (r.media !== null || !matchesChain(r.selector, chain)) continue
+    const v = blockOverflowY(r.body)
+    if (v === null) continue
+    const spec = specificity(r.selector)
+    if (!win || spec > win.spec || (spec === win.spec && r.order >= win.order)) {
+      win = { value: v, selector: r.selector, spec, order: r.order }
+    }
+  }
+  return win && { value: win.value, selector: win.selector }
+}
+
+describe("Operate's lower region floors itself, and its narrow stack scrolls instead of crushing", () => {
+  // THE DEFECT. Below the md tier (data-viewport sm/xs: the 1024×768 floor at a 100 % scale,
+  // 1366×768 at 125 %, 1920×1080 at 175 %) the TopBar wraps, the header wraps and the region is
+  // whatever the column has left. It was `flex: 1; min-height: 0` under a shell that clipped, so
+  // it was the ONLY box that gave: the waterfall (built to yield) kept its 22 %, and the region got
+  // 109 px at the floor and 0 px at 1366×768 at 125 %. The narrow stack then split that into equal
+  // `minmax(0, 1fr)` rows with no scroller, two or three panes in 49 or 31 px each: Call Roster,
+  // Band Activity and Rx Frequency showed their title bars and no row (Chrome, 0 of 8 decodes).
+  //
+  // THE FIX is the pane grid's own contract (cockpit-panes.css): the region floors at 18em, so the
+  // waterfall yields before the decode panes do and, past the floor, the shell's deficit valve
+  // scrolls (cockpit-shells.test.ts); and the narrow stack is the interposed scroller, its rows
+  // floored so a pane never gets less than a usable box. The QSO strip with Stop TX sits outside
+  // the region, so scrolling the stack never moves it. The floor yields to a short window (the
+  // hosted FT's `min(18em, 35 % of the window)`): the valve's end shows the floor whole with the
+  // strip right above it, and a plain 18em scrolled Stop TX out of view at 1366×768 at 150 %.
+  const LAYOUTS: Array<['classic' | 'roster', string[]]> = [['classic', ['one', 'two', 'three']], ['roster', ['one', 'two']]]
+  const chains = (vps: readonly string[]) =>
+    vps.flatMap((vp) => LAYOUTS.flatMap(([mode, cols]) => cols.flatMap((c) => [false, true].map((rail) => ({ name: `[data-viewport='${vp}'] ${mode} data-cols='${c}'${rail ? ' rail left' : ''}`, chain: gridChain(mode, vp, c, rail) })))))
+  const em = (v: string | undefined) => (v && /^\d+(\.\d+)?em$/.test(v) ? parseFloat(v) : NaN)
+  /** The region floor: `min(<em>, calc(<share> * var(--vh-eff)))` → its em arm and its share of the window. */
+  const floorOf = (v: string | undefined) => {
+    const m = /^min\((\d+(?:\.\d+)?)em, calc\(([\d.]+) \* var\(--vh-eff\)\)\)$/.exec(v ?? '')
+    return m ? { em: parseFloat(m[1]), share: parseFloat(m[2]) } : null
+  }
+
+  it('the region floors at 18em at every tier and in both layouts, yielding to a short window', () => {
+    for (const { name, chain } of chains(['xs', 'sm', 'md', 'lg', 'xl'])) {
+      const w = winner(chain, 'min-height')
+      const f = floorOf(w?.value)
+      expect(
+        f,
+        `${name}: \`${w?.selector} { min-height: ${w?.value} }\` — an unfloored region is the column's only ` +
+          'give, so the decode panes are crushed to their title bars while the waterfall keeps its height; and a ' +
+          'floor that does not yield to the window can scroll the QSO strip with Stop TX out of view.',
+      ).not.toBeNull()
+      expect(f!.em, `${name}: the floor's em arm`).toBeGreaterThanOrEqual(18)
+      expect(f!.share, `${name}: the floor's share of the window`).toBeGreaterThan(0)
+      expect(f!.share, `${name}: the floor's share of the window`).toBeLessThanOrEqual(0.35)
+    }
+  })
+
+  it('at sm and xs the stack scrolls, has no explicit row, and floors every row at least as tall as the region', () => {
+    for (const { name, chain } of chains(['sm', 'xs'])) {
+      const explicit = winner(chain, 'grid-template-rows')
+      expect(explicit?.value, `${name}: \`${explicit?.selector}\` leaves an explicit first row the row floor does not reach`).toBe('none')
+      const rows = winner(chain, 'grid-auto-rows')
+      const m = /^minmax\((\d+(?:\.\d+)?em), 1fr\)$/.exec(rows?.value ?? '')
+      expect(m, `${name}: \`${rows?.selector} { grid-auto-rows: ${rows?.value} }\` lets a stacked pane shrink to its title bar`).not.toBeNull()
+      expect(em(m![1]), `${name}: a stacked row smaller than the region's own floor`).toBeGreaterThanOrEqual(floorOf(winner(chain, 'min-height')?.value)?.em ?? Infinity)
+      const oy = winnerOverflowY(chain)
+      expect(oy?.value, `${name}: the stack's rows overflow a region that does not scroll (\`${oy?.selector}\`)`).toBe('auto')
+    }
+  })
+
+  it('at md and wider the columns are bounded rows again, and the narrow scroller reaches none of them', () => {
+    for (const { name, chain } of chains(['md', 'lg', 'xl'])) {
+      expect(winner(chain, 'grid-template-rows')?.value, name).toBe('minmax(0, 1fr)')
+      expect(winner(chain, 'grid-auto-rows'), `${name}: a row floor meant for the narrow stack`).toBeNull()
+      expect(winnerOverflowY(chain), `${name}: a scroller meant for the narrow stack`).toBeNull()
+    }
   })
 })

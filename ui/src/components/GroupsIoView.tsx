@@ -31,6 +31,7 @@ import {
   type GroupsIoStatus,
 } from '../api'
 import { t } from '../i18n'
+import { confirmDialog } from '../confirm'
 import { Dialog } from './ui/Dialog'
 import { pushToast } from '../toast'
 import './groups-io.css'
@@ -83,6 +84,7 @@ function draftFrom(composer: Composer): GroupsIoDraft {
 
 export function GroupsIoView({ onOpenSettings }: Props) {
   const [status, setStatus] = useState<GroupsIoStatus | null>(null)
+  const [statusError, setStatusError] = useState('')
   const [selectedGroup, setSelectedGroup] = useState('')
   const [selectedTopic, setSelectedTopic] = useState('')
   const [query, setQuery] = useState('')
@@ -103,10 +105,16 @@ export function GroupsIoView({ onOpenSettings }: Props) {
   const refreshedOnOpen = useRef(false)
 
   const refresh = async () => {
-    const next = await getGroupsIoStatus()
-    setStatus(next)
-    setSelectedGroup((current) => current || next.groups.find((group) => group.active)?.id || next.groups[0]?.id || '')
-    return next
+    setStatusError('')
+    try {
+      const next = await getGroupsIoStatus()
+      setStatus(next)
+      setSelectedGroup((current) => current || next.groups.find((group) => group.active)?.id || next.groups[0]?.id || '')
+      return next
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : String(error))
+      throw error
+    }
   }
 
   useEffect(() => { void refresh().catch((error) => pushToast(String(error), 'error')) }, [])
@@ -201,7 +209,7 @@ export function GroupsIoView({ onOpenSettings }: Props) {
     if (!composer) return
     const saved = await run(t('groupsio.action.draftSaved'), () => saveGroupsIoDraft(draftFrom(composer)))
     if (!saved) return
-    if (!window.confirm(t('groupsio.composer.confirm', { subject: composer.subject, group: group?.title || group?.name || t('groupsio.thisGroup') }))) return
+    if (!(await confirmDialog({ title: t('groupsio.composer.confirm', { subject: composer.subject, group: group?.title || group?.name || t('groupsio.thisGroup') }) }))) return
     const sent = await run(t('groupsio.action.submitted'), () => sendGroupsIoDraft(composer.id, true))
     if (sent) setComposer(null)
   }
@@ -257,7 +265,7 @@ export function GroupsIoView({ onOpenSettings }: Props) {
         <div>
           <span className="eyebrow">{t('groupsio.eyebrow')}</span>
           <h2>{t('groupsio.title')}</h2>
-          <p>{status?.connected ? t('groupsio.connected') : t('groupsio.offline')}</p>
+          <p>{status?.connected ? t('groupsio.connected') : status ? t('groupsio.offline') : statusError ? t('groupsio.loadFailed') : t('groupsio.loading')}</p>
         </div>
         <div className="groupsio-header-actions">
           <button type="button" onClick={newTopic} disabled={!status?.connected || !group?.canPost}>{t('groupsio.newTopic')}</button>
@@ -266,12 +274,13 @@ export function GroupsIoView({ onOpenSettings }: Props) {
           <button type="button" onClick={onOpenSettings}>{t('groupsio.settings')}</button>
           <button type="button" className="primary" onClick={() => void run(t('groupsio.action.sync'), () => syncGroupsIo())} disabled={!status?.connected || Boolean(busy)}>{busy || t('groupsio.syncAll')}</button>
         </div>
-        <div className="groupsio-summary" aria-live="polite">
-          {t('groupsio.summary', { groups: status?.counts.groups ?? 0, topics: status?.counts.topics ?? 0, messages: status?.counts.messages ?? 0, size: bytes(status?.storageBytes ?? 0) })}
-        </div>
+        {status && <div className="groupsio-summary" aria-live="polite">
+          {t('groupsio.summary', { groups: status.counts.groups, topics: status.counts.topics, messages: status.counts.messages, size: bytes(status.storageBytes) })}
+        </div>}
       </header>
 
-      {!status?.connected && <div className="groupsio-boundary"><strong>{t('groupsio.keyRequired')}</strong><span>{t('groupsio.keyBoundary')}</span><button type="button" onClick={onOpenSettings}>{t('groupsio.connect')}</button></div>}
+      {!status && <div className="groupsio-boundary" aria-live="polite"><strong>{statusError ? t('groupsio.loadFailed') : t('groupsio.loading')}</strong>{statusError && <><span>{statusError}</span><button type="button" onClick={() => void refresh().catch((error) => pushToast(String(error), 'error'))}>{t('groupsio.retry')}</button></>}</div>}
+      {status && !status.connected && <div className="groupsio-boundary"><strong>{t('groupsio.keyRequired')}</strong><span>{t('groupsio.keyBoundary')}</span><button type="button" onClick={onOpenSettings}>{t('groupsio.connect')}</button></div>}
 
       <div className="groupsio-searchbar">
         <div className="groupsio-segment" role="group" aria-label={t('groupsio.search.location')}>
@@ -301,7 +310,7 @@ export function GroupsIoView({ onOpenSettings }: Props) {
       </Dialog>
 
       <Dialog open={draftsOpen} onOpenChange={setDraftsOpen} title={t('groupsio.drafts.title')} description={t('groupsio.drafts.description')} className="groupsio-dialog wide">
-        <div className="groupsio-drafts"><h3>{t('groupsio.drafts.local')}</h3>{status?.drafts.map((draft) => <article key={draft.id}><div><strong>{draft.subject || t('groupsio.drafts.untitled')}</strong><small>{draft.state} · {age(draft.updatedUnix)}</small>{draft.finalPostAttemptId && <small>{t('groupsio.drafts.attempt', { id: draft.finalPostAttemptId })}</small>}</div><div className="groupsio-inline-actions"><button type="button" onClick={() => { setComposer(draft); setDraftsOpen(false) }} disabled={draft.state === 'posting' || draft.state === 'delivery_unknown'}>{t('groupsio.open')}</button>{(draft.state === 'posting' || draft.state === 'delivery_unknown') && <><button type="button" onClick={() => { if (window.confirm(t('groupsio.drafts.markDeliveredConfirm'))) void run(t('groupsio.action.reconciled'), () => reconcileGroupsIoDraft(draft.id, 'delivered')) }}>{t('groupsio.drafts.markDelivered')}</button><button type="button" onClick={() => { if (window.confirm(t('groupsio.drafts.retryConfirm'))) void run(t('groupsio.action.reconciled'), () => reconcileGroupsIoDraft(draft.id, 'not_delivered')) }}>{t('groupsio.drafts.allowRetry')}</button></>}</div></article>)}{!status?.drafts.length && <p className="empty">{t('groupsio.drafts.none')}</p>}<h3>{t('groupsio.drafts.receipts')}</h3>{status?.outbox.map((draft) => <article key={draft.id}><div><strong>{draft.subject}</strong><small>{draft.state} · {draft.note}</small></div></article>)}{!status?.outbox.length && <p className="empty">{t('groupsio.drafts.noReceipts')}</p>}<h3>{t('groupsio.drafts.server')}</h3><button type="button" onClick={() => void refreshServerDrafts()}>{t('groupsio.refresh')}</button>{serverDrafts.map((draft) => <article key={draft.id}><div><strong>{draft.subject || t('groupsio.drafts.untitled')}</strong><small>{age(draft.updatedUnix)} · {t('groupsio.attachments.count', { count: draft.attachmentCount })}</small></div><div className="groupsio-inline-actions"><button type="button" onClick={() => openServerDraft(draft)}>{t('groupsio.drafts.copyLocal')}</button>{draft.attachmentCount > 0 && <button type="button" onClick={() => void getGroupsIoServerDraftAttachments(draft.id).then((items) => setServerAttachments({ draftId: draft.id, items }))}>{t('groupsio.attachments.action')}</button>}<button type="button" onClick={() => { if (window.confirm(t('groupsio.drafts.deleteConfirm', { subject: draft.subject || t('groupsio.drafts.untitled') }))) void deleteGroupsIoServerDraft(draft.id).then(() => refreshServerDrafts()) }}>{t('groupsio.delete')}</button></div></article>)}{serverNext && <button type="button" onClick={() => void refreshServerDrafts(true)}>{t('groupsio.loadMore')}</button>}{serverAttachments && <div className="groupsio-server-files">{serverAttachments.items.map((item) => <span key={item.id}>{item.filename} · {bytes(item.byteSize)} <button type="button" onClick={() => { if (window.confirm(t('groupsio.attachments.deleteConfirm', { filename: item.filename }))) void deleteGroupsIoServerAttachment(serverAttachments.draftId, item.id).then(async () => setServerAttachments({ draftId: serverAttachments.draftId, items: await getGroupsIoServerDraftAttachments(serverAttachments.draftId) })) }}>{t('groupsio.delete')}</button></span>)}</div>}</div>
+        <div className="groupsio-drafts"><h3>{t('groupsio.drafts.local')}</h3>{status?.drafts.map((draft) => <article key={draft.id}><div><strong>{draft.subject || t('groupsio.drafts.untitled')}</strong><small>{draft.state} · {age(draft.updatedUnix)}</small>{draft.finalPostAttemptId && <small>{t('groupsio.drafts.attempt', { id: draft.finalPostAttemptId })}</small>}</div><div className="groupsio-inline-actions"><button type="button" onClick={() => { setComposer(draft); setDraftsOpen(false) }} disabled={draft.state === 'posting' || draft.state === 'delivery_unknown'}>{t('groupsio.open')}</button>{(draft.state === 'posting' || draft.state === 'delivery_unknown') && <><button type="button" onClick={() => void confirmDialog({ title: t('groupsio.drafts.markDeliveredConfirm') }).then((ok) => { if (ok) void run(t('groupsio.action.reconciled'), () => reconcileGroupsIoDraft(draft.id, 'delivered')) })}>{t('groupsio.drafts.markDelivered')}</button><button type="button" onClick={() => void confirmDialog({ title: t('groupsio.drafts.retryConfirm') }).then((ok) => { if (ok) void run(t('groupsio.action.reconciled'), () => reconcileGroupsIoDraft(draft.id, 'not_delivered')) })}>{t('groupsio.drafts.allowRetry')}</button></>}</div></article>)}{!status?.drafts.length && <p className="empty">{t('groupsio.drafts.none')}</p>}<h3>{t('groupsio.drafts.receipts')}</h3>{status?.outbox.map((draft) => <article key={draft.id}><div><strong>{draft.subject}</strong><small>{draft.state} · {draft.note}</small></div></article>)}{!status?.outbox.length && <p className="empty">{t('groupsio.drafts.noReceipts')}</p>}<h3>{t('groupsio.drafts.server')}</h3><button type="button" onClick={() => void refreshServerDrafts()}>{t('groupsio.refresh')}</button>{serverDrafts.map((draft) => <article key={draft.id}><div><strong>{draft.subject || t('groupsio.drafts.untitled')}</strong><small>{age(draft.updatedUnix)} · {t('groupsio.attachments.count', { count: draft.attachmentCount })}</small></div><div className="groupsio-inline-actions"><button type="button" onClick={() => openServerDraft(draft)}>{t('groupsio.drafts.copyLocal')}</button>{draft.attachmentCount > 0 && <button type="button" onClick={() => void getGroupsIoServerDraftAttachments(draft.id).then((items) => setServerAttachments({ draftId: draft.id, items }))}>{t('groupsio.attachments.action')}</button>}<button type="button" onClick={() => void confirmDialog({ title: t('groupsio.drafts.deleteConfirm', { subject: draft.subject || t('groupsio.drafts.untitled') }) }).then((ok) => { if (ok) void deleteGroupsIoServerDraft(draft.id).then(() => refreshServerDrafts()) })}>{t('groupsio.delete')}</button></div></article>)}{serverNext && <button type="button" onClick={() => void refreshServerDrafts(true)}>{t('groupsio.loadMore')}</button>}{serverAttachments && <div className="groupsio-server-files">{serverAttachments.items.map((item) => <span key={item.id}>{item.filename} · {bytes(item.byteSize)} <button type="button" onClick={() => void confirmDialog({ title: t('groupsio.attachments.deleteConfirm', { filename: item.filename }) }).then((ok) => { if (ok) void deleteGroupsIoServerAttachment(serverAttachments.draftId, item.id).then(async () => setServerAttachments({ draftId: serverAttachments.draftId, items: await getGroupsIoServerDraftAttachments(serverAttachments.draftId) })) })}>{t('groupsio.delete')}</button></span>)}</div>}</div>
       </Dialog>
 
       <Dialog open={archiveOpen} onOpenChange={setArchiveOpen} title={t('groupsio.archive.title')} description={t('groupsio.archive.help')} className="groupsio-dialog">

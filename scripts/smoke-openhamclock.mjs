@@ -12,6 +12,10 @@ const resourceDir = join(root, 'src-tauri', 'resources', 'openhamclock')
 const executable = join(resourceDir, process.platform === 'win32' ? 'openhamclock.exe' : 'openhamclock')
 const inventory = JSON.parse(readFileSync(join(resourceDir, 'parity-inventory.json'), 'utf8'))
 if (!existsSync(executable)) throw new Error('OpenHamClock executable is not staged')
+const forbiddenRuntimeState = ['.env', 'config.json', 'data', 'openhamclock.log', 'cluster-status.json']
+for (const name of forbiddenRuntimeState) {
+  if (existsSync(join(resourceDir, name))) throw new Error(`OpenHamClock staging is polluted before smoke: ${name}`)
+}
 
 const occupiedPort = () => new Promise((resolvePort, reject) => {
   const server = createServer()
@@ -27,6 +31,7 @@ const children = new Set()
 function start(port, home, extra = {}) {
   const portFile = join(home, `smoke-${Date.now()}-${Math.random().toString(16).slice(2)}.port.json`)
   const child = spawn(executable, [], {
+    cwd: home,
     env: {
       ...process.env,
       HOST: '127.0.0.1', PORT: String(port), OPENHAMCLOCK_HOME: home,
@@ -154,6 +159,10 @@ try {
   await ready(owned)
   await waitExit(parent, 5_000)
   await waitExit(owned, 15_000)
+
+  for (const name of forbiddenRuntimeState) {
+    if (existsSync(join(resourceDir, name))) throw new Error(`OpenHamClock smoke polluted staging: ${name}`)
+  }
 
   process.stdout.write(`OpenHamClock packaged runtime parity smoke passes: ${inventory.routes.length} routes, ${inventory.distFiles.length} assets, persistence, collision, duplicate-instance, restart, and parent cleanup.\n`)
 } finally {

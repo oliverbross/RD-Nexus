@@ -206,6 +206,7 @@ pub const RPC_ALLOWLIST: &[&str] = &[
     "get_satellites",      // satellite positions (map layer)
     "get_ota_map_spots",   // POTA activators (map layer)
     "get_kp_forecast",     // the three-day outlook pane
+    "get_solar_indices",   // NOAA daily SFI + sunspot number (Space Wx pane's trends)
     "get_band_outlook",    // per-band outlook pane
     "get_path_outlook",    // outlook for a clicked spot
     "get_getting_out",     // the getting-out pane
@@ -571,6 +572,12 @@ mod tests {
             "set_frequency",
             "set_tx_enabled",
             "halt_tx",
+            // The Spots and POTA/SOTA boards' own traffic — which is also Connect's two boxes',
+            // the reason those boxes have neither a list nor a Work on this page:
+            "work_spot", // a Work: moves the rig and opens a cockpit (and is no set_ verb)
+            "set_hunt_target", // tags the next logged contact with a park or summit
+            "get_all_spots", // the Spots board's rows carry the log's worked flags and the licence's verdict
+            "get_ota_spots", // the POTA/SOTA board's rows carry hunted-today, from the log
         ];
         for f in FORBIDDEN {
             assert!(
@@ -652,9 +659,10 @@ mod tests {
         let source: Arc<dyn BoardSource> = Arc::new(FullConnect::new(
             || Some(data()),
             Arc::new(|p: &str| match p {
-                "connect-tv.html" => {
-                    Some((b"<title>Nexus Connect</title>".to_vec(), "text/html".into()))
-                }
+                "connect-tv.html" => Some((
+                    b"<title>Nexus Conditions (formerly Connect)</title>".to_vec(),
+                    "text/html".into(),
+                )),
                 "assets/tv-abc.js" => Some((b"console.log(1)".to_vec(), "text/javascript".into())),
                 _ => None,
             }),
@@ -678,7 +686,11 @@ mod tests {
         // The TV entry at the bare host:port — what someone types into a browser.
         let root = talk("GET / HTTP/1.1\r\nHost: tv\r\n\r\n");
         assert!(root.starts_with("HTTP/1.1 200"), "root: {root:.60}");
-        assert!(root.contains("Nexus Connect"));
+        // The TV entry's own title, which the summary page's does not carry.
+        assert!(
+            root.contains("<title>Nexus Conditions (formerly Connect)</title>"),
+            "root served the summary page, not the TV entry"
+        );
 
         // Assets, at both spellings a browser can produce.
         assert!(talk("GET /assets/tv-abc.js HTTP/1.1\r\n\r\n").starts_with("HTTP/1.1 200"));
@@ -735,8 +747,14 @@ mod tests {
             "GET / did not answer: {root:.60}"
         );
         assert!(
-            root.contains("Nexus Connect"),
+            root.contains("<title>Nexus Conditions</title>"),
             "GET / served something else"
+        );
+        // The view is Conditions now (operator, 2026-10-02: "so no screen anywhere still says
+        // Connect"): the footer line names it too, and nothing on the page says the old name.
+        assert!(
+            root.contains("'Nexus Conditions · data '") && !root.contains("Nexus Connect"),
+            "the page still names the view by its old name"
         );
 
         // The named path, and the JSON the page actually fetches.

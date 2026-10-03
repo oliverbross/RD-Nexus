@@ -26,7 +26,7 @@ import {
   symbolCategory,
 } from '../aprsSymbols'
 import { MapLegend, MufLegend } from './MapLegend'
-import { geoPath, type GeoPermissibleObjects } from 'd3-geo'
+import { geoPath, type GeoPermissibleObjects, type GeoProjection } from 'd3-geo'
 import { Layers as LayersIcon, Maximize2, Minimize2, RotateCcw } from 'lucide-react'
 import type {
   AuroraPoint,
@@ -41,7 +41,7 @@ import type {
   WorkableCard,
 } from '../types'
 import { MapInsightRail } from './prop/MapInsightRail'
-import { MapLayersPanel } from './MapLayersPanel'
+import { MapLayersPanel, OVERLAYS_SIDE_BY_SIDE_PX } from './MapLayersPanel'
 import type { Theme } from '../useTheme'
 import { getAurora, getDeclination, getPca, getSatellites, getLogStats, getOtaMapSpots } from '../api'
 import { logSource } from '../features/logSource'
@@ -86,10 +86,13 @@ import {
   makeProjection,
   project,
   rangeRing,
+  sectorRing,
   destinationPoint,
   greatCircle,
   terminator,
   subsolarPoint,
+  moonAt,
+  inView,
   flareHafMhz,
   flareField,
   flareRScale,
@@ -103,7 +106,9 @@ import { modeClassOf } from '../features/needs'
 import { t, type MessageKey } from '../i18n'
 import { StateBlock } from './StateBlock'
 import { usePaletteKey } from '../usePaletteRoles'
-// Geochron-style shaded-relief basemap (Natural Earth I 50m, public domain),
+import { STANDARD_MAP, STANDARD_SKY, type MapToken, type SkyToken } from '../features/skins'
+import { MOON_DISC, SUN_DISC, drawMoon, drawSun } from '../features/skyGlyphs'
+// A shaded-relief basemap (Natural Earth I 50m, public domain),
 // downsampled to 2048x1024 webp. Bundled offline; drawn behind the World view.
 import reliefUrl from '../assets/earth-relief.webp'
 
@@ -194,6 +199,61 @@ interface Props {
   onSelectAprs?: (call: string) => void
   /** Highlighted APRS station (the list selection), drawn accented. */
   selectedAprs?: string | null
+  /** Bumped by a host that rewrote this surface's stored map setup (Connect's layouts:
+   *  features/connectPresets `mapLayers`, through `setIntentMapLayer`): the map reads its layers
+   *  again. */
+  layersRev?: number
+}
+
+/** Where a POINT lands on the map, or null where the map cannot show it: off the projection, or on
+ *  the far side of the Globe (mapGeo `inView`). d3 clips a path at the globe's horizon, but it
+ *  projects a lone point from the far side straight through the sphere, onto the near face — so a
+ *  spot in Sydney, on a globe centred on the Midwest, landed over the eastern Pacific. Every point
+ *  marker, point label and hit target on this map is placed through this, the openings' tags
+ *  included (`globeEdgeTag` writes one whose spot is behind the Globe at its edge); their wedges are
+ *  areas, drawn through `path`. */
+function placePoint(kind: Projection, proj: GeoProjection, ll: LatLon): [number, number] | null {
+  return inView(kind, proj, ll) ? project(proj, ll) : null
+}
+
+/** Where an opening's tag is written on the Globe while its spot, the middle of the wedge's far edge, is
+ *  behind the planet: just inside the globe's edge, where the wedge meets it, so a long opening keeps its
+ *  name. The wedge's radials (taken as its far edge is, 17 across its 45°) that cross the horizon have one
+ *  end facing the viewer and the other behind; the middle one's crossing gives the direction from the
+ *  disc's centre, and the tag's box, `w` × 10 px, is pulled in along it until its outer corner is 2 px
+ *  inside the limb. Returns the box's bottom centre, where the tag is written. Null when no radial
+ *  crosses: the wedge is then wholly behind the planet and keeps no tag. */
+function globeEdgeTag(proj: GeoProjection, me: LatLon, bearingDeg: number, maxKm: number, w: number): [number, number] | null {
+  const faces = (ll: LatLon) => inView('globe', proj, ll)
+  const home = faces(me)
+  const crossing: number[] = []
+  for (let i = 0; i <= 16; i++) {
+    const brg = bearingDeg - 22.5 + (45 * i) / 16
+    if (faces(destinationPoint(me, brg, maxKm)) !== home) crossing.push(brg)
+  }
+  if (crossing.length === 0) return null
+  const brg = crossing[crossing.length >> 1]
+  // Halve that radial down to where it crosses the horizon, `on` staying on the face.
+  let on = home ? 0 : maxKm
+  let off = home ? maxKm : 0
+  for (let k = 0; k < 24; k++) {
+    const mid = (on + off) / 2
+    if (faces(destinationPoint(me, brg, mid))) on = mid
+    else off = mid
+  }
+  const p = project(proj, destinationPoint(me, brg, on))
+  if (!p) return null
+  const [cx, cy] = proj.translate()
+  const d = Math.hypot(p[0] - cx, p[1] - cy)
+  const ux = (p[0] - cx) / d
+  const uy = (p[1] - cy) / d
+  // The box's outer corner, its middle D px out along u, is D·u + (±w/2, ±5) with u's signs. It lies on the
+  // circle of radius ρ = R − 2 at D = −t + √(t² + ρ² − (w/2)² − 5²), t = |ux|·w/2 + |uy|·5; no D ≥ 0, no room.
+  const hw = w / 2
+  const t = Math.abs(ux) * hw + Math.abs(uy) * 5
+  const rho = proj.scale() - 2
+  const D = -t + Math.sqrt(t * t + rho * rho - hw * hw - 25)
+  return D >= 0 ? [cx + ux * D, cy + uy * D + 5] : null
 }
 
 /** Color for an ionosonde's measured MUF (MHz): a cold→hot scale (blue low → red high)
@@ -287,6 +347,18 @@ export function layersFromStored(v: string | null): Record<LayerKey, Layer> | nu
   return layersFromValue(raw)
 }
 
+/** Turn one layer on or off in an intent's stored map setup on this surface, starting from what the
+ *  map shows there: the stored table, or the intent's preset for an intent not yet used here. A
+ *  LAYOUT'S reach into the map (features/connectPresets `mapLayers`): Connect calls this when a
+ *  layout is picked, then bumps the map's `layersRev` so a mounted map reads its layers again.
+ *  Returns whether anything changed. */
+export function setIntentMapLayer(intent: MapIntent, key: keyof typeof DEFAULT_LAYERS, on: boolean): boolean {
+  const table = layersFromValue(loadIntentSetup(intent)?.layers) ?? withIntentPreset(DEFAULT_LAYERS, intent)
+  if (table[key].visible === on) return false
+  saveIntentSetup(intent, { layers: { ...table, [key]: { ...table[key], visible: on } } })
+  return true
+}
+
 /** `layersFromStored` for an already-parsed value (the per-intent store holds the table as JSON). */
 function layersFromValue(raw: unknown): Record<LayerKey, Layer> | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
@@ -355,6 +427,7 @@ function needColor(tag: NeedTag | undefined): string | null {
 
 type LayerKey =
   | 'daynight'
+  | 'sunMoon'
   | 'relief'
   | 'muf'
   | 'aurora'
@@ -387,6 +460,7 @@ interface Layer {
  * happened to be active when this module first loaded. The layer ids are code. */
 const LAYER_LABEL: Record<LayerKey, { labelKey: MessageKey }> = {
   daynight: { labelKey: 'map.layer.daynight.label' },
+  sunMoon: { labelKey: 'map.layer.sunMoon.label' },
   relief: { labelKey: 'map.layer.relief.label' },
   muf: { labelKey: 'map.layer.muf.label' },
   aurora: { labelKey: 'map.layer.aurora.label' },
@@ -414,6 +488,9 @@ const LAYER_LABEL: Record<LayerKey, { labelKey: MessageKey }> = {
 const layerLabel = (k: LayerKey): string => t(LAYER_LABEL[k].labelKey)
 export const DEFAULT_LAYERS: Record<LayerKey, Layer> = {
   daynight: { visible: true, opacity: 1 },
+  // The sun and the moon where each is overhead. On by default and free: they are drawn in the
+  // redraws the map already makes (the 60 s greyline clock moves them), never on a clock of their own.
+  sunMoon: { visible: true, opacity: 1 },
   relief: { visible: true, opacity: 1 },
   muf: { visible: true, opacity: 0.9 },
   aurora: { visible: false, opacity: 0.85 },
@@ -490,20 +567,17 @@ const PATH_SP = 'SP'
 const PATH_LP = 'LP'
 
 // Cartographic palette — a map should read as a MAP (filled land + ocean), not a
-// wireframe. Deliberately theme-agnostic and dark (like HamClock/Geochron), so it
-// looks intentional in any UI theme. Tuned for the dark dashboard.
-const MAP_OCEAN = '#0f2334' // deep sea
-const MAP_LAND = '#364a3c' // muted continental green (flat World/AEQD maps)
-const MAP_LAND_GLOBE = '#1c2b2a' // darker landmass on the globe — a moody night-earth so
-// the colored spots + arcs are what pop (the cover-photo look, minus the busy city lights)
-const MAP_COAST = '#6f8a98' // coastline / borders, visible but quiet
-const MAP_STATE = '#4d6675' // US state interior borders — quieter than coast, still readable
-const MAP_RIM = '#2a4254' // the globe's edge (AEQD reads as a sphere)
-// Globe (orthographic) 3D shading: a lit ocean highlight toward the top-left light
-// source, deepening to a dark limb, plus an atmospheric rim glow and a star field —
-// turns the flat disc into a planet floating in space without any WebGL.
-const MAP_OCEAN_LIT = '#1c4a66' // lit ocean highlight (toward the light source)
-const MAP_OCEAN_DEEP = '#06101c' // sphere limb (dark edge)
+// wireframe. The basemap's colours are THEME TOKENS (styles.css MAP BASEMAP): the standard
+// basemap (features/skins.ts STANDARD_MAP) is deliberately theme-agnostic and dark (as
+// wall maps are), so it looks intentional in any UI theme, and a dark built-in theme brings
+// its own. Read at bake like every other token here; STANDARD_MAP is also what paints where no
+// sheet is loaded. Globe (orthographic) 3D shading: a lit ocean highlight toward the top-left
+// light source, deepening to a dark limb, plus an atmospheric rim glow and a star field — turns
+// the flat disc into a planet floating in space without any WebGL.
+const mapInk = (token: MapToken) => cssVar(token, STANDARD_MAP[token])
+/** The sun's and the moon's inks (styles.css MAP SKY): one value each in every theme, read like the
+ *  basemap's. */
+const skyInk = (token: SkyToken) => cssVar(token, STANDARD_SKY[token])
 const MAP_ATMO = 'rgba(104, 168, 226, 0.55)' // atmosphere glow at the limb
 /** ⭐ MARKER HALO — how "brighter" is done WITHOUT touching the colour scheme.
  *  A band-coloured dot competes with whatever it lands on: a 40 m blue dot on the deep-sea
@@ -512,8 +586,9 @@ const MAP_ATMO = 'rgba(104, 168, 226, 0.55)' // atmosphere glow at the limb
  *  Saturating the palette would fix that by changing the colours the operator said they like;
  *  a dark outline fixes it by raising the CONTRAST STEP at the marker's edge, so every dot
  *  keeps its exact hue and reads against land, sea, relief raster and greyline alike. Darker
- *  than MAP_OCEAN_DEEP so it separates even from the globe's own limb. */
-const MARKER_HALO = 'rgba(2, 7, 12, 0.9)'
+ *  than the standard basemap's --map-ocean-deep so it separates even from the globe's own limb.
+ *  Exported for the 3-D globe's sun and moon, which are the same glyphs (features/skyGlyphs). */
+export const MARKER_HALO = 'rgba(2, 7, 12, 0.9)'
 
 /** ⭐ MARKER SCALE — one factor, derived from the canvas, applied to every station/spot/park/
  *  satellite/APRS/QTH marker and its label.
@@ -625,10 +700,10 @@ const cssVarCache = new Map<string, string>()
 export function invalidateCssVarCache(): void {
   cssVarCache.clear()
 }
-function cssVar(name: string): string {
+function cssVar(name: string, fallback = '#888'): string {
   const hit = cssVarCache.get(name)
   if (hit !== undefined) return hit
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888'
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
   cssVarCache.set(name, v)
   return v
 }
@@ -665,6 +740,7 @@ export function MapView({
   muf,
   xrayLong = null,
   embedded,
+  layersRev = 0,
 }: Props) {
   const remoteMap=useContext(NavigationMapContext)
   const remoteConnect=remoteMap?.connect
@@ -722,6 +798,15 @@ export function MapView({
     setColorBy(saved?.colorBy ?? INTENT_PRESETS[intent].colorBy)
     setLayers((L) => layersFromValue(saved?.layers) ?? withIntentPreset(L, intent))
   }
+  // A HOST THAT REWROTE THE STORED LAYERS (a Connect layout turning one on: `setIntentMapLayer`) bumps
+  // `layersRev`, and the map reads them again — during render, like the intent switch above, so the
+  // persist effect below never writes the old table back over the new one.
+  const [seenLayersRev, setSeenLayersRev] = useState(layersRev)
+  if (!embedded && intent && layersRev !== seenLayersRev) {
+    setSeenLayersRev(layersRev)
+    const saved = loadIntentSetup(intent, dedicatedIntent)
+    setLayers((L) => layersFromValue(saved?.layers) ?? L)
+  }
   // Full screen: everything but the map goes. The embedded detail globe has no chrome to
   // hide and no toolbar to hold the way back, so it is never full-screen.
   const [full, setFull] = useState(() => !embedded && loadFull())
@@ -759,7 +844,8 @@ export function MapView({
   })
   // The colour roles (Settings ▸ Appearance ▸ Colours) move --accent and the SNR greens/ambers
   // this map paints; a draw dependency like `theme`, so a new pick repaints with fresh tokens.
-  // The base map reads none of them, so its cache stays keyed as it was.
+  // The key also moves with Night and with a built-in theme, which retune the base map's own
+  // tokens (a dark theme's basemap, the grid's --border-soft), so the base cache is keyed on it too.
   const colourRoles = usePaletteKey()
   // Opening-pulse tick: the main nowMs clock is a 60 s greyline tick, far too
   // coarse to animate the heat pulse (it froze the sine). Run a 1 s tick ONLY
@@ -1095,11 +1181,14 @@ export function MapView({
       if (!s.grid) continue
       const ll = gridToLatLon(s.grid)
       if (!ll) continue
-      const xy = project(proj, ll)
+      const xy = placePoint(kind, proj, ll)
       if (xy) out.push({ s, ll, xy })
     }
     return out
   }, [me, kind, size, stations, view])
+  // Whether ANY decoded station has a location: the empty-map hint's question, which is not whether
+  // one is on screen — on the Globe the stations behind the planet are not.
+  const anyLocated = useMemo(() => stations.some((s) => !!s.grid && gridToLatLon(s.grid) != null), [stations])
 
   // Project the live cluster/RBN/PSKR spots the same way — RETAINED (not just drawn)
   // so they participate in hover tooltips + click/double-click-to-work. Previously
@@ -1111,7 +1200,7 @@ export function MapView({
     const proj = makeProjection(kind, me, size.w, size.h, view)
     const out: Array<{ sp: MapSpot; xy: [number, number] }> = []
     for (const sp of prop.spots) {
-      const xy = project(proj, { lat: sp.lat, lon: sp.lon })
+      const xy = placePoint(kind, proj, { lat: sp.lat, lon: sp.lon })
       if (xy) out.push({ sp, xy })
     }
     return out
@@ -1143,7 +1232,7 @@ export function MapView({
     const proj = makeProjection(kind, me, size.w, size.h, view)
     const out: Array<{ card: WorkableCard; xy: [number, number] }> = []
     for (const card of dxCards) {
-      const xy = project(proj, destinationPoint(me, card.bearingDeg, card.distanceKm))
+      const xy = placePoint(kind, proj, destinationPoint(me, card.bearingDeg, card.distanceKm))
       if (xy) out.push({ card, xy })
     }
     return out
@@ -1186,7 +1275,7 @@ export function MapView({
     const proj = makeProjection(kind, me, size.w, size.h, view)
     const out: Array<{ sp: OtaMapSpot; xy: [number, number] }> = []
     for (const sp of otaSpots) {
-      const xy = project(proj, { lat: sp.lat, lon: sp.lon })
+      const xy = placePoint(kind, proj, { lat: sp.lat, lon: sp.lon })
       if (xy) out.push({ sp, xy })
     }
     return out
@@ -1393,11 +1482,12 @@ export function MapView({
 
     const proj = makeProjection(kind, me, w, h, view)
     const path = geoPath(proj, ctx)
-    const c = showQth ? project(proj, myQth ?? me) : null
+    const c = showQth ? placePoint(kind, proj, myQth ?? me) : null
 
     // ⭐ THE BASE MAP IS CACHED. Everything from the space backdrop to the coverage fill changes only
-    // with the VIEW (projection, pan/zoom/spin, size, device scale, QTH), the theme and those layers'
-    // own toggles — never with a decode, a spot, the 1 s pulse or a hover. Re-projecting every
+    // with the VIEW (projection, pan/zoom/spin, size, device scale, QTH), the theme (a built-in
+    // theme and Night included) and those layers' own toggles — never with a decode, a spot, the 1 s
+    // pulse or a hover. Re-projecting every
     // country outline, state border and graticule line for each of those redraws was most of the
     // 2-D map's idle cost, so it is drawn once into an offscreen canvas of the same device size and
     // blitted. Everything that follows (APRS onward) still draws live, in the same order as before.
@@ -1448,21 +1538,21 @@ export function MapView({
           gcy,
           gR * 1.02,
         )
-        sea.addColorStop(0, MAP_OCEAN_LIT)
-        sea.addColorStop(0.55, MAP_OCEAN)
-        sea.addColorStop(1, MAP_OCEAN_DEEP)
+        sea.addColorStop(0, mapInk('--map-ocean-lit'))
+        sea.addColorStop(0.55, mapInk('--map-ocean'))
+        sea.addColorStop(1, mapInk('--map-ocean-deep'))
         ctx.fillStyle = sea
       } else {
-        ctx.fillStyle = MAP_OCEAN
+        ctx.fillStyle = mapInk('--map-ocean')
       }
       ctx.fill()
-      ctx.strokeStyle = MAP_RIM
+      ctx.strokeStyle = mapInk('--map-rim')
       ctx.lineWidth = 1
       ctx.stroke()
 
       const useRelief = kind === 'world' && layers.relief.visible && reliefRef.current
       if (useRelief) {
-        // Geochron-style shaded relief: a direct stretch-blit to the equirectangular
+        // Shaded relief: a direct stretch-blit to the equirectangular
         // bounds (lon/lat map linearly here, so no per-pixel reprojection). The
         // greyline night shading draws on top → a true day/night terrain map. Only
         // World; AEQD stays on filled vectors (a raster there needs slow inverse-proj).
@@ -1476,7 +1566,7 @@ export function MapView({
           ctx.globalAlpha = layers.coast.opacity * 0.5
           ctx.beginPath()
           path(basemap())
-          ctx.strokeStyle = MAP_COAST
+          ctx.strokeStyle = mapInk('--map-coast')
           ctx.lineWidth = 0.5
           ctx.stroke()
           ctx.globalAlpha = 1
@@ -1485,11 +1575,11 @@ export function MapView({
         // Filled-vector land (the AEQD beam map, or World with relief off).
         ctx.beginPath()
         path(basemap())
-        ctx.fillStyle = isGlobe ? MAP_LAND_GLOBE : MAP_LAND
+        ctx.fillStyle = mapInk(isGlobe ? '--map-land-globe' : '--map-land')
         ctx.fill()
         if (layers.coast.visible) {
           ctx.globalAlpha = layers.coast.opacity
-          ctx.strokeStyle = MAP_COAST
+          ctx.strokeStyle = mapInk('--map-coast')
           ctx.lineWidth = 0.6
           ctx.stroke()
           ctx.globalAlpha = 1
@@ -1502,7 +1592,7 @@ export function MapView({
         ctx.globalAlpha = layers.states.opacity
         ctx.beginPath()
         path(usStateBorders())
-        ctx.strokeStyle = MAP_STATE
+        ctx.strokeStyle = mapInk('--map-state')
         ctx.lineWidth = 0.5
         ctx.stroke()
         ctx.globalAlpha = 1
@@ -1542,7 +1632,7 @@ export function MapView({
           for (let fj = 0; fj < 18; fj++) {
             const clon = -180 + fi * 20 + 10
             const clat = -90 + fj * 10 + 5
-            const pc = project(proj, { lat: clat, lon: clon })
+            const pc = placePoint(kind, proj, { lat: clat, lon: clon })
             if (!pc || pc[0] < -40 || pc[0] > w + 40 || pc[1] < -40 || pc[1] > h + 40) continue
             // Field width in px via a 2° probe at the field center.
             const probe = project(proj, { lat: clat, lon: clon + 2 })
@@ -1558,7 +1648,7 @@ export function MapView({
               ctx.font = `500 11px ${cssVar('--font-mono') || 'monospace'}`
               for (let di = 0; di < 10; di++) {
                 for (let dj = 0; dj < 10; dj++) {
-                  const p = project(proj, {
+                  const p = placePoint(kind, proj, {
                     lat: -90 + fj * 10 + dj + 0.5,
                     lon: -180 + fi * 20 + di * 2 + 1,
                   })
@@ -1588,7 +1678,7 @@ export function MapView({
         ctx.textBaseline = 'middle'
         for (const f of cqzones) {
           const [lat, lon] = f.properties.cq_zone_name_loc
-          const p = project(proj, { lat, lon })
+          const p = placePoint(kind, proj, { lat, lon })
           if (p) ctx.fillText(String(f.properties.cq_zone_number), p[0], p[1])
         }
         ctx.globalAlpha = 1
@@ -1613,7 +1703,7 @@ export function MapView({
         ctx.globalAlpha = 1
       }
     }
-    const baseDeps = [kind, w, h, dpr, view, me, theme, reliefReady, stars, layers.relief, layers.coast, layers.states, layers.grid, layers.gridLabels, layers.cqzones, layers.coverage, cqzones, coverageDim, coverageGridGeo, workedZones]
+    const baseDeps = [kind, w, h, dpr, view, me, theme, colourRoles, reliefReady, stars, layers.relief, layers.coast, layers.states, layers.grid, layers.gridLabels, layers.cqzones, layers.coverage, cqzones, coverageDim, coverageGridGeo, workedZones]
     const cache = baseRef.current
     const base = cache.canvas ?? (cache.canvas = document.createElement('canvas'))
     if (
@@ -1655,7 +1745,7 @@ export function MapView({
         .slice()
         .sort((a, b) => a.lastHeardUnix - b.lastHeardUnix)
       for (const a of positioned) {
-        const p = project(proj, { lat: a.lat as number, lon: a.lon as number })
+        const p = placePoint(kind, proj, { lat: a.lat as number, lon: a.lon as number })
         if (!p) continue
         const isSel = sel != null && a.call.toUpperCase() === sel
         ctx.globalAlpha = layers.aprs.opacity
@@ -1812,7 +1902,8 @@ export function MapView({
         return { lat: last[1], lon: last[2] }
       }
       // Stroke a track segment as short projected legs, breaking at the
-      // dateline/backside (a long pixel jump = a wrap, not a path).
+      // dateline (a long pixel jump = a wrap, not a path) and at the Globe's
+      // horizon (a point behind the planet has no place on the map).
       const strokeTrack = (pts: LatLon[], style: string, dash: number[]) => {
         ctx.strokeStyle = style
         ctx.setLineDash(dash)
@@ -1820,7 +1911,7 @@ export function MapView({
         let prev: [number, number] | null = null
         ctx.beginPath()
         for (const ll of pts) {
-          const q = project(proj, ll)
+          const q = placePoint(kind, proj, ll)
           if (!q) {
             prev = null
             continue
@@ -1856,7 +1947,7 @@ export function MapView({
         if (soloSat && b.name.toUpperCase() !== soloSat) continue
         const isChased = isSatChased(b.name, b.norad, chaseKeys)
         const live = posAt(b.track, nowSecs) ?? { lat: b.lat, lon: b.lon }
-        const p = project(proj, live)
+        const p = placePoint(kind, proj, live)
         const color = isChased ? '#5eead4' : 'rgba(148, 163, 184, 0.95)'
         // Trail (past → now): drawn in two halves so the older half fades.
         const past = b.track.filter(([t]) => t <= nowSecs).map(([, la, lo]) => ({ lat: la, lon: lo }))
@@ -1870,9 +1961,8 @@ export function MapView({
         ctx.globalAlpha = layers.sats.opacity * 0.45
         strokeTrack([live, ...future], color, [3, 4])
         ctx.globalAlpha = layers.sats.opacity
-        if (!p) {
-          continue // bird itself is on the far side / off-frame
-        }
+        // A chased bird's footprint is an area, clipped at the Globe's horizon by geoPath: part of it
+        // can face the viewer while the bird itself is behind the planet, so it is drawn first.
         if (isChased) {
           ctx.strokeStyle = 'rgba(94, 234, 212, 0.55)'
           ctx.setLineDash([4, 4])
@@ -1881,6 +1971,9 @@ export function MapView({
           path(rangeRing(live, b.footprintKm))
           ctx.stroke()
           ctx.setLineDash([])
+        }
+        if (!p) {
+          continue // bird itself is on the far side / off-frame
         }
         // Mini satellite icon: body + solar panels, tilted 45° so it reads as
         // a bird, not a box. Scales slightly up for chased birds. The shape is
@@ -1984,7 +2077,7 @@ export function MapView({
         const pulse = 0.8 + 0.2 * Math.sin((Date.now() * 2 * Math.PI) / flarePulsePeriodMs(r))
         const splat = Math.max(8, Math.min(w, h) * 0.03) / 3
         for (const s of flareField(nowMs, xrayEff)) {
-          const p = project(proj, { lat: s.lat, lon: s.lon }) // null on the far side
+          const p = placePoint(kind, proj, { lat: s.lat, lon: s.lon }) // null on the far side
           if (!p) continue
           const [cr, cg, cb] = flareColor(s.haf)
           const x = p[0] / 3
@@ -2005,6 +2098,30 @@ export function MapView({
       }
     }
 
+    // THE SUN AND THE MOON where each is overhead. Both move with the 60 s greyline clock and have no
+    // clock of their own. Over the night shading and the flare field so neither dims them; under the
+    // spots and stations the operator clicks.
+    if (layers.sunMoon.visible) {
+      ctx.globalAlpha = layers.sunMoon.opacity
+      // The sun, on a quiet sun as well as during a flare. The flare layer draws a sun only while an
+      // M-class flare is on (animated, on its own canvas below), so without this the map had no sun
+      // at all on a quiet day. While the flare layer's sun is up this one stands down: the two are
+      // never drawn together.
+      const ss = subsolarPoint(nowMs)
+      const sp = !flarePulsing && inView(kind, proj, ss) ? project(proj, ss) : null
+      if (sp) drawSun(ctx, sp[0], sp[1], SUN_DISC * ms, skyInk('--map-sun'), MARKER_HALO)
+      // The moon, in its phase, lit as it looks from the operator's hemisphere: a waxing moon is lit
+      // on the right in the north and on the left in the south. A flare leaves it alone.
+      const moon = moonAt(nowMs)
+      const mp = inView(kind, proj, moon.sublunar) ? project(proj, moon.sublunar) : null
+      if (mp) {
+        const south = (myQth ?? me).lat < 0
+        const inks = { lit: skyInk('--map-moon-lit'), dark: skyInk('--map-moon-dark') }
+        drawMoon(ctx, mp[0], mp[1], MOON_DISC * ms, moon.illuminated, moon.waxing !== south, inks, MARKER_HALO)
+      }
+      ctx.globalAlpha = 1
+    }
+
     // MUF field — the maximum usable frequency WHERE, as a coarse heatmap (7→35 MHz on
     // the colormap): live where an ionosonde is within range (IDW-blended), the foF2 model
     // out over the oceans. Tells you at a glance which bands the ionosphere supports where.
@@ -2017,7 +2134,7 @@ export function MapView({
       // stations you can click, diamonds = measurements.
       ctx.globalAlpha = layers.muf.opacity
       for (const s of mufStations) {
-        const p = project(proj, { lat: s.lat, lon: s.lon })
+        const p = placePoint(kind, proj, { lat: s.lat, lon: s.lon })
         if (!p) continue
         const r = 3.8 * ms
         ctx.beginPath()
@@ -2038,7 +2155,7 @@ export function MapView({
     // operationally meaningful. Drawn over the field layers, under spots.
     if (layers.aurora.visible) {
       for (const a of auroraPts) {
-        const p = project(proj, { lat: a.lat, lon: a.lon })
+        const p = placePoint(kind, proj, { lat: a.lat, lon: a.lon })
         if (!p) continue
         const t = Math.max(0, Math.min(1, (a.prob - 8) / (90 - 8)))
         const r = Math.round(80 + 175 * t)
@@ -2058,7 +2175,7 @@ export function MapView({
     // (0.5 dB faint → 10 dB+ solid). Quiet sun = zero points = nothing drawn.
     if (layers.pca.visible && pca && pca.points.length > 0) {
       for (const s of pca.points) {
-        const p = project(proj, { lat: s.lat, lon: s.lon })
+        const p = placePoint(kind, proj, { lat: s.lat, lon: s.lon })
         if (!p) continue
         const t = Math.max(0, Math.min(1, s.db30 / 10))
         ctx.globalAlpha = layers.pca.opacity * (0.18 + 0.5 * t)
@@ -2070,7 +2187,7 @@ export function MapView({
       ctx.globalAlpha = 1
     }
 
-    // BAND HEAT — the HamClock-class aura layer: kernel-density glow built from the
+    // BAND HEAT — the activity aura layer: kernel-density glow built from the
     // SAME live spots (real evidence, not a model), splatted at 1/3 resolution with
     // radial gradients in each spot's band color and composited additively, so
     // WHERE a band is open reads as a colored aura at a glance. Bands with a
@@ -2122,27 +2239,20 @@ export function MapView({
     // (tropo amber / Es green / aurora violet / F2 cyan — bandColors.ts). Free on
     // a quiet band: no openings ⇒ nothing draws. Sits under the live-spot dots so
     // the stations that PROVE the opening render on top of its footprint.
+    // The wedge is an AREA, drawn through `path` like every other area, so the Globe clips it at its
+    // horizon; its tag is placed like every other point label, or at the globe's edge while its spot is
+    // behind the planet. Drawn from its projected corners, an edge behind the planet came out straight
+    // through it, on the face: a 15,000 km F2 wedge ended over the Arctic, and on a globe turned away
+    // from home the whole wedge and its tag still showed.
     if (layers.openings.visible && me) {
       for (const o of prop?.openings ?? []) {
         if (!(o.maxKm > 0)) continue
         const color = openingModeColor(o.mode)
         const pulse = sectorPulse(Date.now())
-        // Wedge outline: QTH → arc across the far edge → back. Sampled along
-        // great-circle destination points so it follows the projection.
-        const STEPS = 16
-        const pts: Array<[number, number]> = []
-        const start = o.bearingDeg - 22.5
-        for (let i = 0; i <= STEPS; i++) {
-          const brg = start + (45 * i) / STEPS
-          const p = project(proj, destinationPoint(me, brg, o.maxKm))
-          if (p) pts.push(p)
-        }
-        const qth = project(proj, me)
-        if (!qth || pts.length < 2) continue
+        // The same subdivided ring as the 3-D globe's wedge: QTH → out one radial → across the
+        // far edge → back down the other.
         ctx.beginPath()
-        ctx.moveTo(qth[0], qth[1])
-        for (const [px, py] of pts) ctx.lineTo(px, py)
-        ctx.closePath()
+        path({ type: 'Polygon', coordinates: [sectorRing(me, o.bearingDeg, o.maxKm)] } as GeoPermissibleObjects)
         ctx.globalAlpha = layers.openings.opacity * 0.16 * pulse
         ctx.fillStyle = color
         ctx.fill()
@@ -2150,13 +2260,22 @@ export function MapView({
         ctx.strokeStyle = color
         ctx.lineWidth = 1.2
         ctx.stroke()
-        // Mode tag at the sector's far edge (readable "what kind" on the map).
-        const mid = pts[Math.floor(pts.length / 2)]
+        // Mode tag at the sector's far edge (readable "what kind" on the map), while that edge faces the
+        // viewer; behind the Globe, where the wedge meets the globe's edge (globeEdgeTag).
+        const label = `${o.band} ${o.mode}`
         ctx.font = 'bold 10px system-ui'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'bottom'
-        ctx.fillStyle = color
-        ctx.fillText(`${o.band} ${o.mode}`, mid[0], mid[1] - 3)
+        const far = placePoint(kind, proj, destinationPoint(me, o.bearingDeg, o.maxKm))
+        const tag: [number, number] | null = far
+          ? [far[0], far[1] - 3]
+          : kind === 'globe'
+            ? globeEdgeTag(proj, me, o.bearingDeg, o.maxKm, ctx.measureText(label).width)
+            : null
+        if (tag) {
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'bottom'
+          ctx.fillStyle = color
+          ctx.fillText(label, tag[0], tag[1])
+        }
         ctx.globalAlpha = 1
       }
     }
@@ -2193,7 +2312,7 @@ export function MapView({
     // Live spots — the cluster/RBN/PSKR firehose + own decodes, placed by grid or
     // DXCC centroid. Colored by band; green = a station that heard ME ("getting
     // out"); faded by age; centroid-placed (approx) spots dimmer. This is what
-    // fills the map with real activity (HamClock-style), under the operator's own
+    // fills the map with real activity, under the operator's own
     // decode roster + needed/selected stations.
     // Band focus only DIMS when the focused band actually has something to highlight.
     // A modeled-open-but-unheard band (clicked from the band-condition strip / insight
@@ -2295,7 +2414,7 @@ export function MapView({
           ctx.beginPath()
           let prevX: number | null = null
           for (let i = 0; i <= 48; i++) {
-            const p = project(proj, destinationPoint(me, lpBrg, (lpKm * i) / 48))
+            const p = placePoint(kind, proj, destinationPoint(me, lpBrg, (lpKm * i) / 48))
             if (!p) {
               prevX = null
               continue
@@ -2479,7 +2598,7 @@ export function MapView({
     // cssVar memo is emptied at the top of this effect).
     void theme
     void colourRoles
-  }, [me, myQth, showQth, kind, devScale, markerScale, colorBy, pathMode, view, size, layers, placed, placedSpots, placedDxped, txLines, rxLines, mufStations, auroraPts, pca, cqzones, sats, reliefReady, prop, selStation, selectedCall, needByCall, theme, colourRoles, nowMs, focusBand, pulseTick, xrayEff, flareActive, flareHafNow, hoverKey, focusSat, coverageDim, coverageGridGeo, workedZones, aprs, selectedAprs, aprsFadeAfterMin, aprsTtlMin, aprsTick, satFav, satChaseRev, aprsNowSec])
+  }, [me, myQth, showQth, kind, devScale, markerScale, colorBy, pathMode, view, size, layers, placed, placedSpots, placedDxped, txLines, rxLines, mufStations, auroraPts, pca, cqzones, sats, reliefReady, prop, selStation, selectedCall, needByCall, theme, colourRoles, nowMs, focusBand, pulseTick, xrayEff, flareActive, flarePulsing, flareHafNow, hoverKey, focusSat, coverageDim, coverageGridGeo, workedZones, aprs, selectedAprs, aprsFadeAfterMin, aprsTtlMin, aprsTick, satFav, satChaseRev, aprsNowSec])
 
   // THE SUN + RADIATING ENERGY — the flare layer's animated half, on its own
   // transparent canvas at ~20 fps, mounted ONLY while a flare is active and the
@@ -2487,7 +2606,7 @@ export function MapView({
   // sun disc hangs in space off the limb in the TRUE subsolar direction,
   // streaming dashed rays onto the sunlit face; when the subsolar point rotates
   // behind the planet only a warm corona peeks around the limb. World/AEQD: the
-  // sun sits AT the subsolar point (geochron-style) with rotating spokes.
+  // sun sits AT the subsolar point with rotating spokes.
   // Stream/pulse speed ∝ R-scale — movement IS the intensity readout.
   const flareOpacity = layers.flare.opacity
   useEffect(() => {
@@ -2623,7 +2742,7 @@ export function MapView({
         }
       } else {
         // Flat maps have no "space" to hang a sun in: it sits at its true
-        // subsolar position (geochron-style) with rotating, pulsing spokes.
+        // subsolar position with rotating, pulsing spokes.
         const pss = project(proj, ss)
         if (pss) {
           const rs = Math.max(10, Math.min(w, h) * 0.05)
@@ -2775,7 +2894,7 @@ export function MapView({
       const proj = makeProjection(kind, me, size.w, size.h, view)
       let best: MapHit | null = null
       for (const s of mufStations) {
-        const p = project(proj, { lat: s.lat, lon: s.lon })
+        const p = placePoint(kind, proj, { lat: s.lat, lon: s.lon })
         if (!p) continue
         const d = Math.hypot(p[0] - mx, p[1] - my)
         if (d < 0.9 * hitR && (!best || d < best.d))
@@ -3231,7 +3350,7 @@ export function MapView({
               </div>
             </div>
           )}
-          {!embedded && placed.length === 0 && (
+          {!embedded && !anyLocated && (
             <div className="map-empty-hint">{t('map.emptyHint', { grid: myGrid })}</div>
           )}
           {satAllHidden > 0 && (
@@ -3248,7 +3367,13 @@ export function MapView({
               Layers button peeks it back (see `layersPeek`). Rendered BEFORE the flare/PCA chips: they
               sit beside it via a sibling selector (`.map-layers ~ .flare-chip`). */}
           {!embedded && (!full || layersPeek) && (
-            <MapLayersPanel className="map-layers" title={t('map.layers.head')}>
+            // Folded by default where it would cover the Conditions rail's band list (the 1024×768
+            // floor), unless the operator has chosen (MapLayersPanel `narrow`).
+            <MapLayersPanel
+              className="map-layers"
+              title={t('map.layers.head')}
+              narrow={prop != null && size.w > 0 && size.w < OVERLAYS_SIDE_BY_SIDE_PX}
+            >
               {(Object.keys(layers) as LayerKey[]).map((k) => (
                 <div className="map-layer" key={k}>
                   <label>

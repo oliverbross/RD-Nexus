@@ -110,7 +110,9 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
 
   {
     id: 'remote-access', label: 'Remote access', tab: 'station',
-    keywords: ['browser', 'shack', 'pairing', 'account', 'device approval', 'observation', 'internet'],
+    keywords: ['browser', 'shack', 'pairing', 'account', 'device approval', 'observation', 'internet',
+      // Remote as a stream: the words for sending this window to a browser.
+      'stream', 'streaming', 'screen sharing', 'video'],
   },
 
   // ---- Radio -------------------------------------------------------------------
@@ -144,7 +146,14 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
       'test cat', 'split', 'stop bits', 'parity', 'handshake', 'data bits', 'rig control',
       // The rig's RATED OUTPUT — full scale for the Phone meter's power arc. An operator who
       // wants it will search for what they call it, and none of those words is "rated".
-      'rated power', 'watts', 'power scale', 'meter scale', 'qrp', '100w', 's meter', 'meter'],
+      'rated power', 'watts', 'power scale', 'meter scale', 'qrp', '100w', 's meter', 'meter',
+      // #381's "Transmit audio source (CAT PTT)", under the words of its symptom and its cure: an
+      // interface on the rear jack transmitting nothing when CAT keys the radio.
+      'transmit audio source', 'rear/data', 'front/mic', 'signalink', 'acc2', 'data jack',
+      'no tx audio', 'no audio on transmit',
+      // "Follow the radio's split", under what an operator calls it: a split set at the radio's
+      // own front panel, which Nexus reads instead of only trusting one it set itself.
+      'follow split', 'radio split', 'rig split', 'front panel split', 'split detection'],
   },
   {
     id: 'rig-advanced',
@@ -339,7 +348,8 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     tab: 'digital',
     keywords: ['js8', 'js8call', 'heartbeat', 'hb', 'autoreply', 'relay', 'inbox',
       'store and forward', 'slow', 'normal', 'fast', 'turbo', '7.078', '14.078',
-      'idle watchdog', 'allcall'],
+      'idle watchdog', 'allcall', 'callsign aging', 'aging', 'confirmation', 'confirm', 'allow list', 'deny list',
+      'only autoreply', 'never autoreply', 'band activity aging', 'activity aging'],
   },
   {
     id: 'sstv',
@@ -383,10 +393,14 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     label: 'Alerts',
     tab: 'spots',
     keywords: ['alert', 'notify', 'my call', 'cq', 'new dxcc', 'new grid', 'rare', 'watch list',
-      'wanted', 'sound', 'lotw', 'confirm', 'confirmation', 'confirm tier',
+      'watch list notes', 'wanted', 'sound', 'lotw', 'confirm', 'confirmation', 'confirm tier',
       // The geographic alert scope (#174). An operator narrowing their alerts searches for the
       // PLACE ("europe", "country"), never for the word the label uses.
-      'continent', 'europe', 'country', 'entity', 'dxcc', 'region', 'only'],
+      'continent', 'europe', 'country', 'entity', 'dxcc', 'region', 'only',
+      // The pop-up switch (#391), in the words of the report: "how do I turn off the popup
+      // notifications in the bottom right". The search is punctuation-blind, so 'popup' covers
+      // 'pop-up' too.
+      'popup', 'popups', 'notification', 'notifications', 'toast', 'toasts', 'bottom right'],
   },
 
   // ---- Logging & Connectors ----------------------------------------------------
@@ -570,12 +584,17 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
   {
     // The theme cards and the rows that change how the theme paints: High contrast, Night and
     // Field mode. #215's contrast words, and Night's (useNight.ts) for a dimmer screen after dark.
+    // The ten built-in themes by name (features/skins.ts), and the words for wanting one. Never
+    // bare 'amber' or 'green': Colours owns those, and an exact keyword outranks all but a label.
     id: 'theme',
     label: 'Theme',
     tab: 'appearance',
     keywords: ['dark', 'light', 'system theme', 'dark mode', 'light mode', 'follow system',
       'contrast', 'high contrast', 'field mode', 'daylight', 'sunlight',
-      'night', 'night mode', 'dim', 'dimmer', 'dusk', 'after dark', 'dark adaptation', 'night vision'],
+      'night', 'night mode', 'dim', 'dimmer', 'dusk', 'after dark', 'dark adaptation', 'night vision',
+      'themes', 'skin', 'skins', 'rig look', 'rig looks', 'lcd', 'vfd', 'amber lcd', 'green lcd',
+      'blue vfd', 'silver', 'silver chassis', 'midnight', 'oled', 'true black', 'slate', 'lagoon',
+      'ember', 'sepia', 'nebula', 'paper', 'cream'],
   },
   {
     // The colour roles (features/paletteRoles.ts): a few pre-checked presets for the accent, the
@@ -619,9 +638,10 @@ export const SETTINGS_SECTIONS: SettingsSectionDef[] = [
     // Connect, not a station or contest setting — and the keywords carry the words an
     // operator would actually search for ("tv", "chromecast", "cast", "browser").
     id: 'connect-web',
-    label: 'Connect on a TV',
+    label: 'Conditions on a TV',
     tab: 'appearance',
-    keywords: ['tv', 'television', 'big screen', 'wall display', 'browser', 'lan', 'hamclock',
+    // 'connect': the view's name until step 5, so a search by the old name still finds it.
+    keywords: ['connect', 'tv', 'television', 'big screen', 'wall display', 'browser', 'lan',
       'network', 'web page', 'cast', 'chromecast', 'firestick', 'fire stick', 'tablet',
       'phone', 'remote view', 'read only', 'shack tv'],
   },

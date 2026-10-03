@@ -6,8 +6,9 @@ import { useReceiverGain } from '../remote-web/useReceiverGain'
 import { useRemotePreferences } from '../remote-web/useRemotePreferences'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RemoteStation } from '../remote-native/RemoteStation'
+import { BetaNote } from '../remote-web/BetaNote'
 import { SAT_VFO_MAPS } from '../features/satVfo'
-import { JS8_SPEED_LIST } from '../js8Vocab'
+import { JS8_SPEED_LIST, JS8_UNJOINABLE_GROUPS } from '../js8Vocab'
 import { confirmDialog } from '../confirm'
 import { checkRigForm, blocks, MULTI_DATA_MODE_ICOMS, NATIVE_CIV_MODELS, nativeCivBlockedReason, type RigCheck } from '../rigFormChecks'
 import {
@@ -56,6 +57,7 @@ import {
   getAllRigModels,
   getPortlessRigModels,
   getCatCwUnprovenRigModels,
+  getPttMicDataRigModels,
   getAudioDevices,
   getBandPlan,
   getRigModels,
@@ -183,6 +185,7 @@ import { MiniSpectrum } from './MiniSpectrum'
 import { SettingsGroup, SettingsOpenTarget } from './SettingsGroup'
 import { SettingsSearch } from './SettingsSearch'
 import { resolveTarget } from '../settings/registry'
+import { changedSince, patchSettings } from '../settings/patch'
 // The SSTV default-mode picker's rows. A pure module — importing them from SstvView would drag
 // the cockpit's canvas/waterfall/api surface into every SettingsPanel test's `../api` mock.
 import { FSK_ID_SECONDS_LABEL, SSTV_TX_MODES, TX_MODE_GROUPS } from '../sstvModes'
@@ -194,6 +197,7 @@ import { SCALE_STEPS, fitScale } from '../useScale'
 import type { Density } from '../useDensity'
 import type { TextSize } from '../useTextSize'
 import type { ThemeChoice } from '../useTheme'
+import { skinOf, type SkinId } from '../features/skins'
 import type { NightChoice } from '../useNight'
 import type { Motion } from '../useMotion'
 import { FT_PALETTE_SCOPE, getWaterfallPalette, setWaterfallPalette } from '../waterfallPalette'
@@ -270,6 +274,10 @@ interface Props {
    * hosts/tests without theme wiring render the tab unchanged. */
   theme?: ThemeChoice
   onThemeChange?: (t: ThemeChoice) => void
+  /** The built-in theme painting on `theme` (features/skins.ts), null for the standard one, and its
+   *  setter: owned by App's `useSkin`. Optional like the theme. */
+  skin?: SkinId | null
+  onSkinChange?: (id: SkinId | null) => void
   /** #215: Field mode — maximum contrast plus larger type (`useFieldMode`). It shipped as a
    *  chip in the top bar only, which is the other half of why the operator who asked for a
    *  high-contrast, large-text setting could not find one: the two halves of the answer were
@@ -554,6 +562,16 @@ export const baudForRotator = (modelNum: number, currentBaud: number): number | 
 }
 
 /**
+ * PstRotatorAz (YO3DMU), which takes its commands over UDP rather than a serial line: Hamlib's
+ * PstRotator backend is model 3, and the port box takes the program's address, 12000 on this
+ * machine by default ("UDP Control" in its Setup). The backend writes a bearing with `%f.2`, a
+ * typo for `%.2f` that is in the bundled Hamlib 4.7.1's own format string and still on Hamlib's
+ * master: 123.4° goes out as `123.400002.2`. Whether PstRotatorAz reads that as 123.4 takes a
+ * real one to tell, so the hint says what is sent. Not prose, like `ROTATOR_EXAMPLES`.
+ */
+const PSTROTATOR = { model: 3, address: '127.0.0.1:12000', bearing: '123.4', sent: '123.400002.2' } as const
+
+/**
  * The curated rotator list. Model numbers and the `(az)` / `(az/el)` suffixes are checked
  * against the generated caps fixture by `SettingsPanel.rotpicker.test.tsx`, so neither can be
  * typed from a manual either.
@@ -570,11 +588,28 @@ export const baudForRotator = (modelNum: number, currentBaud: number): number | 
  * backend (404) is the DCU-1 flavour at a FIXED 4800, so an ERC V4 owner following the
  * vendor's setup who picks the entry with their board's name on it gets a rotator that never
  * answers. Both labels now say which mode they are; the vendor-recommended path is model 603.
+ *
+ * ⭐ THE YAESU G-5500 IS NAMED ON ITS INTERFACES' ENTRIES, NOT BESIDE THEM (2026-09-29). Hamlib
+ * has no G-5500 model because the rotator has no computer port: it is driven through a GS-232B or
+ * GS-232A interface, or a GS-232 clone board, so the entry that works is that interface's model.
+ * The setting stores ONE number and a <select> shows the first option carrying it, so a separate
+ * "G-5500" entry saving 603 would be displayed as the other 603 entry after a save — the list
+ * would name something the operator did not pick. The name leads each label, with the interface
+ * straight after it, so a closed select too narrow for the whole label still shows both.
+ *
+ * ⭐ THE ONE ENTRY THAT IS NOT A SERIAL PORT (2026-09-30, #362): PstRotatorAz, model 3. Its
+ * backend is UDP, and it can still work as presented, because the port box is rotctld's `-r`,
+ * which takes an address too. So it names no axes (Hamlib declares az/el, PstRotatorAz turns
+ * azimuth only), and it brings its own port placeholder and hint (`PSTROTATOR`).
  */
 export const ROTATOR_MODELS: { model: number; label: string }[] = [
-  { model: 601, label: 'Yaesu GS-232A (az/el)' },
-  { model: 603, label: 'Yaesu GS-232B (az/el) — also ERC V4 in its recommended mode (9600)' },
-  { model: 602, label: 'GS-232 (generic, az/el) — also EA4TX ARS-USB, LVB, ST2' },
+  {
+    model: 603,
+    label:
+      'Yaesu G-5500 / G-5500DC — GS-232B interface (az/el); also any GS-232B, and ERC V4 in its recommended mode (9600)',
+  },
+  { model: 601, label: 'Yaesu G-5500 / G-5500DC — GS-232A interface (az/el); also any GS-232A' },
+  { model: 602, label: 'GS-232 (generic, az/el) — GS-232 clone boards; also EA4TX ARS-USB, LVB, ST2' },
   { model: 605, label: 'Yaesu/Kenpro GS-23 (az/el)' },
   { model: 606, label: 'Yaesu/Kenpro GS-232 (az/el)' },
   { model: 607, label: 'AMSAT LVB Tracker (az/el)' },
@@ -591,6 +626,7 @@ export const ROTATOR_MODELS: { model: number; label: string }[] = [
   { model: 1001, label: 'M2 RC2800 (az/el)' },
   { model: 1701, label: 'Prosistel D (az)' },
   { model: 1703, label: 'Prosistel Combi-Track (az/el)' },
+  { model: PSTROTATOR.model, label: 'PstRotatorAz / PstRotator (UDP)' },
   { model: 1, label: 'Dummy (testing — no hardware)' },
 ]
 
@@ -803,6 +839,10 @@ export function radioPatch(s: Partial<RadioProfilePatch>): RadioProfilePatch {
     // DATA1. `ampModel`/`ampPort` were absent and Rust does NOT default them, so Save failed
     // outright with `missing field ampModel`.
     icomDataMode: s.icomDataMode ?? 1,
+    // ⚠️ PER-RADIO, and Rust carries no serde default on the PATCH (only on the stored profile, so
+    // an old file loads as Front/Mic). Dropping it here would fail the Save loudly rather than
+    // quietly put a Rear/Data radio (#381) back on its microphone.
+    txAudioSource: s.txAudioSource ?? 'front',
     ampModel: s.ampModel ?? '',
     ampPort: s.ampPort ?? '',
     ampFollowBand: s.ampFollowBand ?? false,
@@ -847,11 +887,14 @@ const FD_WHO_EXAMPLES = {
  * The Confirmations placeholders that are TOKENS rather than prose — same rule as
  * `LOGGER_EXAMPLES`, one category up: a "localised" `rbuapp_` prefix matches no token
  * RepeaterBook issues, and a translated example hostname resolves nowhere. The station-profile
- * placeholder is the bare number `1` and stays inline, as every number alone does.
+ * placeholder is the bare number `1` and stays inline, as every number alone does. `lanRanges`
+ * is the address ranges the plain-http note names (#378): addresses, written as an operator types
+ * them, interpolated into the prose rather than left in it.
  */
 const CONFIRMATION_EXAMPLES = {
   rbToken: 'rbuapp_…',
   cloudlogUrl: 'https://log.example.com',
+  lanRanges: '192.168.x.x, 10.x.x.x, 172.16–31.x.x, 127.x.x.x',
 } as const
 
 /**
@@ -1008,6 +1051,8 @@ export function SettingsPanel({
   onRerunWizard,
   theme,
   onThemeChange,
+  skin = null,
+  onSkinChange,
   fieldMode = false,
   onFieldModeChange,
   highContrast = false,
@@ -1118,6 +1163,7 @@ export function SettingsPanel({
       logbookGlobe,
     }
     if (theme) a.theme = theme
+    if (onSkinChange) a.skin = skin
     if (onHighContrastChange) a.highContrast = highContrast
     if (onNightChange) a.night = night
     if (textSize) a.textSize = textSize
@@ -1127,6 +1173,13 @@ export function SettingsPanel({
   }
   const restoreAppearance = (a: Partial<Appearance>) => {
     if (a.theme) onThemeChange?.(a.theme)
+    // A built-in theme paints only on its base, so the base comes with it whatever the file's
+    // theme says; null is the standard theme. A backup from before the themes has no `skin`.
+    if (a.skin !== undefined && onSkinChange) {
+      const s = skinOf(a.skin)
+      if (s) onThemeChange?.(s.base)
+      onSkinChange(s?.id ?? null)
+    }
     if (a.highContrast !== undefined) onHighContrastChange?.(a.highContrast)
     if (a.night) onNightChange?.(a.night)
     if (a.textSize) onTextSizeChange?.(a.textSize)
@@ -1241,6 +1294,9 @@ export function SettingsPanel({
   /** Models whose CAT CW keyer is unproven and cannot report its own failure, from the backend.
    *  Empty = rule unread, and no caution is shown. Notice only — never blocks a save. */
   const [catCwUnprovenModels, setCatCwUnprovenModels] = useState<number[]>([])
+  /** Models whose CAT PTT can key the radio's MIC or DATA input (#381), from the backend. Empty =
+   *  rule unread, and no radio is offered "Transmit audio source", so every one keys Front/Mic. */
+  const [pttMicDataModels, setPttMicDataModels] = useState<number[]>([])
   // Port -> USB product label ("USB-Enhanced-SERIAL-B CH342"), so the picker can tell a
   // dual-serial rig's two interfaces apart (Xiegu CAT is on SERIAL-B).
   const [portLabels, setPortLabels] = useState<Record<string, string>>({})
@@ -1699,6 +1755,11 @@ export function SettingsPanel({
     getCatCwUnprovenRigModels()
       .then((m) => mounted && Array.isArray(m) && setCatCwUnprovenModels(m))
       .catch(() => {})
+    // The backend's "this radio's CAT PTT can choose MIC or DATA" rule (#381), fetched once. On
+    // failure it stays empty and the choice is not offered: the radio keys as it always has.
+    getPttMicDataRigModels()
+      .then((m) => mounted && Array.isArray(m) && setPttMicDataModels(m))
+      .catch(() => {})
     getSerialPortsDetailed()
       .then((infos) => mounted && applyPorts(infos))
       .catch(() => {})
@@ -1936,20 +1997,37 @@ export function SettingsPanel({
     markDirty()
     setForm((prev) => (prev ? { ...prev, js8Groups: groups } : prev))
   }
+  // JS8Call's allow/deny lists, one comma-separated field each, upper-cased as JS8Call's
+  // `splitWords` reads them (Configuration.cpp:2416-2428).
+  const setJs8CallList = (key: 'js8AutoreplyAllow' | 'js8AutoreplyDeny' | 'js8HbAckDeny', raw: string) => {
+    markDirty()
+    const calls = raw
+      .split(',')
+      .map((c) => c.trim().toUpperCase())
+      .filter(Boolean)
+    setForm((prev) => (prev ? { ...prev, [key]: calls } : prev))
+  }
   const parseJs8Groups = (raw: string): string[] =>
     raw
       .split(',')
       .map((g) => g.trim().toUpperCase().replace(/^@+/, ''))
       .filter(Boolean)
       .map((g) => `@${g}`)
-  // Whole non-negative minutes; junk leaves the stored value alone (never coerces to 0).
+  // Whole non-negative minutes, up to `max`; junk leaves the stored value alone (never coerces
+  // to 0).
   const updateMinutes = (
-    key: 'js8HbIntervalMin' | 'js8CqIntervalMin' | 'js8IdleWatchdogMin',
+    key:
+      | 'js8HbIntervalMin'
+      | 'js8CqIntervalMin'
+      | 'js8IdleWatchdogMin'
+      | 'js8CallsignAgingMin'
+      | 'js8ActivityAgingMin',
     raw: string,
+    max = Infinity,
   ) => {
     const n = Number(raw)
     if (raw.trim() === '' || Number.isNaN(n)) return
-    updateNum(key, Math.max(0, Math.floor(n)))
+    updateNum(key, Math.min(max, Math.max(0, Math.floor(n))))
   }
 
   // The RF digipeater path, edited as one comma-separated field for the same reason as the
@@ -2586,6 +2664,22 @@ export function SettingsPanel({
     )
   }
 
+  // Every save of the form: what the operator changed since the form loaded or last saved, over the
+  // settings the backend holds now (settings/patch.ts). The form holds EVERY field, as it was when
+  // Settings opened, so saving it whole wrote each one the operator had not touched back over
+  // whatever had changed since: "use one radio" in the launch picker, a seat swap in the pop-out
+  // scoreboard, the dial the rig had been tuned to (which the radio loop then commands).
+  //
+  // One exception: a form describing a radio other than the one being operated NOW — a switch it
+  // has not caught up with yet. Its flat rig fields describe its own radio, the live ones the other
+  // radio, and the backend folds a payload's flat fields into the radio its `activeRadio` names, so
+  // a mix would stamp one radio's ports onto the other. That form goes whole, as it always did, and
+  // the backend's own rule for a form that is not about the active radio applies.
+  const saveForm = (payload: NonNullable<typeof form>) => {
+    const changes = changedSince(savedRef.current, payload)
+    return patchSettings((live) => (live.activeRadio === payload.activeRadio ? changes : payload))
+  }
+
   // Persist the rig form to the radio it actually describes.
   //
   // The backend contract is that a settings payload's `activeRadio` names the radio whose
@@ -2620,7 +2714,7 @@ export function SettingsPanel({
       // `withActiveRadioConfig` puts the ACTIVE radio's own config back in the flat fields, so
       // the backend's flat→active fold is a no-op and the edited radio's ports/model/audio
       // cannot be stamped onto the one being operated (the 2026-07-25 report).
-      await setSettings({
+      await saveForm({
         ...withActiveRadioConfig(next),
         mycall: next.mycall.trim().toUpperCase(),
       })
@@ -2633,7 +2727,7 @@ export function SettingsPanel({
         }),
       )
     } else {
-      await setSettings({ ...next, mycall: next.mycall.trim().toUpperCase() })
+      await saveForm({ ...next, mycall: next.mycall.trim().toUpperCase() })
     }
   }
 
@@ -2787,7 +2881,7 @@ export function SettingsPanel({
     // username change resets the sync cursor). Mirrors how Test CAT saves first.
     // This is a station-wide save, so it must not carry the rig form's radio fields.
     const r = await withErrorToast(async () => {
-      await setSettings({
+      await saveForm({
         ...withActiveRadioConfig(form),
         mycall: form.mycall.trim().toUpperCase(),
       })
@@ -2848,7 +2942,7 @@ export function SettingsPanel({
     // backend reads SAVED settings; a username change resets the cursor).
     // Station-wide save: must not carry the rig form's radio fields (see onSyncLotw).
     const r = await withErrorToast(async () => {
-      await setSettings({
+      await saveForm({
         ...withActiveRadioConfig(form),
         mycall: form.mycall.trim().toUpperCase(),
       })
@@ -3129,7 +3223,7 @@ export function SettingsPanel({
   }
 
   const onRetryUnknownWavelogCreates = async () => {
-    if (!window.confirm(t('settings.confirmations.cloudlog.deliveryUnknown.confirm'))) return
+    if (!(await confirmDialog({ title: t('settings.confirmations.cloudlog.deliveryUnknown.confirm') }))) return
     const cleared = await withErrorToast(
       () => confirmWavelogUnknownNotDelivered(),
       t('settings.confirmations.cloudlog.deliveryUnknown.failed'),
@@ -3184,6 +3278,21 @@ export function SettingsPanel({
       setTab('contesting')
       setError(t('settings.save.fdPositionName'))
       setPosNameInvalid(true)
+      return
+    }
+    // JS8Call will not let @APRSIS or @JS8NET be joined as a group: while either is in the Groups
+    // field its Settings refuses OK, whatever else changed ("%1 is a group that cannot be joined",
+    // Configuration.cpp:2449-2453, asked by accept() at :2595), reading the field upper-cased. So
+    // does this Save, a settings file from a Nexus that accepted one included. Only this Save:
+    // the switches here that save on the click, a cockpit's own settings and the backend's own
+    // writers (window places, band and rig state) never pass through it, and the engine never
+    // joins the group either way.
+    const unjoinable = (form.js8Groups ?? [])
+      .map((g) => g.trim().toUpperCase())
+      .find((g) => JS8_UNJOINABLE_GROUPS.includes(g))
+    if (unjoinable) {
+      setTab('digital')
+      setError(t('settings.save.js8GroupCannotJoin', { group: unjoinable }))
       return
     }
     // Check the RADIO before saving it. Until now the callsign was the only validated field, so
@@ -3900,11 +4009,12 @@ export function SettingsPanel({
             {/* Theme lives in Settings, not the top bar (operator, 2026-08-10): Light/Dark/System
                 is a set-once preference, and the bar keeps only the Field quick toggle. Three
                 cards, each with a one-line personality (ThemeSwitcher.tsx), across the section's
-                width rather than squeezed into one grid column. */}
+                width rather than squeezed into one grid column, then the ten built-in themes
+                in two groups (operator, 2026-09-27: "All ten"). */}
             {theme && onThemeChange && (
               <div className="settings-field settings-theme-field">
                 <span className="settings-label">{t('settings.workspace.theme.label')}</span>
-                <ThemeSwitcher theme={theme} onChange={onThemeChange} />
+                <ThemeSwitcher theme={theme} skin={skin} onChange={onThemeChange} onSkinChange={onSkinChange} />
                 <span className="settings-hint">{t('settings.workspace.theme.hint')}</span>
               </div>
             )}
@@ -4050,7 +4160,7 @@ export function SettingsPanel({
           <fieldset className="settings-section" id="settings-colours">
             <legend>{t('settings.colours.legend')}</legend>
             <span className="settings-hint">{t('settings.colours.hint')}</span>
-            <SettingsColours palette={palette} onChange={onPaletteChange} />
+            <SettingsColours palette={palette} skin={skin} onChange={onPaletteChange} />
           </fieldset>
           )}
 
@@ -4418,6 +4528,43 @@ export function SettingsPanel({
           {tab === 'station' && (
           <fieldset className="settings-section" id="settings-remote-access">
             <legend>{t('remote.settingsLegend')}</legend>
+            {/* One card (the operator, 2026-10-02): the streaming switch first, with the beta line beside
+                it ("access could be revoked at any time"), then where this station stands with the
+                Remote service and its browsers (RemoteStation, with the old options under Advanced). */}
+            {!remote && <BetaNote />}
+            {/* REMOTE AS A STREAM (TX sign-off 2026-09-27, "Session permit"): an approved browser
+                holding station control is shown this window and operates it; while one is
+                attached, every transmission stops within five seconds of it going away, and
+                seven of its picture freezing (the engine is the guard: engine/remote_stream.rs).
+                OFF by default. Offered on Windows, where the station can capture its window,
+                explained as unavailable elsewhere, and never on the Remote page: the key is
+                withheld from Remote's settings projection, so no browser can switch it on. */}
+            {!remote && IS_WINDOWS && (
+              <div className="settings-field">
+                <label className="settings-toggle">
+                  <span className="settings-label">{t('settings.remoteStream.label')}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={form.remoteStream === true}
+                    className={`toggle${form.remoteStream === true ? ' on' : ''}`}
+                    onClick={() => updateBool('remoteStream', form.remoteStream !== true)}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </label>
+                <span className="settings-hint">{t('settings.remoteStream.hint')}</span>
+                {/* What the capture needs from this PC, as far as the code shows it: a minimized
+                    window gives no picture, and closing Nexus ends the capture. */}
+                <span className="settings-hint">{t('settings.remoteStream.display')}</span>
+              </div>
+            )}
+            {!remote && !IS_WINDOWS && (
+              <div className="settings-field">
+                <span className="settings-label">{t('settings.remoteStream.label')}</span>
+                <span className="settings-hint">{t('settings.remoteStream.unavailable')}</span>
+              </div>
+            )}
             {remote ? <p className="settings-note">{t('remote.configurationLocal')}</p> : <RemoteStation />}
           </fieldset>
           )}
@@ -4915,6 +5062,29 @@ export function SettingsPanel({
                 <span className="settings-hint">{t('settings.rigControl.ptt.hint')}</span>
               </label>
 
+              {/* #381: which input a CAT key-down selects. Offered where Rust's `cat_ptt_mode` can
+                  honour it — CAT PTT, not OmniRig (its own rig file keys the radio), a radio whose
+                  Hamlib driver has a working mic/data PTT — and hidden everywhere else, where the
+                  radio keys as it always has whatever is stored. */}
+              {form.pttMethod === 'cat' && form.rigConn !== 'omnirig' && pttMicDataModels.includes(form.rigModel) && (
+                <label className="settings-field">
+                  <span className="settings-label">{t('settings.rigControl.txAudio.label')}</span>
+                  <select disabled={remote}
+                    className="settings-input"
+                    // Read as Rust reads it (`tx_audio_source_is_rear`), so the box never shows
+                    // Front/Mic for a stored value the radio loop treats as Rear/Data.
+                    value={(form.txAudioSource ?? '').trim().toLowerCase() === 'rear' ? 'rear' : 'front'}
+                    onChange={(e) => update('txAudioSource', e.target.value)}
+                  >
+                    <option value="front">{t('settings.rigControl.txAudio.front')}</option>
+                    <option value="rear">{t('settings.rigControl.txAudio.rear')}</option>
+                  </select>
+                  <span className="settings-hint">
+                    <T k="settings.rigControl.txAudio.hint" tags={{ b: <strong /> }} />
+                  </span>
+                </label>
+              )}
+
               {(form.pttMethod === 'rts' || form.pttMethod === 'dtr') && (
                 <label className="settings-field">
                   <span className="settings-label">
@@ -5403,6 +5573,26 @@ export function SettingsPanel({
                   ))}
                 </div>
                 <span className="settings-hint">{t('settings.rigControl.split.hint')}</span>
+              </div>
+
+              {/* `splitDetectEnabled` shipped in 1.9.1 as "new in Settings" with no control at
+                  all, so only an edited settings.json could turn it on. Station-wide, beside
+                  Split operation because both are about the radio's split. Read-only from a
+                  browser: the station refuses the write (WRITE_DENIED_KEYS). */}
+              <div className="settings-field">
+                <label className="settings-toggle">
+                  <span className="settings-label">{t('settings.rigControl.splitDetect.label')}</span>
+                  <button disabled={remote}
+                    type="button"
+                    role="switch"
+                    aria-checked={form.splitDetectEnabled ?? false}
+                    className={`toggle${form.splitDetectEnabled ? ' on' : ''}`}
+                    onClick={() => updateBool('splitDetectEnabled', !form.splitDetectEnabled)}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </label>
+                <span className="settings-hint">{t('settings.rigControl.splitDetect.hint')}</span>
               </div>
 
               <label className="settings-field">
@@ -6316,7 +6506,13 @@ export function SettingsPanel({
                       className="settings-input"
                       type="text"
                       value={form.rotatorPort ?? ''}
-                      placeholder={IS_MAC ? ROTATOR_EXAMPLES.macPort : ROTATOR_EXAMPLES.port}
+                      placeholder={
+                        (form.rotatorModel ?? 0) === PSTROTATOR.model
+                          ? PSTROTATOR.address
+                          : IS_MAC
+                            ? ROTATOR_EXAMPLES.macPort
+                            : ROTATOR_EXAMPLES.port
+                      }
                       onChange={(e) => update('rotatorPort', e.target.value)}
                       autoComplete="off"
                       spellCheck={false}
@@ -6339,6 +6535,19 @@ export function SettingsPanel({
                       right. It now names THIS model's own declared rate, and says so loudly
                       when the saved value cannot work. */}
                   {(() => {
+                    // PstRotatorAz has no line rate to match: its hint says where it listens,
+                    // and what Hamlib's backend for it sends as a bearing.
+                    if ((form.rotatorModel ?? 0) === PSTROTATOR.model) {
+                      return (
+                        <span className="settings-hint">
+                          {t('settings.rotator.port.hint.pstRotator', {
+                            address: PSTROTATOR.address,
+                            sent: PSTROTATOR.sent,
+                            bearing: PSTROTATOR.bearing,
+                          })}
+                        </span>
+                      )
+                    }
                     const only = ROT_FIXED_BAUD.get(form.rotatorModel ?? 0)
                     const set = form.rotatorBaud ?? 9600
                     if (only === undefined) {
@@ -7819,11 +8028,11 @@ export function SettingsPanel({
             <div className="settings-grid">
               <label className="settings-field">
                 <span className="settings-label">{t('settings.quickReply.chat.label')}</span>
-                <input disabled={locked('macros')}
+                <ListInput disabled={locked('macros')}
                   className="settings-input"
                   type="text"
-                  value={form.macros.chat.join(', ')}
-                  onChange={(e) => updateMacros('chat', e.target.value)}
+                  entries={form.macros.chat}
+                  onText={(raw) => updateMacros('chat', raw)}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -7831,11 +8040,11 @@ export function SettingsPanel({
               </label>
               <label className="settings-field">
                 <span className="settings-label">{MACRO_SET_QSO}</span>
-                <input disabled={locked('macros')}
+                <ListInput disabled={locked('macros')}
                   className="settings-input"
                   type="text"
-                  value={form.macros.qso.join(', ')}
-                  onChange={(e) => updateMacros('qso', e.target.value)}
+                  entries={form.macros.qso}
+                  onText={(raw) => updateMacros('qso', raw)}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -7843,11 +8052,11 @@ export function SettingsPanel({
               </label>
               <label className="settings-field">
                 <span className="settings-label">{t('settings.quickReply.band.label')}</span>
-                <input disabled={locked('macros')}
+                <ListInput disabled={locked('macros')}
                   className="settings-input"
                   type="text"
-                  value={form.macros.band.join(', ')}
-                  onChange={(e) => updateMacros('band', e.target.value)}
+                  entries={form.macros.band}
+                  onText={(raw) => updateMacros('band', raw)}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -8427,6 +8636,40 @@ export function SettingsPanel({
                 </div>
                 <span className="settings-hint">{t('settings.js8.rxSpeeds.hint')}</span>
               </div>
+              {/* JS8Call's "Remove callsigns from call activity after" (CallsignAging): 0,
+                  "Disabled", to 1440 minutes (Configuration.ui:464-490). */}
+              <label className="settings-field">
+                <span className="settings-label">{t('settings.js8.callsignAgingMin.label')}</span>
+                <input disabled={remote}
+                  className="settings-input"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={1440}
+                  value={String(form.js8CallsignAgingMin ?? 0)}
+                  placeholder="0"
+                  onChange={(e) => updateMinutes('js8CallsignAgingMin', e.target.value, 1440)}
+                  autoComplete="off"
+                />
+                <span className="settings-hint">{t('settings.js8.callsignAgingMin.hint')}</span>
+              </label>
+              {/* JS8Call's "Remove messages from band activity after" (ActivityAging): 0,
+                  "Disabled", to 1440 minutes, 2 by default (Configuration.ui:506-531). */}
+              <label className="settings-field">
+                <span className="settings-label">{t('settings.js8.activityAgingMin.label')}</span>
+                <input disabled={remote}
+                  className="settings-input"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={1440}
+                  value={String(form.js8ActivityAgingMin ?? 2)}
+                  placeholder="2"
+                  onChange={(e) => updateMinutes('js8ActivityAgingMin', e.target.value, 1440)}
+                  autoComplete="off"
+                />
+                <span className="settings-hint">{t('settings.js8.activityAgingMin.hint')}</span>
+              </label>
             </div>
 
             <div className="settings-featgroup">
@@ -8474,6 +8717,17 @@ export function SettingsPanel({
                 </label>
                 <span className="settings-hint">{t('settings.js8.hbAck.hint')}</span>
               </div>
+              <label className="settings-field">
+                <span className="settings-label">{t('settings.js8.hbAckDeny.label')}</span>
+                <ListInput disabled={remote}
+                  className="settings-input"
+                  entries={form.js8HbAckDeny ?? []}
+                  onText={(raw) => setJs8CallList('js8HbAckDeny', raw)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <span className="settings-hint">{t('settings.js8.hbAckDeny.hint')}</span>
+              </label>
               <div className="settings-field">
                 <label className="settings-toggle">
                   <span className="settings-label">{t('settings.js8.autoreply.label')}</span>
@@ -8490,6 +8744,44 @@ export function SettingsPanel({
                 </label>
                 <span className="settings-hint">{t('settings.js8.autoreply.hint')}</span>
               </div>
+              <div className="settings-field">
+                <label className="settings-toggle">
+                  <span className="settings-label">{t('settings.js8.autoreplyConfirmation.label')}</span>
+                  <button disabled={remote}
+                    type="button"
+                    role="switch"
+                    // `!== false`: on by default, as JS8Call ships AutoreplyConfirmation.
+                    aria-checked={form.js8AutoreplyConfirmation !== false}
+                    className={`toggle${form.js8AutoreplyConfirmation !== false ? ' on' : ''}`}
+                    onClick={() => updateBool('js8AutoreplyConfirmation', form.js8AutoreplyConfirmation === false)}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </label>
+                <span className="settings-hint">{t('settings.js8.autoreplyConfirmation.hint')}</span>
+              </div>
+              <label className="settings-field">
+                <span className="settings-label">{t('settings.js8.autoreplyAllow.label')}</span>
+                <ListInput disabled={remote}
+                  className="settings-input"
+                  entries={form.js8AutoreplyAllow ?? []}
+                  onText={(raw) => setJs8CallList('js8AutoreplyAllow', raw)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <span className="settings-hint">{t('settings.js8.autoreplyAllow.hint')}</span>
+              </label>
+              <label className="settings-field">
+                <span className="settings-label">{t('settings.js8.autoreplyDeny.label')}</span>
+                <ListInput disabled={remote}
+                  className="settings-input"
+                  entries={form.js8AutoreplyDeny ?? []}
+                  onText={(raw) => setJs8CallList('js8AutoreplyDeny', raw)}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <span className="settings-hint">{t('settings.js8.autoreplyDeny.hint')}</span>
+              </label>
               <div className="settings-field">
                 <label className="settings-toggle">
                   <span className="settings-label">{t('settings.js8.relay.label')}</span>
@@ -8548,10 +8840,10 @@ export function SettingsPanel({
               </label>
               <label className="settings-field">
                 <span className="settings-label">{t('settings.js8.groups.label')}</span>
-                <input disabled={remote}
+                <ListInput disabled={remote}
                   className="settings-input"
-                  value={(form.js8Groups ?? []).join(', ')}
-                  onChange={(e) => setJs8Groups(parseJs8Groups(e.target.value))}
+                  entries={form.js8Groups ?? []}
+                  onText={(raw) => setJs8Groups(parseJs8Groups(raw))}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -8770,13 +9062,13 @@ export function SettingsPanel({
 
                 <label className="settings-field">
                   <span className="settings-label">{t('settings.aprs.path.label')}</span>
-                  <input disabled={remote}
+                  <ListInput disabled={remote}
                     className="settings-input"
                     type="text"
-                    value={(form.aprsPath ?? []).join(', ')}
-                    onChange={(e) =>
+                    entries={form.aprsPath ?? []}
+                    onText={(raw) =>
                       setAprsPath(
-                        e.target.value
+                        raw
                           .split(',')
                           .map((s) => s.trim().toUpperCase())
                           .filter(Boolean),
@@ -8889,12 +9181,12 @@ export function SettingsPanel({
 
                 <label className="settings-field">
                   <span className="settings-label">{t('settings.aprs.is.watchCalls.label')}</span>
-                  <input
+                  <ListInput
                     className="settings-input"
-                    value={(form.aprsIsWatchCalls ?? []).join(', ')}
-                    onChange={(e) =>
+                    entries={form.aprsIsWatchCalls ?? []}
+                    onText={(raw) =>
                       setWatchCalls(
-                        e.target.value
+                        raw
                           .split(',')
                           .map((c) => c.trim().toUpperCase())
                           .filter(Boolean),
@@ -9276,6 +9568,24 @@ export function SettingsPanel({
           <fieldset className="settings-section" id="settings-alerts">
             <legend>{t('settings.alerts.legend')}</legend>
             <div className="settings-grid">
+              {/* #391: the corner's pop-ups. ON unless the file says false, so an old settings
+                  file keeps them; what still pops up with them off is `popsUpWhenOff` (toast.ts). */}
+              <div className="settings-field">
+                <label className="settings-toggle">
+                  <span className="settings-label">{t('settings.alerts.popups.label')}</span>
+                  <button disabled={remote}
+                    type="button"
+                    role="switch"
+                    aria-checked={form.popupNotifications !== false}
+                    className={`toggle${form.popupNotifications !== false ? ' on' : ''}`}
+                    onClick={() => updateBool('popupNotifications', form.popupNotifications === false)}
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </label>
+                <span className="settings-hint">{t('settings.alerts.popups.hint')}</span>
+              </div>
+
               <div className="settings-field">
                 <label className="settings-toggle">
                   <span className="settings-label">{t('settings.alerts.myCall.label')}</span>
@@ -11298,6 +11608,15 @@ export function SettingsPanel({
                   <span className="settings-hint">
                     {t('settings.confirmations.cloudlog.url.hint')}
                   </span>
+                  {/* #378: plain http:// is accepted for an address on the operator's own network
+                      only, and the API key then travels unencrypted, so say so as it is typed. */}
+                  {/^http:\/\//i.test((form.cloudlogUrl ?? '').trim()) && (
+                    <span className="settings-note" role="note">
+                      {t('settings.confirmations.cloudlog.url.plainHttp', {
+                        ranges: CONFIRMATION_EXAMPLES.lanRanges,
+                      })}
+                    </span>
+                  )}
                 </label>
 
                 <label className="settings-field">
@@ -12350,5 +12669,41 @@ export function SettingsPanel({
       </form>
     </section>
     </SettingsOpenTarget.Provider>
+  )
+}
+
+/**
+ * #370 — a text box that edits a LIST: the APRS-IS Watched calls, the digipeater path, the JS8
+ * groups and the three quick-reply chip sets. It shows the operator's own text while they type and
+ * hands it to the field's parser on EVERY change, so the list is always current: a separator can be
+ * typed, and a Save that never leaves the box (Enter in any box submits this form) saves what is in
+ * it. Leaving the box shows the list as it was read, joined the one way.
+ *
+ * Each of the six used to render `list.join(', ')` as its value. Every keystroke re-parsed the text
+ * and React wrote the parsed list straight back into the box, so whatever the parse drops, the comma
+ * of `W1ABC,` or the space of `TNX ` in a chip set that trims each entry, could never be typed, and
+ * the next call glued on (`W1ABCK2DEF`). The Blocked-callsigns box keeps its raw text the same way,
+ * but parses only as it is left, which suits its own save verb and would lose a Save here.
+ */
+function ListInput({
+  entries,
+  onText,
+  ...input
+}: {
+  entries: readonly string[]
+  /** The box's text on every change: the field's own parse and set, exactly as before. */
+  onText: (text: string) => void
+} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'onBlur'>) {
+  const [draft, setDraft] = useState<string | null>(null)
+  return (
+    <input
+      {...input}
+      value={draft ?? entries.join(', ')}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        onText(e.target.value)
+      }}
+      onBlur={() => setDraft(null)}
+    />
   )
 }

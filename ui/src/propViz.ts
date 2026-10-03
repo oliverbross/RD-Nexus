@@ -22,6 +22,8 @@ import type {
   MapSpot,
   NeedKind,
   SatView,
+  SolarWind,
+  SpaceWxView,
   TrendDir,
 } from './types'
 
@@ -54,6 +56,16 @@ export function tierVar(tier: ActivityTier): string {
     default: // Closed
       return 'var(--text-faint)' // faint — recedes
   }
+}
+
+/** How the sheet letters a word in a colour from these helpers (its `data-state-ink`). A STATE colour
+ *  is a 'mark': the light themes letter the word in the theme's ink and underline it in the colour.
+ *  The closed-band grey 'recede's: the light themes letter it in the dim ink, unmarked (a closed band is
+ *  not a highlight). One of the theme's own text inks is neither (null): the word keeps it as a plain
+ *  colour in every theme. */
+export function stateInkKind(v: string): 'mark' | 'recede' | null {
+  if (/^var\(--text(-dim|-faint)?\)$/.test(v)) return null
+  return v === 'var(--band-closed)' ? 'recede' : 'mark'
 }
 
 const NEED_ROLE: Record<NeedKind, keyof typeof STATUS> = {
@@ -175,6 +187,40 @@ export function bzImpact(bz: number): Impact {
   if (bz <= -5) return { sev: 'warn', text: t('prop.impact.bz.south') }
   return { sev: 'quiet', text: t('prop.impact.bz.neutral') }
 }
+/** The insight layer's fast-stream threshold (crates/propagation/src/insight.rs: "Fast solar-wind
+ * stream arriving" from this speed). The gauge turns at the SAME speed, so the Space Wx box never
+ * calls a wind ordinary while the insight feed beside it warns about it; propViz.wind.test.ts
+ * reads the number out of the Rust source and compares. */
+export const FAST_WIND_KMS = 600
+/** Solar-wind bulk speed (km/s). The ordinary wind runs ~300–500 km/s; a fast stream unsettles
+ * the high-latitude paths on a slower fuse than a southward Bz. */
+export function windSpeedImpact(kms: number): Impact {
+  if (kms >= FAST_WIND_KMS) return { sev: 'warn', text: t('prop.impact.wind.fast') }
+  return { sev: 'quiet', text: t('prop.impact.wind.normal') }
+}
+/** The solar-wind speed as a reading (km/s) at `nowMs`, or null when there is none: no sample, a
+ * speed the station does not know (an older station sends 0 for that; the Sun's wind never blows
+ * below ~250 km/s), or a sample SOLAR_WIND_STALE_SECS or more old, whose speed is not the wind now
+ * (the Bz gauge beside it says how old the reading is). An older station's undated sample reads as
+ * it always did. The Space Wx box's Wind gauge and the dashboard bar both read this, so they cannot
+ * disagree. */
+export function windSpeedKms(wx: SpaceWxView, nowMs: number): number | null {
+  const sw = wx.solarWind
+  const kms = sw?.speedKms
+  if (!sw || kms == null || !(kms > 0)) return null
+  const age = solarWindAgeSecs(sw, nowMs)
+  return age != null && age >= SOLAR_WIND_STALE_SECS ? null : kms
+}
+/** How long a solar-wind sample speaks for "now" — the station's own threshold (SOLAR_WIND_STALE_SECS
+ * in crates/propagation/src/solar_wind.rs; propViz.solarWind.test.ts reads it out of that file). Past
+ * it the insight feed stops speaking from the sample and the gauges say how old the reading is. */
+export const SOLAR_WIND_STALE_SECS = 30 * 60
+/** How old a solar-wind sample is at `nowMs`, in whole seconds (never negative), or null when the
+ * station did not date it — an older station's, whose age cannot be known, so nothing is claimed. */
+export function solarWindAgeSecs(sw: SolarWind, nowMs: number): number | null {
+  if (sw.timeUnix == null) return null
+  return Math.max(0, Math.floor(nowMs / 1000 - sw.timeUnix))
+}
 /** A-index (24 h average of geomagnetic activity — the day's character, where Kp is
  * the last 3 h). NOAA scale: <8 quiet · 8–15 unsettled · 16–29 active · 30+ storm. */
 export function aImpact(a: number): Impact {
@@ -290,11 +336,18 @@ export function dualStateLabel(
 }
 
 /** One band's condition cell — the word, its sub-note and its colour — exactly as the Band
- *  conditions strip draws it. The band dropdown (`bandConditions.ts`) draws from this same
- *  function so the two surfaces cannot disagree about a band. */
+ *  conditions strip draws it. The band dropdown (`bandConditions.ts`), the Band Advisor's rows and
+ *  the NOW bar draw from this same function, so no two surfaces can disagree about a band.
+ *
+ *  THE COLOUR FOLLOWS THE WORD. A band heard now IS open, whatever the model says, so it is green:
+ *  a summer Es opening on 10 m or 6 m, which the model calls closed, used to be painted as a grey
+ *  "Open". A silent band wears the model's word and that word's colour. With no model and nobody
+ *  heard (a report from an older station), the word defaults to Open, which is no evidence, so the
+ *  colour stays the tier's neutral: unknown is never green. */
 export function bandConditionCell(b: BandReport): { word: string; sub: string; color: string } {
   const ds = dualStateLabel(b.modeled, b.tier)
-  return { ...ds, color: b.modeled ? modeledVar(b.modeled) : tierVar(b.tier) }
+  const heard = b.tier === 'Active' || b.tier === 'Moderate'
+  return { ...ds, color: heard ? modeledVar('Open') : b.modeled ? modeledVar(b.modeled) : tierVar(b.tier) }
 }
 
 /** The map hover-tooltip line for a live cluster/RBN/PSKR spot — who/where/what

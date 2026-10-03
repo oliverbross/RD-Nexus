@@ -95,11 +95,23 @@ impl Default for NeuralDxState {
 impl Drop for NeuralDxState {
     fn drop(&mut self) {
         let runtime = self.0.get_mut().unwrap_or_else(|e| e.into_inner());
-        if let Some(child) = runtime.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        stop_runtime(runtime);
     }
+}
+
+fn stop_runtime(runtime: &mut Runtime) {
+    if let Some(child) = runtime.child.as_mut() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    runtime.child = None;
+}
+
+/// Stop the owned launcher during Tauri's synchronous quit cleanup. The packaged Python worker
+/// also watches Nexus's PID because a forced termination cannot run Rust destructors.
+pub fn stop(state: &NeuralDxState) {
+    let mut runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    stop_runtime(&mut runtime);
 }
 
 fn token() -> String {
@@ -172,6 +184,10 @@ fn launch(app: &AppHandle) -> Result<(Child, PathBuf, String), String> {
         .env("NEURAL_DX_NEXUS_EMBED", "1")
         .env("NEURAL_DX_NEXUS_TOKEN", &secret)
         .env("NEURAL_DX_READY_FILE", &ready_file)
+        .env(
+            "NEURAL_DX_NEXUS_PARENT_PID",
+            std::process::id().to_string(),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(log_err));
@@ -475,11 +491,7 @@ pub fn neural_dx_status(state: State<'_, NeuralDxState>) -> NeuralDxStatus {
 pub fn restart_neural_dx(app: AppHandle, state: State<'_, NeuralDxState>) {
     {
         let mut runtime = state.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(child) = runtime.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        runtime.child = None;
+        stop_runtime(&mut runtime);
         runtime.status = NeuralDxStatus {
             phase: "starting",
             url: None,

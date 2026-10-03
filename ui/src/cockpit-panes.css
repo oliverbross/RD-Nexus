@@ -11,8 +11,9 @@
    so much as names one of these classes. Content styling (colors, type, the insides of a
    pane) stays in styles.css; SIZE lives here and only here.
 
-   THE MODEL. A cockpit shell has four child kinds — header chrome, the scope, ONE pane
-   region, and the TX dock. The region is a grid of columns; each column is itself a flex
+   THE MODEL. A cockpit shell has five child kinds — header chrome, the scope, the TX strip
+   right under it (FT's cluster: TX On/Off · Tune · ATU · Stop TX, sticky; `.cockpit-txstrip`
+   below), ONE pane region, and the TX dock. The region is a grid of columns; each column is itself a flex
    stack of pane frames. Vertical deficit has exactly three legal fates, in order: a
    scrollbar inside the pane that overflowed; a scrollbar inside the COLUMN that overflowed
    (the only fate available to a stack of fit="content" frames, which are `flex: 0 0 auto`
@@ -51,17 +52,19 @@
 
      THE CONTROLS THAT HOLD IT UP, re-verified against the code 2026-08-03, each with WHAT it
      stops (only halt_tx is universal; everything else has a scope):
-       Phone — PTT (dock; drops the mic key it holds), Stop TX (header → halt_tx), Tune
-         (header; the tune carrier only), the Space bar (window keyup → the same unkey as
+       (Since 2026-10-01, every "TX strip" below was "header": the latch,
+       Tune, the ATU and Stop TX left the cockpit header for the strip under the scope.)
+       Phone — PTT (dock; drops the mic key it holds), Stop TX (TX strip → halt_tx), Tune
+         (TX strip; the tune carrier only), the Space bar (window keyup → the same unkey as
          PTT-release, and only while Lock is off).
-       CW — Stop TX (header → stopCw + haltTx), Tune (the carrier only), Esc (the same abort).
+       CW — Stop TX (TX strip → stopCw + haltTx), Tune (the carrier only), Esc (the same abort).
        Operate — Stop TX (.op-btn.stop in the merged .cockpit-qso strip → halt_tx; the ONLY
          control here that cuts an over in flight), Tune (the carrier only), Esc (the same
          halt). TX On/Off and S&P WERE ON THIS LIST AND ARE NOT STOP CONTROLS: set_tx_enabled
          deliberately does not arm slot_tx_abort (operator 2026-07-31 — the FT over in flight
          completes), and onSetMode('qso-monitor') ends the CQ RUN and drops the queue without
          arming anything.
-       RTTY — Stop TX (header, never disabled), the dock's Esc/Stop macro (disabled={!sending},
+       RTTY — Stop TX (TX strip, never disabled), the dock's Esc/Stop macro (disabled={!sending},
          so live exactly while an over is on the air), the TX-enable latch (a real stop HERE:
          set_tx_enabled(false) arms rtty_abort, which the audio loop turns into flush + unkey
          while an over is keying; it stays a BUTTON through RTTY overs because
@@ -69,10 +72,12 @@
          rendered only while auto is on and the sequence is not idle).
        SSTV — Stop (.sstv-tx-bar, disabled={!sending}) and the TX-enable latch (same mechanism
          as RTTY, via sstv_abort).
-       APRS — no vocabulary at all, so the rule holds by construction; and note that APRS
-         renders no stop control, its TX On/Off being an arm latch that only holds the queue.
-     The TopBar's TX cluster backstops none of them: App hides it in Operate and in
-     Phone/CW/RTTY/SSTV/APRS, so every cockpit stands on its own controls.
+       APRS — no vocabulary at all, so the rule holds by construction; its stop controls are
+         the TX strip's Stop TX (halt_tx) and the TX-enable latch (TX On/Off). It arms no abort, but turning it off stops a beacon on
+         the air through the loop's TX-off cut (unkey + flush of a non-slot over; measured
+         2026-09-30) and drops what is still queued.
+     The TopBar's TX cluster backstops none of them: App hides it in Operate, Tempo and
+     Phone/CW/RTTY/PSK/SSTV/APRS/JS8, so every cockpit stands on its own controls.
 
      THE SWEEPS DO NOT MATCH THAT CENSUS ONE FOR ONE, and the claim that they did was false
      for four of the five swept cockpits. Swept: Phone — PTT, Stop TX, Tune. CW — Stop TX,
@@ -229,6 +234,11 @@
   min-width: 0;
   display: grid;
   gap: var(--space-3);
+  /* The containing block of the column dividers (`.cockpit-colseam` below), and of nothing else:
+     every pane frame already contains its own positioned content (`.pane-frame` carries a
+     backdrop-filter, which makes it the containing block of everything absolutely positioned
+     inside it), and a column holds only frames. */
+  position: relative;
   /* Safe fallback for a region that somehow has no state stamped yet (useRegionCols owns
      both attributes and stamps before first paint, but the failure direction must still be
      "scrolls", never "clips"). This IS the stacking behaviour; [data-flow='fill'] overrides
@@ -259,17 +269,32 @@
    cockpit-shells.test.ts). A bare 44em therefore made the log a CONSTANT 616px at every
    reachable width, and at region 1080–1244 the "wide" feed column came out NARROWER than
    the log form. Bounding the payout at 40% keeps the feed at ~60% of the region at every
-   2-col width; above region ~1540 the 44em arm takes over and the cap behaves as designed. */
+   2-col width; above region ~1540 the 44em arm takes over and the cap behaves as designed.
+
+   THE OPERATOR'S WIDTHS (layout L2). The column dividers (components/panes/RegionColumnSeams)
+   write three tokens INLINE on the region, as placement inputs exactly like a frame's flex, and
+   only these two templates read them: `--cockpit-col-log` (the log column's width), and at three
+   columns `--cockpit-col-a/-b` (the two feed columns' fr shares). Unset, each resolves to the
+   stock template. The log token is always written `min(<px>, 50%)`
+   (features/paneColumns.logColValue), so the §11.6 payout is still proportion-bounded — at half
+   the region at most — and the 24em floor stays the track's own: a width stored on a wide window
+   is clamped by the layout itself on load and on every resize. */
 .cockpit-panes[data-cols='2'] {
-  grid-template-columns: minmax(0, 1fr) minmax(24em, min(44em, 40%));
+  grid-template-columns: minmax(0, 1fr) minmax(24em, var(--cockpit-col-log, min(44em, 40%)));
 }
 
 /* THREE COLUMNS — ultrawide/fullscreen. The primary feed column gets 1.6fr so "prominent"
    means genuinely prominent; the aux column takes the rig/DSP panes; the log column keeps
    the SAME 44em cap, which is what ends the 3300px-wide text field. (Same min() spelling
-   as tier 2 for one vocabulary; at region ≥1700 the 40% arm never binds — 44em wins.) */
+   as tier 2 for one vocabulary; at region ≥1700 the 40% arm never binds — 44em wins.)
+
+   The two feed columns FLOOR AT 16em, which the stock split never reaches (at the tier's
+   narrowest region, 1700 px, the aux column is ~408 px) and a dragged one does: the divider
+   between them stops a pane's shares at MIN_SHARE, 7.5 % of the pair, which at 1920×1080 is
+   an ~85 px column of rig controls. The floors always fit: two of them, the log at its 50 %
+   ceiling and both gaps leave room at the tier's narrowest region. */
 .cockpit-panes[data-cols='3'] {
-  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(24em, min(44em, 40%));
+  grid-template-columns: minmax(16em, var(--cockpit-col-a, 1.6fr)) minmax(16em, var(--cockpit-col-b, 1fr)) minmax(24em, var(--cockpit-col-log, min(44em, 40%)));
 }
 
 /* ── THE FLOW, per measurement. These rules declare the vertical model — who scrolls, how
@@ -352,6 +377,29 @@
   overflow-x: hidden;
 }
 
+/* THE COLUMN DIVIDERS (layout L2, components/panes/RegionColumnSeams). A divider between two
+   columns is an ABSOLUTELY POSITIONED child of the region, placed by `grid-column` on the track
+   AFTER it and pulled back over the gap before that track: the full height of the region, exactly
+   as wide as the gap, covering no pane. Not a grid child — an in-flow one would take a track or a
+   cell of its own (the Operate Classic seam's reasoning) — and not a column's child, because the
+   column scrolls and clips. An absolutely positioned grid child is placed by its grid lines and
+   takes no part in auto-placement, so the columns flow exactly as before.
+   Only the bounded flow renders one: at one track there is nothing to divide sideways. */
+.cockpit-colseam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--space-3) / -2 - 6px);
+  width: 12px;
+  margin: 0;
+}
+.cockpit-colseam-2 {
+  grid-column: 2 / 3;
+}
+.cockpit-colseam-3 {
+  grid-column: 3 / 4;
+}
+
 /* TX DOCK — the STOP surface: PTT / abort / send, and nothing else. `flex: 0 0 auto` is load-bearing: the
    dock is neither a grower (it must not absorb spare height) nor a shrink victim (the
    controls must stay hit-able at their full size). `position: sticky` is the belt to that
@@ -374,6 +422,44 @@
   background: var(--panel);
 }
 
+/* THE TX STRIP — the fifth shell child kind (2026-10-01: "FT's strip under the
+   scope in every mode, FT's order, staying in view"). FT's transmit cluster — TX On/Off · Tune ·
+   ATU · Stop TX (· Hold Tx) — and the TX state, drawn by components/CockpitTxStrip directly under
+   the scope on every operating screen but FT, whose `.cockpit-qso` is the same cluster with its
+   QSO controls around it. It is where Stop TX, Tune and the latch live now, so it is a STOP
+   surface like the dock: never a pane, no id in any vocabulary, nothing in the ⊞ menu can reach it.
+   STICKY ON BOTH EDGES, and that is what it is for. When the shell's deficit valve scrolls (a
+   150–175 % pin on a laptop), the strip parks at the top of the scrollport, or just above the
+   sticky dock, instead of leaving the window: the header Stop TX it replaced sat UNDER the dock at
+   those pins — present, enabled and unclickable (N66, measured). The bottom offset is the dock's
+   height, written by the strip as a placement input (`--cockpit-txstrip-bottom`), because CSS
+   cannot read a sibling's box. It must be a DIRECT shell child: a sticky box never leaves its
+   containing block, so inside a wrapper it could not leave that wrapper's box. `flex: 0 0 auto`
+   for the dock's reason (neither a grower nor a shrink victim), and opaque because a parked strip
+   covers the scope. */
+.cockpit-txstrip {
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  bottom: var(--cockpit-txstrip-bottom, 0px);
+  z-index: 2;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px var(--space-2);
+  padding: 3px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+/* The hosted observer's TX strip scrolls with its cockpit, for its dock's reason below: its
+   controls are disabled, and at a phone width a parked strip of disabled buttons covered the decode
+   text and the contact the observer was reading (compiled-browser v5, DX work). With station
+   control the strip is pinned like the dock. After `.cockpit-txstrip`, which it overrides. */
+.remote-observer-strip {
+  position: static;
+}
 /* The keyboard observer's disabled controls can fill the entire remaining
    viewport at 175% zoom, covering both text and recall at every scroll position.
    Let that inactive dock scroll with its cockpit. Only observers attach this
@@ -449,7 +535,8 @@
    its lower grid can otherwise collapse to zero and leave the rail outside
    even the shell's scroll range. Reserve a yielding content region, following
    the pane grid's 18em floor, with a viewport share for short windows. The
-   remote shell provides the interposed scroller; native FT sizing is unchanged. */
+   remote shell provides the interposed scroller. (Since 2026-10-01 the desktop region carries this
+   same floor, styles.css `.cockpit-lower`, behind the desktop shell's own valve.) */
 .remote-cockpit-lower {
   min-height: min(18em, calc(0.35 * var(--vh-eff)));
 }
@@ -471,3 +558,72 @@
 .cockpit-col--contact { order: -1; overflow: visible; }
 .cockpit-col--quiet { display: none; }
 .ph-scope-panel--quiet { display: none; }
+
+/* THE DASHBOARD RAIL (components/DashRail) — a column of Connect boxes beside the operating cockpit:
+   the third child of App's `.shell`, after the navigation rail and the cockpit, and never inside a
+   cockpit shell, so it adds no child kind to one and no pane of one sits in it.
+
+   ITS WIDTH is `--dash-rail-w`, written inline by the rail: the operator's stored preference fitted
+   into the window on load, on every resize and on every zoom change (features/dashRail), never wider
+   than what the window has BEYOND the 1024×768 floor window — so the cockpit beside it is never
+   narrower than on the supported floor, where every cockpit is built and swept to work. Shrink 1 and
+   the 200 px floor (RAIL_MIN, where its handle can still be grabbed) are the belt to those braces:
+   should a cockpit's own content ever refuse its share, the rail gives way first, and the shell never
+   scrolls sideways.
+
+   ITS OWN BOX DOES NOT CLIP, deliberately: the ⊞ menu in its head is anchored to its right edge and
+   220 px wide, so from a 200 px rail it opens over the cockpit's edge instead of being cut off. The
+   boxes clip themselves (`.pane-frame`) and scroll inside their bodies, the pane contract's legal fate
+   for a short box. */
+.dash-rail {
+  flex: 0 1 var(--dash-rail-w, 300px);
+  min-width: 200px;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+/* The width divider: absolutely placed in the rail's left padding, the rail's full height, over no
+   box (Connect's rail-handle rule). Overrides the base divider's gap-straddling margin. */
+.dash-rail-seam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 10px;
+  margin: 0;
+}
+/* The head — the title, then the rail's own ⊞ menu and its ✕ as one group: content height, always.
+   It WRAPS: where the title and the group do not fit on one line (the 200 px floor, or a label grown
+   by a hidden box — "⊞ Bereiche · 1 ausgeblendet"), the group goes under the title, at the rail's
+   right edge. On one line the ✕ went past the window's edge and the page scrolled sideways (measured
+   in German, Spanish and French at 1366×768 and 1920×1080). */
+.dash-rail-head {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.dash-rail-acts {
+  flex: 0 1 auto;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* The boxes: a flex column split by each frame's share (the frame's inline
+   `flex: var(--connect-share) 1 0`, exactly Connect's rail), a divider in the gap between two. */
+.dash-rail-col {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}

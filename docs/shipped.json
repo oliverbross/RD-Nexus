@@ -73,7 +73,7 @@
     },
     {
       "id": "connect",
-      "label": "Connect"
+      "label": "Conditions"
     },
     {
       "id": "needed",
@@ -105,7 +105,7 @@
     },
     {
       "id": "program",
-      "label": "Program"
+      "label": "Repeaters"
     },
     {
       "id": "awards",

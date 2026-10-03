@@ -69,10 +69,18 @@ gaps() {
   ls "$DEST"/libhamlib.*"$LIBEXT"* >/dev/null 2>&1 || echo "  libhamlib.$LIBEXT — MISSING"
 }
 
+existing=0
 if [ -z "$(gaps)" ]; then
-  echo "Hamlib already staged at $DEST"; exit 0
+  if "$DEST/rigctld" --version >/dev/null 2>&1; then
+    echo "Hamlib already staged at $DEST; validating the complete runtime"
+    existing=1
+  else
+    echo "Existing Hamlib staging is complete but cannot run; rebuilding it." >&2
+    rm -f "${BINS[@]/#/$DEST/}" "$DEST"/libhamlib.*"$LIBEXT"* "$DEST"/libusb-*"$LIBEXT"*
+  fi
 fi
 
+if [ "$existing" -eq 0 ]; then
 for tool in make cc; do
   command -v "$tool" >/dev/null || { echo "need $tool to build Hamlib" >&2; exit 1; }
 done
@@ -214,6 +222,17 @@ case "$HOST" in
   linux) strip --strip-unneeded "$DEST/$soname" "${BINS[@]/#/$DEST/}" 2>/dev/null || true ;;
   macos) strip -x "$DEST/$soname" "${BINS[@]/#/$DEST/}" 2>/dev/null || true ;;
 esac
+# install_name_tool and strip invalidate the linker signatures carried by modern macOS
+# binaries. On current macOS, dyld kills such a binary before main (exit 137), which made the
+# runtime proof below report an rpath failure even though every load command was correct. Seal the
+# staged Mach-O files ad hoc after the final mutation; release signing replaces these signatures.
+if [ "$HOST" = macos ]; then
+  command -v codesign >/dev/null || { echo "need codesign (Xcode CLT)" >&2; exit 1; }
+  for f in "${BINS[@]/#/$DEST/}" "$DEST/$soname" "$DEST"/libusb-*.dylib; do
+    [ -f "$f" ] || continue
+    codesign --force --sign - "$f"
+  done
+fi
 # The licence texts are TRACKED (they came from the Windows zip, CRLF), and Hamlib's LGPL
 # requires we ship them. Write one only if it is ABSENT — copying unconditionally rewrote all
 # four with LF line endings, showing up as 1267 changed lines of identical text and tripping
@@ -221,6 +240,13 @@ esac
 for f in "${LIC[@]}"; do
   [ -f "$src/$f" ] && [ ! -f "$DEST/${f}.txt" ] && cp "$src/$f" "$DEST/${f}.txt" || true
 done
+else
+  soname="$(basename "$(ls "$DEST"/libhamlib.*"$LIBEXT"* | head -1)")"
+fi
+
+# Tauri refreshes generated resources in place. Homebrew's libusb can be 0444; preserving that
+# mode makes the next direct cargo/tauri build unable to overwrite its own generated copy.
+chmod u+w "${BINS[@]/#/$DEST/}" "$DEST/$soname" "$DEST"/libusb-*"$LIBEXT"* 2>/dev/null || true
 
 # THE CAT-DEAD GUARD — see gaps() above. Everything between here and the download can fail
 # without failing the script; fail loudly instead of shipping a licence-only hamlib directory.
@@ -277,6 +303,8 @@ else
   # that cannot see it is reading nothing and its clean verdict would be the broken-check lie.
   for f in "${BINS[@]/#/$DEST/}" "$DEST/$soname" "$DEST"/libusb-*.dylib; do
     [ -f "$f" ] || continue
+    codesign --verify --strict "$f" 2>/dev/null || {
+      echo "Staged Mach-O has an invalid signature: $f" >&2; exit 1; }
     deps=$(otool -L "$f" 2>/dev/null || true)
     printf '%s\n' "$deps" | grep -q '/usr/lib/libSystem.B.dylib' || {
       echo "otool read no dependencies from $f — cannot verify the bundle" >&2; exit 1; }

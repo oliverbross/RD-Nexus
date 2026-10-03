@@ -62,7 +62,7 @@ const NEWEST_APPLICATION_VERSION = Math.max(...APPLICATION_VERSIONS)
 // shard it: 17 application versions plus 10 feature scenarios is 27 full compiled-browser
 // runs — PKCE, device approval, observation and viewport checks each — and in series that
 // was 47.7 of the Remote job's 50 minutes, which made it the workflow's critical path.
-const SCENARIOS = [...APPLICATION_VERSIONS.map(applicationVersion=>({applicationVersion,operating:false})),{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,ftOperating:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,sessionLayout:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,quickLayout:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,quickLayout:true,quickMode:'cw'},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,contactContinuity:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,workSpot:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,radioSelection:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,radioSelection:true,routedTier:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,radioSelection:true,routedWorkspace:true}]
+const SCENARIOS = [...APPLICATION_VERSIONS.map(applicationVersion=>({applicationVersion,operating:false})),{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,ftOperating:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,sessionLayout:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,quickLayout:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,quickLayout:true,quickMode:'cw'},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,contactContinuity:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,workSpot:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,radioSelection:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,radioSelection:true,routedTier:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,radioSelection:true,routedWorkspace:true},{applicationVersion:NEWEST_APPLICATION_VERSION,operating:true,stream:true}]
 
 // Shard selection. Unset means shard 0 of 1 — i.e. EVERYTHING — so a local run,
 // `npm --prefix remote run test:browser` and `scripts/gates` all keep full coverage. CI
@@ -81,8 +81,8 @@ const SHARD_SCENARIOS = SCENARIOS.filter((_, index) => index % SHARDS === SHARD)
 if (SHARDS === 1 && SHARD_SCENARIOS.length !== SCENARIOS.length) throw new Error('unsharded run must select every scenario')
 console.log(`# browser shard ${SHARD} of ${SHARDS}: running ${SHARD_SCENARIOS.length} of ${SCENARIOS.length} scenarios`)
 
-for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='phone',contactContinuity,workSpot,radioSelection,routedTier,routedWorkspace,ftOperating} of SHARD_SCENARIOS) test(`compiled hosted browser ${ftOperating?'FT operating':routedWorkspace?'routed workspace':routedTier?'routed decoder':radioSelection?'radio selection':workSpot?'DX work':contactContinuity?'contact continuity':quickLayout?`quick layout${quickMode==='cw'?' CW':''}`:sessionLayout?'session layout':operating?'operations':`v${applicationVersion}`} completes PKCE, local device approval, observation and viewport checks`, { timeout: applicationVersion >= 14 ? 540000 : applicationVersion >= 13 ? 420000 : 180000 }, async context => {
-  const app=await runtime(), artifacts=process.env.NEXUS_REMOTE_BROWSER_ARTIFACTS ? join(process.env.NEXUS_REMOTE_BROWSER_ARTIFACTS, ftOperating?'ft-operating':routedWorkspace?'routed-workspace':routedTier?'routed-decoder':radioSelection?'radio-selection':workSpot?'dx-work':contactContinuity?'contact-continuity':quickLayout?`quick-layout${quickMode==='cw'?'-cw':''}`:sessionLayout?'session-layout':operating?'operations':`v${applicationVersion}`) : undefined
+for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='phone',contactContinuity,workSpot,radioSelection,routedTier,routedWorkspace,ftOperating,stream} of SHARD_SCENARIOS) test(`compiled hosted browser ${stream?'stream':ftOperating?'FT operating':routedWorkspace?'routed workspace':routedTier?'routed decoder':radioSelection?'radio selection':workSpot?'DX work':contactContinuity?'contact continuity':quickLayout?`quick layout${quickMode==='cw'?' CW':''}`:sessionLayout?'session layout':operating?'operations':`v${applicationVersion}`} completes PKCE, local device approval, observation and viewport checks`, { timeout: applicationVersion >= 14 ? 540000 : applicationVersion >= 13 ? 420000 : 180000 }, async context => {
+  const app=await runtime(), artifacts=process.env.NEXUS_REMOTE_BROWSER_ARTIFACTS ? join(process.env.NEXUS_REMOTE_BROWSER_ARTIFACTS, stream?'stream':ftOperating?'ft-operating':routedWorkspace?'routed-workspace':routedTier?'routed-decoder':radioSelection?'radio-selection':workSpot?'dx-work':contactContinuity?'contact-continuity':quickLayout?`quick-layout${quickMode==='cw'?'-cw':''}`:sessionLayout?'session-layout':operating?'operations':`v${applicationVersion}`) : undefined
   let browser, station, producing=true, pauseObservations=false, observationReadingAgeMs=0, observationPtt=true, producer, applicationProducer
   const results=[]
   const stop = cleanupAfterTest(context, async () => {
@@ -93,7 +93,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     finally { try { await browser?.stop() } finally { await app.mf.dispose() } }
   })
   try {
-    browser=await chrome()
+    browser=await chrome(stream?['--use-fake-device-for-media-stream']:[])
     if(artifacts){await mkdir(artifacts,{recursive:true});await writeFile(join(artifacts,'chrome-version.json'),JSON.stringify(await browser.call('Browser.getVersion'),null,2)+'\n')}
     // One approval (operator decision 2026-09-13): the browser that confirms a pairing is approved
     // with the station. So Chrome must be that browser: the account claims the code, Chrome confirms
@@ -107,7 +107,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     const shell = await fetch(app.origin,{signal:AbortSignal.timeout(3000)})
     assert.equal(shell.status,200)
     assert.match(await shell.text(), /Nexus Remote/)
-    const stationHeaders = { 'x-nexus-application-version': '1',...(ftOperating?{'x-nexus-operation-ft-version':'1'}:{}),...(operating?{'x-nexus-operation-version':'2','x-nexus-operation-max-version':'3'}:{}), ...(applicationVersion >= 2 ? { 'x-nexus-application-stream-version': '2' } : {}), ...(applicationVersion >= 3 ? { 'x-nexus-application-query-version': '1' } : {}), ...(applicationVersion >= 4 ? { 'x-nexus-application-recall-version': '1' } : {}), ...(applicationVersion >= 5 ? { 'x-nexus-application-keyboard-version': '1' } : {}), ...(applicationVersion >= 6 ? { 'x-nexus-application-insights-version': '1' } : {}), ...(applicationVersion >= 7 ? { 'x-nexus-application-dxpeditions-version': '1' } : {}), ...(applicationVersion >= 8 ? { 'x-nexus-application-memories-version': '1' } : {}), ...(applicationVersion >= 9 ? { 'x-nexus-application-ota-version': '1' } : {}), ...(applicationVersion >= 10 ? { 'x-nexus-application-field-day-version': '1' } : {}), ...(applicationVersion >= 11 ? { 'x-nexus-application-js8-version': '1' } : {}), ...(applicationVersion >= 12 ? {'x-nexus-application-station-modes-version':'1'} : {}), ...(applicationVersion >= 13 ? {'x-nexus-application-navigation-version':'1'} : {}), ...(applicationVersion >= 14 ? {'x-nexus-application-configuration-version':'1'} : {}) }
+    const stationHeaders = { 'x-nexus-application-version': '1',...(ftOperating||stream?{'x-nexus-operation-ft-version':'1'}:{}),...(stream?{'x-nexus-stream-version':'1'}:{}),...(operating?{'x-nexus-operation-version':'2','x-nexus-operation-max-version':'3'}:{}), ...(applicationVersion >= 2 ? { 'x-nexus-application-stream-version': '2' } : {}), ...(applicationVersion >= 3 ? { 'x-nexus-application-query-version': '1' } : {}), ...(applicationVersion >= 4 ? { 'x-nexus-application-recall-version': '1' } : {}), ...(applicationVersion >= 5 ? { 'x-nexus-application-keyboard-version': '1' } : {}), ...(applicationVersion >= 6 ? { 'x-nexus-application-insights-version': '1' } : {}), ...(applicationVersion >= 7 ? { 'x-nexus-application-dxpeditions-version': '1' } : {}), ...(applicationVersion >= 8 ? { 'x-nexus-application-memories-version': '1' } : {}), ...(applicationVersion >= 9 ? { 'x-nexus-application-ota-version': '1' } : {}), ...(applicationVersion >= 10 ? { 'x-nexus-application-field-day-version': '1' } : {}), ...(applicationVersion >= 11 ? { 'x-nexus-application-js8-version': '1' } : {}), ...(applicationVersion >= 12 ? {'x-nexus-application-station-modes-version':'1'} : {}), ...(applicationVersion >= 13 ? {'x-nexus-application-navigation-version':'1'} : {}), ...(applicationVersion >= 14 ? {'x-nexus-application-configuration-version':'1'} : {}) }
     let code=null, oauth=null, exchanges=0, providerFailure=false, exceptions=0, acknowledgements=0, unexpectedMessages=0
     const applicationTraffic = { reads: 0, acks: 0, subscriptions: 0, batches: 0, bytes: 0, byCommand: {}, maxResponseBytes: 0 }
     browser.on('Runtime.exceptionThrown', event=>{exceptions++; console.error(event.exceptionDetails?.exception?.description ?? 'Browser runtime exception')})
@@ -151,6 +151,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
         if (message.type === 'ack' && Object.keys(message).sort().join(',') === 'epoch,sequence,type') acknowledgements++
         else if (message.type === 'applicationHello' && (Object.keys(message).length === 1 || (Object.keys(message).length === 2 && APPLICATION_VERSIONS.includes(message.version)))) {}
         else if(message.type==='operationRequest'&&((Object.keys(message).length===2)||Object.keys(message).length===3&&[2,3,4,5].includes(message.operationVersion))&&['state','acquire','heartbeat','release','result','logManual','stationControl','stopTransmit'].includes(message.request?.type)){if(!operating)assert.equal(message.request.type,'state');operationWire.push({at:performance.now(),direction:'out',type:message.request.type,requestId:message.request.requestId,action:message.request.action?.action,on:message.request.action?.on})}
+        else if (stream && message.type === 'streamSignal' && Object.keys(message).length === 3 && ['offer', 'candidate', 'close'].includes(message.payload?.kind)) {}
         else if (message.type === 'applicationRead' && Object.keys(message).length === 4) applicationTraffic.reads++
         else if (message.type === 'applicationQuery' && Object.keys(message).length === 7) applicationTraffic.queries=(applicationTraffic.queries??0)+1
         else if (message.type === 'applicationQueryAck' && Object.keys(message).length === 2) {}
@@ -248,6 +249,9 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     const sessionDiagnostic=()=>evaluate(`(()=>{const e=document.querySelector('.app');let fiber=e?.[Object.keys(e).find(k=>k.startsWith('__reactFiber$'))],client;while(fiber){client=fiber.memoizedProps?.connection?.application;if(client)break;fiber=fiber.return}return {now:performance.now(),stale:e?.dataset.remoteStale,phase:client?.getPhase(),snapshotAge:client?.age('get_snapshot'),topics:client?.stream?.topics,waiting:client?.stream?.waiting?[...client.stream.waiting.keys()]:null,interests:client?.stream?.interests?[...client.stream.interests].map(([name,at])=>({name,age:performance.now()-at})):null,closures:window.__socketClosures,trace:window.__protocolTrace}})()`)
     async function until(expression,timeout=12000) { for(let i=0;i<Math.ceil(timeout/100);i++){ if(providerFailure)throw new Error('Simulated provider failed'); if(await evaluate(expression))return;await sleep(100) } if(operating)console.log('Operation diagnostic',expression,operationWire.slice(-30),loggedRequests.map(r=>({call:r.record.call,mode:r.record.mode})),await evaluate(`({status:document.querySelector('.remote-application-status')?.textContent,entries:[...document.querySelectorAll('.remote-log-entry')].map(e=>({text:e.textContent,error:e.dataset.operationError}))})`));throw new Error('Expected browser state did not appear') }
     const button=name=>`[...document.querySelectorAll('button')].find(e=>e.textContent===${JSON.stringify(name)})`
+    // At the small size (sm/xs) the top bar folds its eleven tier pills into one mode button with a menu (2026-10-01):
+    // there the reachable tier selector is that button, and a tier gesture opens it and picks the item in the pill's place.
+    const smallBar=`['xs','sm'].includes(document.documentElement.dataset.viewport)`
     // A logManual or stationControl reply clears the client's station state in the same update
     // that shows its outcome (operation-client.ts receive(): state:null beside controlResult or
     // resolved), and only the next heartbeat reply restores it. Until then every station control is
@@ -315,6 +319,10 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     // Signed out, the page offers "Sign in" and "Create an account" (the site restyle); both open the
     // same SDK flow, so the PKCE exchange below is unchanged.
     await until(`!!${button('Sign in')}&&!!${button('Create an account')}`)
+    // The old watch/control workspace and observer are hidden behind a flag while streaming is proven
+    // (2026-10-02). Every scenario but the stream's sets it, which is how the hidden workspace stays
+    // covered here; the stream's runs without it and asserts the entry points are gone.
+    if(!stream)await evaluate(`localStorage.setItem('nexus.remote.workspace','on');true`)
     await geometry(390,844)
     await browser.call('Fetch.enable',{patterns:[{urlPattern:'https://identity.remote-test.invalid/*'}]},session)
     await click(button('Sign in'))
@@ -326,21 +334,20 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     assert.equal((await app.db.prepare('SELECT COUNT(*) AS count FROM devices WHERE station_id=?').bind(pair.stationId).first()).count,0,'nothing is approved before the shack approves')
     await shack.post('enroll/approve',{id:enrollment.id,proof:enrollment.proof,credential:stationCredential})
     station=await pair.native.open(pair.stationId, undefined, 101, stationHeaders)
-    // One approval: the confirming browser can observe with no request and no approve-device call.
-    await until(`!!${button('Observe station')}`)
-    assert.equal(await evaluate(`!!${button('Request local approval')}||document.body.textContent.includes('Approve this browser')`),false,'the pairing browser is never asked to request a separate approval')
+    // One approval: the confirming browser is approved with no request and no approve-device call.
+    await until(`!!${button('Remove this browser’s approval')}`)
+    assert.equal(await evaluate(`document.body.textContent.includes("isn't approved for this station yet")||document.body.textContent.includes('Waiting for approval at the shack')`),false,'the pairing browser is never asked to request a separate approval')
+    assert.equal(await evaluate(`!!${button('Observe station')}&&!!${button('Open Nexus')}`),!stream,'the old workspace entry points show only behind the flag')
     const pairedDevices=(await app.db.prepare('SELECT id,approved FROM devices WHERE station_id=?').bind(pair.stationId).all()).results
     assert.equal(pairedDevices.length,1);assert.equal(pairedDevices[0].approved,1,'approving the pairing approved the browser that confirmed it')
     // Any OTHER browser still needs its own approval at the shack. Removing this browser's approval
-    // makes Chrome one: the request form comes back and nothing opens until the station approves.
+    // makes Chrome one: the card's Stream asks the shack (under the browser's own name and key, with
+    // nothing to type), and nothing opens until the station approves.
     await click(button('Remove this browser’s approval'))
-    // The pairing-code form also has an input once a station is listed, so name the request form's own.
-    const browserName=`${button('Request local approval')}?.form?.querySelector('input')`
-    await until(`!!${browserName}`)
-    await click(browserName)
-    await browser.call('Input.insertText',{text:'Synthetic browser'},session)
-    await click(button('Request local approval'))
-    await until(`document.body.textContent.includes('Approve this browser') || document.body.textContent.includes('Waiting for approval') || !document.querySelector('input')`)
+    await until(`document.body.textContent.includes("isn't approved for this station yet")&&!!${button('Stream')}`)
+    await click(button('Stream'))
+    await until(`document.body.textContent.includes('Waiting for approval at the shack')`)
+    assert.equal(await evaluate(`!!document.querySelector('.remote-stream-app')`),false,'asking opens nothing')
     const device=await app.db.prepare('SELECT id FROM devices WHERE station_id=? AND id<>? AND approved=0').bind(pair.stationId,pairedDevices[0].id).first()
     assert.ok(device,'the browser must enroll through its own HTTP-only cookie')
     // Deterministically exercise a frame that arrives after the former sleep.
@@ -348,7 +355,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     await geometry(360,740,1.75,'light',260)
     await evaluate('window.__frameDelay=0')
     await pair.native.post(`stations/${pair.stationId}/native/approve-device`,{deviceId:device.id})
-    await until(`!!${button('Observe station')}`)
+    await until(`!!${button('Remove this browser’s approval')}`)
     for(const [w,h] of [[360,740],[390,844],[844,390],[1024,768],[1280,800],[1366,768],[3440,1440]])for(const theme of ['dark','light'])await geometry(w,h,1,theme)
     if(artifacts){await mkdir(artifacts,{recursive:true});await geometry(390,844);const shot=await browser.call('Page.captureScreenshot',{format:'png'},session);await writeFile(join(artifacts,'remote-account.png'),Buffer.from(shot.data,'base64'))}
     const fixture=JSON.parse(await readFile(new URL('../../ui/src/remote-monitor/fixtures.v2.json',import.meta.url),'utf8')).spe
@@ -446,7 +453,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
     let loggingAllowed=false,loggingLease=null,loggingRevision=1,loggingSequence=0,loseLogReply=false
     let qsoPrompt=true
     const qsoRecord={call:'W1AW',grid:'FN31',country:null,state:null,band:'20m',freqMhz:14.0755,mode:'FT8',rstSent:'-10',rstRcvd:'-12',name:null,qth:null,comment:null,notes:null,whenUnix:1700000000,confirmed:false,awardConfirmed:false}
-    let stationControls=false,loseSpotReply=false,unknownResults=0,transmitAllowed=false,transmitEpoch='0000000000000001'
+    let stationControls=false,listenOffered=false,loseSpotReply=false,unknownResults=0,transmitAllowed=false,transmitEpoch='0000000000000001'
     const stopRequests=[],ftTxLog=[]
     if(workSpot){
       const original=collections.needs.rows[0]
@@ -698,7 +705,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
           loggingReceipts.set(r.requestId,value);loggingRevision++;applicationRevision++
           if(loseSpotReply&&a.action==='radio.workSpot')continue
         }else if(r.type==='result'){value=loggingReceipts.get(r.operationId);if(!value)error='resultExpired';else if(loseSpotReply&&value.operation==='stationControl'){value={operation:'stationControl',operationId:r.operationId,outcome:'unknown',reason:'hardwareUnconfirmed'};unknownResults++}}
-        else value={stationBootId:loggingBoot,allowed:loggingAllowed||stationControls,phase:loggingLease?'controlling':loggingAllowed||stationControls?'available':'localPermissionRequired',leaseId:loggingLease,revision:loggingRevision,commandWindowId:loggingLease?loggingWindow:null,nextSequence:loggingLease?loggingSequence+1:null,leaseRemainingMs:loggingLease?Math.max(0,Math.floor(loggingLeaseUntil-performance.now())):null,actions:loggingAllowed?['log.manual']:[],txArmed:!!ftOperating&&!!loggingLease&&transmitAllowed&&applicationData.get_snapshot.radio.txEnabled,...(ftOperating?{transmitEpoch:transmitAllowed?transmitEpoch:null}:{}),...(stationControls?{controls:{context:controlContext(),capabilities:request.operationVersion>=3?['decoder','amplifier','frequency','mode','tier','ampFollowBand','workspace','decoderSettings','receiverSettings','receiverGain','bandSelection','receiverFilter','receiverDsp','phoneMode','fmTuning','fmReceiver','radioLevels',...(transmitAllowed?['ftOperate','ftCall','ftExchange','ftMessages','ftSettings','ftRuntime']:[]),...(ftOperating&&loggingAllowed?['qsoLogging']:[]),...(workSpot?['workSpot']:[]),...(radioSelection?['radioSelection']:[])]:['decoder','amplifier']}}:{})}
+        else value={stationBootId:loggingBoot,allowed:loggingAllowed||stationControls,phase:loggingLease?'controlling':loggingAllowed||stationControls?'available':'localPermissionRequired',leaseId:loggingLease,revision:loggingRevision,commandWindowId:loggingLease?loggingWindow:null,nextSequence:loggingLease?loggingSequence+1:null,leaseRemainingMs:loggingLease?Math.max(0,Math.floor(loggingLeaseUntil-performance.now())):null,actions:loggingAllowed?['log.manual']:[],txArmed:!!ftOperating&&!!loggingLease&&transmitAllowed&&applicationData.get_snapshot.radio.txEnabled,...(ftOperating||stream?{transmitEpoch:transmitAllowed?transmitEpoch:null}:{}),...(stationControls?{controls:{context:controlContext(),capabilities:request.operationVersion>=3?['decoder','amplifier','frequency','mode','tier','ampFollowBand','workspace','decoderSettings','receiverSettings','receiverGain','bandSelection','receiverFilter','receiverDsp','phoneMode','fmTuning','fmReceiver','radioLevels',...(transmitAllowed?['ftOperate','ftCall','ftExchange','ftMessages','ftSettings','ftRuntime']:[]),...(ftOperating&&loggingAllowed?['qsoLogging']:[]),...(workSpot?['workSpot']:[]),...(radioSelection?['radioSelection']:[]),...(listenOffered?['audioListen']:[])]:['decoder','amplifier']}}:{})}
         // A slow link answers heartbeats late; the station's own reply content is unchanged.
         if(r.type==='heartbeat'&&(heartbeatReplyDelayMs||heartbeatReplyJitterMs))await sleep(heartbeatReplyDelayMs+Math.random()*heartbeatReplyJitterMs)
         source.send({type:'operationResponse',sessionId:request.sessionId,requestId:r.requestId,...(error?{error}:{value})});continue
@@ -783,6 +790,316 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
       const bytes=Buffer.byteLength(JSON.stringify(response));applicationTraffic.bytes+=bytes;applicationTraffic.maxResponseBytes=Math.max(applicationTraffic.maxResponseBytes,bytes)
       source.send(response)
     }})()
+    if(stream){
+      // REMOTE AS A STREAM, end to end in real Chrome, under the Worker's real CSP and through the real
+      // relay lane. The station's WebRTC end is a second Chrome window standing in for str0m: it answers
+      // the page's offer with a canvas picture and records what reaches each data channel. Nothing of
+      // the page is faked. The wire contract is fixtures/stream/; this proves the page speaks it.
+      // A station built with its audio lane advertises Listen, as the operator's does.
+      stationControls=true;transmitAllowed=true;listenOffered=true
+      let shackLive=true
+      const shackWindow=(await browser.call('Target.createTarget',{url:'about:blank',newWindow:true})).targetId
+      const shack=(await browser.call('Target.attachToTarget',{targetId:shackWindow,flatten:true})).sessionId
+      await browser.call('Runtime.enable',{},shack)
+      const atShack=async expression=>{const v=await browser.call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true},shack);if(v.exceptionDetails)throw new Error('Station evaluation failed: '+String(v.exceptionDetails.exception?.description??v.exceptionDetails.text).split('\n')[0]);return v.result?.value}
+      const untilShack=async(expression,timeout=12000)=>{for(let i=0;i<Math.ceil(timeout/100);i++){if(await atShack(expression))return;await sleep(100)}console.log('Station diagnostic',JSON.stringify(await atShack('({received:__shack.received,state:window.__pc?.connectionState})')));throw new Error('Expected station state did not appear: '+expression)}
+      await atShack(`window.__shack={received:{control:[],ptt:[],audio:[]},candidates:[]};(()=>{const c=document.createElement('canvas');c.width=640;c.height=360;document.body.appendChild(c);const x=c.getContext('2d');let n=0;setInterval(()=>{x.fillStyle='hsl('+(n*7%360)+' 55% 35%)';x.fillRect(0,0,640,360);x.fillStyle='#fff';x.font='40px sans-serif';x.fillText('Nexus at the shack '+(n++),24,190)},50);window.__picture=c.captureStream(20)})();true`)
+      // The station's receive audio, as the contract has it on `audio`: when the channel opens it says
+      // "audio started", then sends `audioRx` bundles of five 20 ms Opus frames every 100 ms for the
+      // whole stream. The Opus is a tone from this Chrome's own encoder, run on a page of its own
+      // because WebCodecs needs a secure context and the station's window is about:blank.
+      const encoderWindow=(await browser.call('Target.createTarget',{url:app.origin+'/remote-licenses.txt',background:true})).targetId
+      const encoder=(await browser.call('Target.attachToTarget',{targetId:encoderWindow,flatten:true})).sessionId
+      let packets
+      for(let i=0;i<50&&!packets;i++){const v=await browser.call('Runtime.evaluate',{expression:`isSecureContext&&document.readyState==='complete'&&typeof AudioEncoder==='function'&&(async()=>{const out=[];const enc=new AudioEncoder({output:c=>{const b=new Uint8Array(c.byteLength);c.copyTo(b);out.push(btoa(String.fromCharCode(...b)))},error:()=>{}});enc.configure({codec:'opus',sampleRate:48000,numberOfChannels:1,bitrate:24000});for(let f=0;f<50;f++){const d=new Float32Array(960);for(let i=0;i<960;i++)d[i]=0.3*Math.sin(2*Math.PI*440*(f*960+i)/48000);enc.encode(new AudioData({format:'f32-planar',sampleRate:48000,numberOfFrames:960,numberOfChannels:1,timestamp:f*20000,data:d}))}await enc.flush();enc.close();return out})()`,returnByValue:true,awaitPromise:true},encoder).catch(()=>null);if(Array.isArray(v?.result?.value)&&v.result.value.length)packets=v.result.value;else await sleep(100)}
+      await browser.call('Target.closeTarget',{targetId:encoderWindow})
+      assert.ok(packets?.length>=40,'the station stand-in encoded its tone')
+      await atShack(`__shack.largestBundle=0;__shack.feeds=0;__shack.feed=ch=>{__shack.feeds++;ch.send(JSON.stringify({type:'audioState',listening:true}));const packets=${JSON.stringify(packets)};let frame=0;const id=setInterval(()=>{if(ch.readyState!=='open'){if(ch.readyState==='closed')clearInterval(id);return}const bytes=[];for(let i=0;i<5;i++){const p=atob(packets[(frame+i)%packets.length]);bytes.push(p.length>>8,p.length&255,...[...p].map(c=>c.charCodeAt(0)))}const m=JSON.stringify({type:'audioRx',seq:frame,epoch:'00000000000000a1',firstFrameMs:frame*20,frameMs:20,count:5,payload:btoa(String.fromCharCode(...bytes))});__shack.largestBundle=Math.max(__shack.largestBundle,m.length);ch.send(m);frame+=5},100)};true`)
+      let streamSession=null,realAnswer=null
+      const offers=[],closes=[]
+      const signalling=(async()=>{while(producing&&shackLive){const source=station;let signal;try{signal=await source.take(value=>value.type==='streamSignal',500)}catch{continue}
+        try{
+          streamSession=signal.sessionId
+          assert.equal(signal.deviceId,device.id,'the relay stamps the approved device')
+          if(signal.payload.kind==='offer'){
+            offers.push(signal)
+            // The station's own answer, recorded: no station is behind it, so it is all this offer gets.
+            if(realAnswer){source.send({type:'streamSignal',sessionId:signal.sessionId,payload:{kind:'answer',sdp:realAnswer}});continue}
+            const sdp=await atShack(`(async()=>{const pc=new RTCPeerConnection({iceServers:[]});window.__pc=pc;pc.onicecandidate=e=>{if(e.candidate&&e.candidate.candidate)__shack.candidates.push({candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid})};pc.ondatachannel=e=>{const ch=e.channel;__shack[ch.label]=ch;ch.onmessage=m=>__shack.received[ch.label]?.push(JSON.parse(m.data));if(ch.label==='audio'){if(ch.readyState==='open')__shack.feed(ch);else ch.onopen=()=>__shack.feed(ch)}};await pc.setRemoteDescription({type:'offer',sdp:${JSON.stringify(signal.payload.sdp)}});const t=pc.getTransceivers()[0];t.direction='sendonly';await t.sender.replaceTrack(__picture.getVideoTracks()[0]);await pc.setLocalDescription(await pc.createAnswer());return pc.localDescription.sdp})()`)
+            source.send({type:'streamSignal',sessionId:signal.sessionId,payload:{kind:'answer',sdp}})
+            source.send({type:'streamState',sessionId:signal.sessionId,streaming:true})
+          }else if(signal.payload.kind==='candidate')await atShack(`__pc?.addIceCandidate(${JSON.stringify({candidate:signal.payload.candidate,sdpMid:signal.payload.sdpMid})}).then(()=>true,()=>false)`)
+          else if(signal.payload.kind==='close'){closes.push(signal);await atShack('(window.__pc?.close(),true)')}
+        }catch(error){if(producing&&shackLive)throw error}
+      }})()
+      // The station's own candidates, trickled back as they appear - one per message, as the contract has it.
+      const trickle=(async()=>{let sent=0;while(producing&&shackLive){await sleep(100);if(!streamSession)continue;const all=await atShack('__shack.candidates').catch(()=>[]);for(;sent<all.length;sent++)station.send({type:'streamSignal',sessionId:streamSession,payload:{kind:'candidate',...all[sent]}})}})()
+      const center=selector=>evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`)
+      const press=async(point,hold=0)=>{await browser.call('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1},session);if(hold)await sleep(hold);await browser.call('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1},session);await sleep(50)}
+      const typeKey=async(key,code,text)=>{await browser.call('Input.dispatchKeyEvent',{type:text?'keyDown':'rawKeyDown',key,code,text,windowsVirtualKeyCode:key==='Tab'?9:key.toUpperCase().charCodeAt(0)},session);await browser.call('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:key==='Tab'?9:key.toUpperCase().charCodeAt(0)},session);await sleep(50)}
+      try{
+        await geometry(1280,800)
+        // The policy's refusals as Chrome reports them, beside the page's own event: a refused worklet
+        // module fires no securitypolicyviolation at all (measured, Chrome 140), and its one trace is this
+        // console line. That gap is how a Listen the policy refused shipped with this check green.
+        const refused=[]
+        browser.on('Log.entryAdded',(event,from)=>{if(from===session&&event.entry.text.includes('Content Security Policy'))refused.push(event.entry.text.slice(0,160))})
+        await browser.call('Log.enable',{},session)
+        await evaluate(`window.__csp=[];document.addEventListener('securitypolicyviolation',e=>window.__csp.push(e.violatedDirective+' '+e.blockedURI));true`)
+        assert.equal(offers.length,0,'A3: nothing is offered before the operator asks, even with station control available')
+        // The card's Stream IS the ask (2026-10-02): the page it opens starts the stream once, on its own.
+        await click(button('Stream'))
+        const streamDiagnostic=()=>evaluate(`(()=>{const e=document.querySelector('.app');let f=e?.[Object.keys(e).find(k=>k.startsWith('__reactFiber$'))];while(f){const c=f.memoizedProps?.connection;if(c){const o=c.operations.getSnapshot();return {status:document.querySelector('.remote-stream-status')?.textContent,link:c.stream.getSnapshot(),ops:{connected:o.connected,fresh:o.fresh,busy:o.busy,error:o.error,phase:o.state?.phase,lease:o.state?.leaseId}}}f=f.return}return null})()`)
+        try{await until(`document.querySelector('.remote-stream-app')?.dataset.streamPhase==='live'&&document.querySelector('.remote-stream-video')?.videoWidth>0`,20000)}
+        catch(error){console.log('Stream diagnostic',JSON.stringify({page:await streamDiagnostic(),offers:offers.length,shack:await atShack('({state:window.__pc?.connectionState,received:__shack.received,candidates:__shack.candidates.length})').catch(e=>String(e))}));throw error}
+        assert.equal(offers.length,1,'one offer, under the lease the station issued')
+        const heldLease=await evaluate(`(()=>{const e=document.querySelector('.app');let f=e?.[Object.keys(e).find(k=>k.startsWith('__reactFiber$'))];while(f){const c=f.memoizedProps?.connection;if(c)return c.operations.getSnapshot().state?.leaseId;f=f.return}return null})()`)
+        assert.equal(offers[0].leaseId,heldLease,'A3: the offer carries the lease this browser holds')
+        // A5 in real Chrome: the offer carries the key this browser made and registered with its device,
+        // and a signature over the offer's own DTLS fingerprint and the ids the relay stamps. The station's
+        // check is Rust's (ring); this proves the page's half end to end, against the signed bytes built
+        // again here from the contract's README. The private half is a non-extractable key in IndexedDB.
+        const signed=offers[0].payload
+        assert.equal(signed.publicKey,(await app.db.prepare('SELECT public_key FROM devices WHERE id=?').bind(device.id).first()).public_key,'A5: the offer carries the key this browser registered with its device')
+        const fingerprint=signed.sdp.split('\r\n').find(line=>line.startsWith('a=fingerprint:sha-256 ')).slice(22).split(':').map(pair=>parseInt(pair,16))
+        const hashed=new Uint8Array(await crypto.subtle.digest('SHA-256',Uint8Array.from(fingerprint)))
+        const bound=session=>Uint8Array.from([...new TextEncoder().encode('nexus-stream-offer/1'),...hashed,...new TextEncoder().encode(pair.stationId+device.id+session)])
+        const verifyKey=await crypto.subtle.importKey('spki',Buffer.from(signed.publicKey,'hex'),{name:'ECDSA',namedCurve:'P-256'},false,['verify'])
+        const verifies=session=>crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},verifyKey,Buffer.from(signed.signature,'hex'),bound(session))
+        assert.equal(await verifies(offers[0].sessionId),true,'A5: the signature verifies for this station, device and session')
+        assert.equal(await verifies(crypto.randomUUID()),false,'control: it does not verify for another session')
+        assert.deepEqual(await evaluate(`new Promise(done=>{const open=indexedDB.open('nexus-remote-device-keys');open.onsuccess=()=>{const got=open.result.transaction('keys').objectStore('keys').get(${JSON.stringify(pair.stationId)});got.onsuccess=()=>done({type:got.result?.privateKey?.type,extractable:got.result?.privateKey?.extractable})}})`),{type:'private',extractable:false},'A5: the private half is a non-extractable key in IndexedDB')
+        // S9: the heartbeat names the frame the page actually presented, in the station's RTP clock.
+        await untilShack(`__shack.received.control.some(m=>m.type==='heartbeat'&&Number.isInteger(m.decodedFrameAt))`)
+        assert.deepEqual(await atShack(`Object.keys(__shack.received.control.find(m=>m.type==='heartbeat')).sort()`),['decodedFrameAt','leaseId','requestId','type'])
+        // W3: the whole stream ran under the Worker's policy without one violation.
+        assert.deepEqual({events:await evaluate('window.__csp'),console:refused},{events:[],console:[]},'no CSP violation while negotiating and streaming')
+        if(artifacts)for(const theme of ['dark','light']){await evaluate(`document.documentElement.dataset.theme='${theme}';true`);await settledLayout();const shot=await browser.call('Page.captureScreenshot',{format:'png'},session);await writeFile(join(artifacts,`stream-live-${theme}.png`),Buffer.from(shot.data,'base64'))}
+        await evaluate(`document.documentElement.dataset.theme='dark';true`)
+        // LISTEN, on the stream, under the same policy. The player's AudioWorklet is a module script, and
+        // the Worker's `script-src 'self'` refuses one made from a blob: - so Listen said "no audio"
+        // against a station that was sending it (the operator's rc2 test, 2026-10-02), and nothing here
+        // pressed it. The worklet has to load as a file of the page's own origin, and the station's
+        // audio has to play through it. Both browser APIs are watched, never replaced: each call
+        // goes through to Chrome's own.
+        await evaluate(`window.__worklets=[];const add=AudioWorklet.prototype.addModule;AudioWorklet.prototype.addModule=function(url,...rest){const w={url:String(url)};window.__worklets.push(w);return add.call(this,url,...rest).then(v=>{w.ok=true;return v},e=>{w.ok=false;w.error=String(e);throw e})};window.__audioReports=[];const Node=AudioWorkletNode;window.AudioWorkletNode=class extends Node{constructor(...a){super(...a);this.port.addEventListener('message',e=>window.__audioReports.push(e.data));this.port.start()}};true`)
+        const audioButton=label=>`[...document.querySelectorAll('.remote-stream-app button')].find(e=>e.textContent===${JSON.stringify(label)})`
+        // The station has been sending since the channel opened. Nobody has asked to listen, so the
+        // control still offers Listen, with no state line: its "audio started" turns nothing on.
+        assert.equal(await atShack('__shack.feeds'),1,'the station started its audio when the channel opened')
+        // The word crosses the link after the stand-in counts its feed: wait for it to reach the page before
+        // asserting what it did (CI 2026-10-03 read the page first: heard null, Listen still offered).
+        await until(`(()=>{const e=document.querySelector('.app');let f=e?.[Object.keys(e).find(k=>k.startsWith('__reactFiber$'))];while(f){const c=f.memoizedProps?.connection;if(c)return !!c.stream.audioState;f=f.return}return false})()`,10000)
+        assert.deepEqual(await evaluate(`(()=>{const e=document.querySelector('.app');let f=e?.[Object.keys(e).find(k=>k.startsWith('__reactFiber$'))];while(f){const c=f.memoizedProps?.connection;if(c){const a=document.querySelector('.remote-stream-app .remote-audio');return {heard:c.stream.audioState,button:a?.querySelector('button')?.textContent,state:a?.querySelector('.remote-audio-state')?.textContent??null}}f=f.return}return null})()`),{heard:{type:'audioState',listening:true},button:'Listen',state:null},'nobody asked to listen: the station\'s word arrived and turned nothing on')
+        await click(audioButton('Listen'))
+        await until(`window.__worklets.length>0&&window.__worklets.every(w=>'ok' in w)`,10000)
+        const worklets=await evaluate(`window.__worklets.map(w=>{const u=new URL(w.url,location.href);return {ok:w.ok,error:w.error??null,scheme:u.protocol,sameOrigin:u.origin===location.origin,asset:u.pathname.startsWith('/assets/')&&u.pathname.endsWith('.js')}})`)
+        assert.deepEqual({worklets,events:await evaluate('window.__csp'),console:refused},{worklets:[{ok:true,error:null,scheme:'http:',sameOrigin:true,asset:true}],events:[],console:[]},'Listen: the audio worklet loads as a file of the page\'s own origin, under the Worker\'s policy')
+        await until(`!!document.querySelector('.remote-stream-app .remote-audio-state--live')||!!document.querySelector('.remote-stream-app .remote-audio-state--ended')`,10000)
+        assert.equal(await evaluate(`document.querySelector('.remote-stream-app .remote-audio-state')?.textContent`),'Listening to the station','Listen: the station\'s audio is playing')
+        // Through the worklet, in the audio thread: its own report says the buffer filled and it plays.
+        await until(`window.__audioReports.some(r=>r.playing&&r.held>0)`,10000)
+        assert.ok(await atShack('__shack.largestBundle')<=1024,'every bundle within the contract\'s 1024 bytes')
+        assert.deepEqual({events:await evaluate('window.__csp'),console:refused},{events:[],console:[]},'no CSP violation while listening')
+        await click(audioButton('Stop listening'))
+        await until(`!!${audioButton('Listen')}`,5000)
+        // THE MICROPHONE, under the Worker's real Permissions-Policy: the page's own origin may use it.
+        // The browser still asks (granted here as the operator would; this Chrome's microphone is its
+        // fake device), and the station's peer receives its audio. What the policy still refuses: the
+        // camera and geolocation everywhere, and the microphone to any other origin, the sign-in
+        // frame's included.
+        await browser.call('Browser.grantPermissions',{origin:app.origin,permissions:['audioCapture']})
+        await evaluate(`(()=>{const real=MediaDevices.prototype.getUserMedia;window.__media=[];MediaDevices.prototype.getUserMedia=function(c){const p=real.apply(this,arguments);p.then(()=>__media.push({audio:!!c?.audio,video:!!c?.video,ok:true}),e=>__media.push({audio:!!c?.audio,video:!!c?.video,ok:false,error:e.name}));return p};return true})()`)
+        await click(`document.querySelector('.remote-stream-mic')`)
+        await until(`document.querySelector('.remote-stream-mic')?.getAttribute('aria-pressed')==='true'||window.__media.length>0&&!window.__media[0].ok`,10000)
+        assert.deepEqual(await evaluate('window.__media'),[{audio:true,video:false,ok:true}],'the stream page obtained a microphone under the real policy')
+        assert.equal(await evaluate(`document.querySelector('.remote-stream-mic')?.textContent`),'Mic on')
+        await untilShack(`(async()=>{for(const r of (await __pc.getStats()).values())if(r.type==='inbound-rtp'&&r.kind==='audio'&&r.packetsReceived>0)return true;return false})()`)
+        assert.deepEqual(await evaluate(`(p=>({microphone:p.allowsFeature('microphone'),elsewhere:p.allowsFeature('microphone','https://identity.remote-test.invalid'),camera:p.allowsFeature('camera'),geolocation:p.allowsFeature('geolocation')}))(document.featurePolicy)`),{microphone:true,elsewhere:false,camera:false,geolocation:false},'the microphone for this origin alone, and nothing else the policy names')
+        assert.equal(await evaluate(`navigator.mediaDevices.getUserMedia({video:true}).then(()=>'granted',e=>e.name)`),'NotAllowedError','control: the camera is still refused')
+        await click(`document.querySelector('.remote-stream-mic')`)
+        await until(`document.querySelector('.remote-stream-mic')?.getAttribute('aria-pressed')==='false'`,5000)
+        // S11 / A2, the page's half: a click on the picture arrives as a pointer at the frame's own
+        // coordinates; a key typed on the focused picture arrives; Tab stays here and leaves the picture.
+        await press(await center('.remote-stream-video'))
+        await untilShack(`__shack.received.control.some(m=>m.type==='pointer'&&m.action==='up')`)
+        const [down]=await atShack(`__shack.received.control.filter(m=>m.type==='pointer'&&m.action==='down')`)
+        assert.ok(Math.abs(down.x-0.5)<0.02&&Math.abs(down.y-0.5)<0.02,'the press lands at the centre of the frame: '+JSON.stringify(down))
+        // A click is a click at the shack: Chrome's pointer events carry no click count (detail 0), and a
+        // press and release sent with none would reach Nexus as a release that clicks nothing.
+        const [up]=await atShack(`__shack.received.control.filter(m=>m.type==='pointer'&&m.action==='up')`)
+        assert.deepEqual([down.clicks,up.clicks],[1,1],'one click, counted on the press and its release')
+        assert.equal(await evaluate(`document.activeElement?.classList.contains('remote-stream-video')`),true,'pressing the picture focuses it')
+        await typeKey('a','KeyA','a')
+        await untilShack(`__shack.received.control.some(m=>m.type==='key'&&m.key==='a'&&m.action==='up')`)
+        await typeKey('Tab','Tab')
+        assert.equal(await atShack(`__shack.received.control.some(m=>m.type==='key'&&m.key==='Tab')`),false,'Tab is never sent: it is the way out of the picture')
+        // Keys typed on the page's own controls stay on the page.
+        const before=await atShack('__shack.received.control.filter(m=>m.type==="key").length')
+        await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent==='Stop TX').focus();true`)
+        await typeKey('b','KeyB','b')
+        assert.equal(await atShack('__shack.received.control.filter(m=>m.type==="key").length'),before,'a key on Stop TX never reaches the station')
+        // S7: a held PTT is re-asserted under one hold id until let go, then released at once.
+        await press(await center('.remote-stream-ptt'),450)
+        await untilShack(`__shack.received.ptt.some(m=>m.type==='pttRelease')`)
+        const ptt=await atShack('__shack.received.ptt')
+        const holds=ptt.filter(m=>m.type==='pttHold')
+        assert.ok(holds.length>=3,'held for 450 ms: re-asserted about every 100 ms ('+holds.length+')')
+        assert.equal(new Set(ptt.filter(m=>m.type!=='held').map(m=>m.holdId)).size,1,'one press, one hold id')
+        assert.deepEqual(holds.map(m=>m.seq),holds.map((_,i)=>i),'the sequence counts up from 0')
+        // THE DEAD-MAN, the page's half: a key held on the picture goes as itself and is re-asserted on
+        // ptt at once and every 100 ms while held, and not after; a button held on the picture likewise.
+        const helds=async()=>(await atShack('__shack.received.ptt')).filter(m=>m.type==='held')
+        const consecutive=list=>{const seqs=list.map(m=>m.seq).sort((a,b)=>a-b);return seqs.every((seq,i)=>seq===seqs[0]+i)}
+        await evaluate(`document.querySelector('.remote-stream-video').focus();true`)
+        let heldBefore=(await helds()).length
+        const space={key:' ',code:'Space',windowsVirtualKeyCode:32}
+        await browser.call('Input.dispatchKeyEvent',{type:'keyDown',text:' ',...space},session)
+        await sleep(450)
+        await browser.call('Input.dispatchKeyEvent',{type:'keyUp',...space},session)
+        await untilShack(`__shack.received.control.some(m=>m.type==='key'&&m.code==='Space'&&m.action==='up')`)
+        await sleep(300)
+        const keyHeld=(await helds()).slice(heldBefore)
+        assert.ok(keyHeld.length>=4&&keyHeld.length<=7&&keyHeld.every(m=>m.keys.join()==='Space'&&m.buttons===0)&&consecutive(keyHeld),'Space held 450 ms, then let go: re-asserted at once and every 100 ms, and not after ('+JSON.stringify(keyHeld)+')')
+        heldBefore=(await helds()).length
+        const point=await center('.remote-stream-video'),ups=await atShack(`__shack.received.control.filter(m=>m.type==='pointer'&&m.action==='up').length`)
+        await browser.call('Input.dispatchMouseEvent',{type:'mousePressed',...point,button:'left',clickCount:1},session)
+        await sleep(450)
+        await browser.call('Input.dispatchMouseEvent',{type:'mouseReleased',...point,button:'left',clickCount:1},session)
+        await untilShack(`__shack.received.control.filter(m=>m.type==='pointer'&&m.action==='up').length>${ups}`)
+        await sleep(300)
+        const buttonHeld=(await helds()).slice(heldBefore)
+        assert.ok(buttonHeld.length>=4&&buttonHeld.length<=7&&buttonHeld.every(m=>m.keys.length===0&&m.buttons===1)&&consecutive(buttonHeld),'a button held 450 ms, then let go: re-asserted likewise ('+JSON.stringify(buttonHeld)+')')
+        // THE STOP LINE, in real layout: Stop TX is on screen and nothing covers it, at every size.
+        for(const [w,h] of [[360,640],[390,844],[844,390],[1024,768],[1280,800],[1920,1080]])for(const theme of ['dark','light']){
+          await browser.call('Emulation.setDeviceMetricsOverride',{width:w,height:h,deviceScaleFactor:1,mobile:false},session)
+          await evaluate(`document.documentElement.dataset.theme='${theme}';window.dispatchEvent(new Event('resize'));true`)
+          await settledLayout()
+          const stop=await evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(b=>b.textContent==='Stop TX'),r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return {inside:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,hit:e.contains(document.elementFromPoint(x,y)),docW:document.documentElement.scrollWidth,w:innerWidth}})()`)
+          assert.ok(stop.inside&&stop.hit&&stop.docW<=stop.w+1,`Stop TX reachable at ${w}x${h} ${theme}: ${JSON.stringify(stop)}`)
+        }
+        await browser.call('Emulation.setDeviceMetricsOverride',{width:1280,height:800,deviceScaleFactor:1,mobile:false},session)
+        await evaluate(`document.documentElement.dataset.theme='dark';window.dispatchEvent(new Event('resize'));true`)
+        await settledLayout()
+        // Stop reaches the station both ways: on the stream's control channel and on the socket.
+        const socketStops=stopRequests.length
+        await click(button('Stop TX'))
+        await untilShack(`__shack.received.control.some(m=>m.type==='stopTransmit')`)
+        assert.equal((await atShack(`__shack.received.control.find(m=>m.type==='stopTransmit')`)).leaseId,heldLease)
+        await sleep(300)
+        assert.equal(stopRequests.length,socketStops+1,'and the same Stop over the socket, at the same moment')
+        // Ending it is the operator's to ask; the station is told, and the picture goes.
+        await click(button('End the stream'))
+        await until(`document.querySelector('.remote-stream-app')?.dataset.streamPhase==='idle'&&!document.querySelector('.remote-stream-video')?.srcObject`)
+        for(let i=0;i<30&&!closes.length;i++)await sleep(100)
+        assert.equal(closes.length,1,'the station is told the stream ended')
+        // A3: the card's ask was spent by that start, so an ended stream is never re-offered on its own.
+        await until(`!!${button('Start the stream')}`)
+        await sleep(1500)
+        assert.equal(offers.length,1,'A3: nothing is offered again until the operator asks again')
+        if(artifacts){const shot=await browser.call('Page.captureScreenshot',{format:'png'},session);await writeFile(join(artifacts,'stream-ready.png'),Buffer.from(shot.data,'base64'))}
+        // "STILL THERE?" (the operator's picks "15 min + prompt" and "Only clicks, keys, PTT"), in real
+        // layout and real hit-testing. The stream starts again and this TEST puts a clock of its own on
+        // the page's idle watch; nothing in the product changes the fifteen minutes. At 15:00 the prompt
+        // is up with Stop TX where it was and reachable at every size; the prompt's own press reaches
+        // nothing at the shack; and unanswered at 16:00 the stream ends as End the stream ends it.
+        await click(button('Start the stream'))
+        await until(`document.querySelector('.remote-stream-app')?.dataset.streamPhase==='live'&&document.querySelector('.remote-stream-video')?.videoWidth>0`,20000)
+        assert.equal(offers.length,2,'a second offer, for the stream started again')
+        assert.equal(await evaluate(`(()=>{const e=document.querySelector('.app');let f=e?.[Object.keys(e).find(k=>k.startsWith('__reactFiber$'))];while(f){const c=f.memoizedProps?.connection;if(c){window.__idleSkew=0;c.stream.idle.now=()=>performance.now()+window.__idleSkew;return true}f=f.return}return false})()`),true,'the test clock is on the idle watch')
+        const stopBox=()=>evaluate(`JSON.stringify([...document.querySelectorAll('button')].find(b=>b.textContent==='Stop TX').getBoundingClientRect())`)
+        const stopBefore=await stopBox()
+        await evaluate(`window.__idleSkew+=15*60000+1000;true`)
+        await until(`!!document.querySelector('.remote-stream-idle')`,5000)
+        assert.equal(await stopBox(),stopBefore,'the prompt moved Stop TX')
+        if(artifacts)for(const theme of ['dark','light']){await evaluate(`document.documentElement.dataset.theme='${theme}';true`);await settledLayout();const shot=await browser.call('Page.captureScreenshot',{format:'png'},session);await writeFile(join(artifacts,`stream-still-there-${theme}.png`),Buffer.from(shot.data,'base64'))}
+        // THE STOP LINE while the prompt is up: Stop TX on screen and uncovered, and the prompt's button too.
+        for(const [w,h] of [[360,640],[390,844],[844,390],[1024,768],[1280,800],[1920,1080]])for(const theme of ['dark','light']){
+          await browser.call('Emulation.setDeviceMetricsOverride',{width:w,height:h,deviceScaleFactor:1,mobile:false},session)
+          await evaluate(`document.documentElement.dataset.theme='${theme}';window.dispatchEvent(new Event('resize'));true`)
+          await settledLayout()
+          const reach=await evaluate(`(()=>{const at=e=>{const r=e.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;return {inside:r.top>=0&&r.left>=0&&r.bottom<=innerHeight&&r.right<=innerWidth,hit:e.contains(document.elementFromPoint(x,y))}},keep=document.querySelector('.remote-stream-idle button');return {stop:at([...document.querySelectorAll('button')].find(b=>b.textContent==='Stop TX')),keep:keep&&at(keep),docW:document.documentElement.scrollWidth,w:innerWidth}})()`)
+          assert.ok(reach.stop.inside&&reach.stop.hit&&reach.docW<=reach.w+1,`Stop TX reachable with the prompt up at ${w}x${h} ${theme}: ${JSON.stringify(reach)}`)
+          assert.ok(reach.keep?.inside&&reach.keep.hit,`the prompt's button reachable at ${w}x${h} ${theme}: ${JSON.stringify(reach)}`)
+        }
+        await browser.call('Emulation.setDeviceMetricsOverride',{width:1280,height:800,deviceScaleFactor:1,mobile:false},session)
+        await evaluate(`document.documentElement.dataset.theme='dark';window.dispatchEvent(new Event('resize'));true`)
+        await settledLayout()
+        assert.equal(await evaluate(`!!document.querySelector('.remote-stream-idle')`),true,'the sweep ran with the prompt up')
+        // The prompt's own press, dragged off it onto the picture before it is let go: none of it is a
+        // press, a release or a drag at the shack, and it answers the prompt.
+        const keep=await center('.remote-stream-idle button'),below={x:keep.x,y:keep.y+140}
+        assert.equal(await evaluate(`document.querySelector('.remote-stream-video').contains(document.elementFromPoint(${below.x},${below.y}))`),true,'the drag ends over the picture')
+        const [controlBefore,pttBefore]=await atShack('[__shack.received.control.length,__shack.received.ptt.length]')
+        await browser.call('Input.dispatchMouseEvent',{type:'mousePressed',...keep,button:'left',buttons:1,clickCount:1},session)
+        await sleep(100)
+        await browser.call('Input.dispatchMouseEvent',{type:'mouseMoved',...below,button:'left',buttons:1},session)
+        await sleep(100)
+        await browser.call('Input.dispatchMouseEvent',{type:'mouseReleased',...below,button:'left',buttons:0,clickCount:1},session)
+        await until(`!document.querySelector('.remote-stream-idle')`,3000)
+        await sleep(400)
+        const leaked=await atShack(`[...__shack.received.control.slice(${controlBefore}).filter(m=>m.type==='pointer'&&(m.action!=='move'||m.buttons!==0)),...__shack.received.ptt.slice(${pttBefore}).filter(m=>m.type==='held'&&m.buttons!==0)]`)
+        assert.deepEqual(leaked,[],'the prompt\'s own press reached nothing at the shack')
+        assert.equal(await evaluate(`document.querySelector('.remote-stream-app')?.dataset.streamPhase`),'live','answered: the stream carries on')
+        // Unanswered: fifteen minutes on the prompt is back, and a minute after that the stream ends -
+        // the close on the signalling lane and control released, which is what End the stream sends.
+        const releases=()=>operationWire.filter(v=>v.direction==='out'&&v.type==='release').length
+        const releasesBefore=releases()
+        await evaluate(`window.__idleSkew+=15*60000+1000;true`)
+        await until(`!!document.querySelector('.remote-stream-idle')`,5000)
+        assert.equal(closes.length,1,'the prompt alone ends nothing')
+        await evaluate(`window.__idleSkew+=60000;true`)
+        await until(`document.querySelector('.remote-stream-app')?.dataset.streamPhase==='idle'&&!document.querySelector('.remote-stream-video')?.srcObject`,5000)
+        for(let i=0;i<30&&closes.length<2;i++)await sleep(100)
+        assert.equal(closes.length,2,'unanswered, the station is told the stream ended')
+        for(let i=0;i<30&&releases()===releasesBefore;i++)await sleep(100)
+        assert.equal(releases(),releasesBefore+1,'and control is released')
+        assert.equal(loggingLease,null,'the station holds no lease for this browser')
+        assert.equal(await evaluate(`document.querySelector('.remote-stream-placeholder')?.textContent.includes('Nobody answered “Still there?”, so the stream ended.')`),true,'the page says why it ended')
+        // A REAL STATION'S ANSWER. The stand-in above answers with Chrome's own SDP; the shack answers with
+        // str0m's. fixtures/stream/station-answer.json holds the page's offer and the answer the station's
+        // own code wrote for it, and the page takes that answer through the relay, its parser, secureAnswer
+        // and Chrome's setRemoteDescription, then waits for the connection as it would for the shack.
+        const recorded=JSON.parse(await readFile(new URL('./fixtures/stream/station-answer.json',import.meta.url),'utf8'))
+        await evaluate(`(()=>{const real=RTCPeerConnection.prototype.setRemoteDescription;window.__descriptions=[];RTCPeerConnection.prototype.setRemoteDescription=function(d){const p=real.apply(this,arguments);p.then(()=>__descriptions.push({type:d?.type,ok:true}),e=>__descriptions.push({type:d?.type,ok:false,error:String(e)}));return p};return true})()`)
+        const offersBefore=offers.length,closesBefore=closes.length
+        realAnswer=recorded.answer
+        await click(button('Start the stream'))
+        await until(`window.__descriptions.length>0||document.querySelector('.remote-stream-app')?.dataset.streamPhase==='ended'`,15000)
+        assert.equal(offers.length,offersBefore+1,'the page offered again')
+        // The recording still answers this page: every media line, codec and header extension the
+        // station's answer names is in the offer the page makes today.
+        const sections=sdp=>sdp.split(/\r\n(?=m=)/).map(section=>section.split('\r\n'))
+        const offered=sections(offers.at(-1).payload.sdp),answered=sections(recorded.answer)
+        assert.deepEqual(offered.map(lines=>lines[0].split(' ')[0]),answered.map(lines=>lines[0].split(' ')[0]),'the page offers the media the recorded answer answers')
+        for(const [i,lines] of answered.entries())for(const line of lines.filter(line=>/^a=(mid|rtpmap|extmap):/.test(line)))assert.ok(offered[i].includes(line),`the page's offer no longer carries "${line}", which the recorded station answer uses: record the pair again (fixtures/stream/README.md)`)
+        assert.deepEqual(await evaluate('window.__descriptions'),[{type:'answer',ok:true}],'Chrome took the station\'s own answer')
+        await sleep(1000)
+        assert.equal(closes.length,closesBefore,'the page refused nothing: no close went to the station')
+        assert.equal(await evaluate(`document.querySelector('.remote-stream-app')?.dataset.streamPhase`),'connecting','the page waits for the connection')
+        // Nothing can connect to a recording, so the station ends the attempt as it ends one that never connects.
+        realAnswer=null
+        station.send({type:'streamState',sessionId:streamSession,streaming:false,reason:'connectionFailed'})
+        await until(`document.querySelector('.remote-stream-app')?.dataset.streamPhase==='ended'`,5000)
+        // POSITIVE CONTROL for the CSP listener above: a request the policy forbids is reported, so the
+        // empty list really meant "nothing violated", not "nothing was listening".
+        await evaluate(`fetch('https://example.invalid/').catch(()=>{});true`)
+        for(let i=0;i<30&&!(await evaluate('window.__csp.length'));i++)await sleep(100)
+        assert.ok((await evaluate('window.__csp')).some(v=>v.startsWith('connect-src')),'control: a forbidden fetch is reported as a connect-src violation')
+        // And the console half sees what that event cannot: a worklet module made from a blob:, refused.
+        const seen=refused.length,blobRefused=()=>refused.slice(seen).some(text=>text.includes("'blob:"))
+        await evaluate(`new AudioContext().audioWorklet.addModule(URL.createObjectURL(new Blob([''],{type:'text/javascript'}))).catch(()=>{});true`)
+        for(let i=0;i<30&&!blobRefused();i++)await sleep(100)
+        assert.ok(blobRefused(),'control: a blob: worklet module is reported as refused: '+JSON.stringify(refused.slice(seen)))
+        assert.equal(exceptions,0,'the stream view raised no runtime exception')
+        assert.equal(unexpectedMessages,0,'only reviewed messages left the browser socket')
+        console.log(`Compiled browser stream: offer under the held lease, live VP8 picture, heartbeat with decodedFrameAt, pointer and key input, held PTT (${holds.length} holds), a held key and a held button re-asserted (${keyHeld.length} and ${buttonHeld.length}), Stop both ways, Stop TX reachable at 12 layouts, "Still there?" at 15:00 with Stop TX unmoved and reachable at 12 layouts and its press reaching nothing at the shack, the idle end at 16:00 as close and release, no CSP violation`)
+      }finally{
+        shackLive=false
+        await Promise.allSettled([signalling,trickle])
+      }
+      return
+    }
     await geometry(390,844)
     await click(button('Observe station'))
     await until(`document.querySelector('.rm-frequency')?.textContent.includes('14.074000')`)
@@ -1154,7 +1471,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
         ]){
           const before=stationRequests.length,context=controlContext(),entry=`document.querySelector('${selector}')`
           await until(`!!${entry}&&!${entry}.disabled`)
-          await measure(entry,'routed-decoder')
+          await measure(selector.startsWith('.topbar-group')?`(${smallBar}?document.querySelector('.topbar .tier-menu-btn'):${entry})`:entry,'routed-decoder')
           await fresh();await click(entry)
           await until(`${entry}?.getAttribute('aria-pressed')==='true'`)
           await until(`${pill(id)}?.getAttribute('aria-pressed')==='true'`)
@@ -2316,12 +2633,14 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
         ...[[6,'WSPR'],[7,'Q65'],[8,'MSK144'],[9,'JT65'],[10,'FST4'],[11,'FST4W']].map(([index,tier])=>['FT','.topbar-group.tier-toggle:not(.tx-period)',index,tier]),
         ['Tempo','.grid-header .cockpit-modes',2,'TempoDeep'],['Tempo','.grid-header .cockpit-modes',1,'TempoFast']
       ]){
-        const before=stationRequests.length,selector=`${root} > button:nth-child(${index})`
+        const before=stationRequests.length,pill=`${root} > button:nth-child(${index})`,inBar=root.startsWith('.topbar-group')
+        let selector=pill
         await click(button(tab));await settledLayout()
         assert.equal(stationRequests.length,before,'visiting a tier selector cannot select a decoder')
         for(const [width,height,zoom]of [[390,844,1],[1280,800,1],[390,844,1.75],[1280,800,1.75]])for(const theme of ['dark','light']){
           await browser.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false},session)
           await evaluate(`document.documentElement.style.setProperty('--ui-zoom','${zoom}');document.documentElement.dataset.theme='${theme}';window.dispatchEvent(new Event('resize'))`);await settledLayout();await settledLayout()
+          selector=inBar&&await evaluate(smallBar)?'.topbar .tier-menu-btn':pill
           await until(`!!document.querySelector('${selector}')&&!document.querySelector('${selector}').disabled`)
           await evaluate(`document.querySelector('${selector}').scrollIntoView({block:'center',behavior:'instant'})`);await settledLayout()
           const shape=await evaluate(`(()=>{const e=document.querySelector('${selector}'),r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return{rect:r.toJSON(),hit:hit?.outerHTML.slice(0,300),docW:document.documentElement.scrollWidth,docH:document.documentElement.scrollHeight,good:r.width>0&&r.height>0&&e.contains(hit)&&document.documentElement.scrollWidth<=innerWidth+1&&document.documentElement.scrollHeight<=innerHeight+1}})()`)
@@ -2332,9 +2651,15 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
             await writeFile(join(artifacts,`tier-${tier}-390-175.png`),Buffer.from(shot.data,'base64'))
           }
         }
-        await gesture(selector,'radio.tier')
-        assert.deepEqual(stationRequests.at(-1).action,{action:'radio.tier',tier})
-        await until(`document.querySelector('${selector}').getAttribute('aria-pressed')==='true'`)
+        if(selector!==pill){
+          await click(`document.querySelector('.topbar .tier-menu-btn')`);await gesture(`.ui-menu .ui-menu-item:nth-child(${index})`,'radio.tier')
+          assert.deepEqual(stationRequests.at(-1).action,{action:'radio.tier',tier})
+          await until(`document.querySelector('.topbar .tier-menu-btn').textContent.endsWith('${tier}')`)
+        }else{
+          await gesture(selector,'radio.tier')
+          assert.deepEqual(stationRequests.at(-1).action,{action:'radio.tier',tier})
+          await until(`document.querySelector('${selector}').getAttribute('aria-pressed')==='true'`)
+        }
         assert.equal(applicationData.get_snapshot.radio.txEnabled,false)
       }
       let decoderGeometry=0
@@ -2362,7 +2687,9 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
         assert.deepEqual(stationRequests.at(-1).action,{action:'decoder.js8Speed',expectedSpeed,speed})
         await until(`document.querySelector('${selector}').getAttribute('aria-pressed')==='true'`)
       }
-      await click(button('FT'));await gesture('.topbar-group.tier-toggle:not(.tx-period) > button:nth-child(8)','radio.tier')
+      await click(button('FT'))
+      if(await evaluate(smallBar)){await click(`document.querySelector('.topbar .tier-menu-btn')`);await gesture('.ui-menu .ui-menu-item:nth-child(8)','radio.tier')}
+      else await gesture('.topbar-group.tier-toggle:not(.tx-period) > button:nth-child(8)','radio.tier')
       await until(`!!document.querySelector('.operate-cockpit .cm-trperiod')`)
       await until(`document.querySelector('.operate-cockpit .cm-trperiod').value==='15'`)
       const periodSelector='.operate-cockpit .cm-trperiod'
@@ -2767,6 +3094,13 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
       }
       for (const layout of [0,1]) {
         await click(`document.querySelectorAll('.cockpit-layout-toggle button')[${layout}]`)
+        // The switch moves the card into the other layout's rail, so it mounts afresh: a loading
+        // placeholder, a 300 ms settle, then a new station read. Where the rail's share is taller
+        // than the placeholder (the narrow stack at 175 %) the read grows the card, and a read
+        // landing between the scroll and the measurement below pushes it past the edge it was just
+        // aligned to (CI: 15 px at 1024x768 and 1280x800). Measure the card once its read has
+        // landed, as before the first switch. The layout class says the rail is the new one.
+        await until(`document.querySelector('.operate-host .cockpit-lower')?.classList.contains('${layout ? 'roster' : 'classic'}') && !!document.querySelector('.operate-host .recall-card')?.textContent.includes('Recall browser note')`)
         for (const [width,height] of [[1024,768],[1280,800],[1200,1390],[3440,1440]]) for (const zoom of [1,1.75]) {
           await browser.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false},session)
           await evaluate(`document.documentElement.style.setProperty('--ui-zoom','${zoom}');window.dispatchEvent(new Event('resize'))`)
@@ -3067,7 +3401,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
       assert.equal(await evaluate(`document.querySelectorAll('.js8-cockpit').length`),1)
       assert.equal(await evaluate(`document.querySelectorAll('.js8-cockpit .waterfall-wrap').length`),1)
       assert.equal(await evaluate(`!!document.querySelector('.grid-stations,.grid-center .conversation')`),false)
-      assert.ok(await evaluate(`[...document.querySelectorAll('.js8-speed-chip,.js8-query,.js8-inbox-act,.js8-send,.js8-cq,.js8-hb,.js8-arm,.js8-cancel,.js8-drop')].length>15 && [...document.querySelectorAll('.js8-speed-chip,.js8-query,.js8-inbox-act,.js8-send,.js8-cq,.js8-hb,.js8-arm,.js8-cancel,.js8-drop')].every(e=>e.disabled)`))
+      assert.ok(await evaluate(`[...document.querySelectorAll('.js8-speed-chip,.js8-query,.js8-inbox-act,.js8-send,.js8-cq,.js8-hb,.js8-arm,.js8-confirm-yes,.js8-confirm-no,.js8-drop')].length>15 && [...document.querySelectorAll('.js8-speed-chip,.js8-query,.js8-inbox-act,.js8-send,.js8-cq,.js8-hb,.js8-arm,.js8-confirm-yes,.js8-confirm-no,.js8-drop')].every(e=>e.disabled)`))
       await click(`document.querySelector('.js8-station-call')`)
       await until(`document.querySelector('.js8-to')?.value==='W1AW' && document.querySelector('.js8-cockpit .le-call')?.value==='W1AW'`)
       await click(`document.querySelector('.js8-pin')`)
@@ -3169,10 +3503,10 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
       await until(sstv?`document.querySelectorAll('.sstv-thumb').length===40`:`!document.querySelector('.aprs-health')?.textContent.includes('unavailable')`)
     }
 
-    for(const label of ['Connect','Satellites']){
+    for(const label of ['Conditions','Satellites']){
       await click(button(label))
       if(applicationVersion<13){await until(`!!document.querySelector('.remote-view-unavailable')`);assert.equal(navigationQueries.length,0);continue}
-      const connect=label==='Connect',root=connect?'.connect-shell':'.sats-view'
+      const connect=label==='Conditions',root=connect?'.connect-shell':'.sats-view'
       await until(connect?`document.querySelector('.connect-header')?.textContent.includes('Station data · Read only')`:`document.querySelectorAll('.sat-pick').length===40`)
       if(connect){
         // The 2-D renderer is available even on headless/software-only hardware.
@@ -3191,7 +3525,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
         const actions=await evaluate(`[...document.querySelectorAll('.sat-track,.sat-work,input[name="sat-transponder"],.sat-chip.quiet')].map(e=>e.disabled)`)
         assert.ok(actions.length>0&&actions.every(Boolean),'station actions remain guarded until control is explicitly supported')
       }
-      const targets=connect?['.connect-header','.connect-map canvas','.connect-strip']:['.sats-head','.sats-arm-id','.sats-radio','.sats-search','.sats-favmgr li:last-child .sat-pick']
+      const targets=connect?['.connect-header','.connect-map canvas','.dash-bar']:['.sats-head','.sats-arm-id','.sats-radio','.sats-search','.sats-favmgr li:last-child .sat-pick']
       for(const [width,height,zoom] of [[360,740,1],[390,844,1],[844,390,1],[1024,768,1],[1280,800,1],[1200,1390,1],[3440,1440,1],[1024,768,0.8],[1280,800,1.75],[390,844,1.75]])for(const theme of ['dark','light']){
         await browser.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false},session)
         await evaluate(`document.documentElement.style.setProperty('--ui-zoom','${zoom}');document.documentElement.dataset.theme='${theme}';window.dispatchEvent(new Event('resize'))`)
@@ -3215,7 +3549,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
       await settledLayout();await settledLayout()
       if(connect){
         const canvas=await evaluate(`(()=>{const e=document.querySelector('.connect-map canvas'),d=e.getContext('2d').getImageData(0,0,e.width,e.height).data,colors=new Set();for(let i=0;i<d.length;i+=Math.max(4,Math.floor(d.length/4000/4)*4))colors.add(Array.from(d.slice(i,i+4)).join(','));return {width:e.width,height:e.height,colors:colors.size}})()`)
-        assert.ok(canvas.width>300&&canvas.height>100&&canvas.colors>8,'Connect renders its actual map: '+JSON.stringify(canvas))
+        assert.ok(canvas.width>300&&canvas.height>100&&canvas.colors>8,'Conditions renders its actual map: '+JSON.stringify(canvas))
       }
       if(artifacts){const shot=await browser.call('Page.captureScreenshot',{format:'png'},session);await writeFile(join(artifacts,`remote-nexus-${label.toLowerCase()}.png`),Buffer.from(shot.data,'base64'))}
       const collection=connect?'connect':'satellites'
@@ -3224,7 +3558,7 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
       unavailableCollections.delete(collection)
       await until(connect?`document.querySelector('.connect-header')?.textContent.includes('Station data · Read only')`:`document.querySelectorAll('.sat-pick').length===40`)
     }
-    for(const label of ['Settings','Program']){
+    for(const label of ['Settings','Repeaters']){
       await click(button(label))
       if(applicationVersion<14){await until(`!!document.querySelector('.remote-view-unavailable')`);continue}
       const settings=label==='Settings'
@@ -3241,17 +3575,48 @@ for (const {applicationVersion,operating,sessionLayout,quickLayout,quickMode='ph
         assert.ok(await evaluate(`[...document.querySelectorAll('.radioprog button,.radioprog input,.radioprog select')].length>1000&&[...document.querySelectorAll('.radioprog button,.radioprog input,.radioprog select')].every(e=>e.disabled)`))
       }
       const targets=settings?['.settings-tab:last-child','#settings-operator-radio input','#settings-remote-access']:['.rp-origin','.rp-chan-row:first-child .rp-chan-name','.rp-chan-row:last-child .rp-chan-name','.rp-export-chirp']
+      // A LAPSED SESSION IS NOT A LAYOUT READING (2026-10-02). On a loaded machine this page can go
+      // APPLICATION_TIMEOUT_MS (3 s) without a station sample. Its readings are then stale, so it
+      // withdraws the station's document and reads it again; if a frame went unacknowledged that long,
+      // the relay also closes the socket (1008 applicationTimeout) and the page reconnects by itself.
+      // Until the document is back, Program's body is `hidden` and Settings draws no form, so a target
+      // reads 0x0 with the status bar under its centre. Three gate reds (2026-09-30, 10-01, 10-02) each
+      // followed a 3.25-3.35 s sample gap, and one 3.5 s stall of this page reproduces them. So a
+      // reading taken without the document after such a lapse is taken again once the document is
+      // back, and the log says so. Never skipped: a document not back within 30 s fails, a third such
+      // reading fails, and a missing document with no lapse behind it is asserted exactly as before.
+      const held=settings?`(!!document.querySelector('.settings-tabs')&&document.querySelector('#settings-operator-radio input')?.value==='W1AW')`:`(document.querySelector('.rp-body')?.hidden===false&&document.querySelectorAll('.rp-chan-name').length===1200)`
+      // The last page time the station readings were 3 s old: when a snapshot arrived that long after
+      // the one before it, or now if the newest is already that old.
+      const lapsed=`(()=>{let t=-1,p=null;for(const e of window.__protocolTrace)for(const u of e.updates??[])if(u.command==='get_snapshot'&&u.type==='applicationResult'){if(p!==null&&e.at-p>=3000)t=e.at;p=e.at-u.age}return p!==null&&performance.now()-p>=3000?performance.now():t})()`
+      let heldAt=await evaluate(`${held}?performance.now():-1`)
+      const lapsedRead=async()=>{const s=await evaluate(`({held:${held},lapsed:${lapsed}})`);return !s.held&&s.lapsed>heldAt}
+      const awaitDocument=async where=>{
+        const started=performance.now()
+        try{await until(held,30000)}catch(error){if(error.message!=='Expected browser state did not appear')throw error;assert.fail(`${label}: the station's document was not back within 30 s of a lapsed session (${where}): ${JSON.stringify(await sessionDiagnostic())}`)}
+        console.log(`${label} sweep: the session lapsed (no station sample for 3 s); the station's document was back after ${Math.round(performance.now()-started)} ms, reading ${where} with it`,JSON.stringify(await evaluate('window.__socketClosures.slice(-2)')))
+      }
       for(const [width,height,zoom] of [[360,740,1],[390,844,1],[844,390,1],[1024,768,1],[1280,800,1],[1200,1390,1],[3440,1440,1],[1024,768,0.8],[1280,800,1.75],[390,844,1.75]])for(const theme of ['dark','light']){
         await browser.call('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false},session)
         await evaluate(`document.documentElement.style.setProperty('--ui-zoom','${zoom}');document.documentElement.dataset.theme='${theme}';window.dispatchEvent(new Event('resize'))`)
         await settledLayout();await settledLayout()
         for(const target of targets){
-          if(!await evaluate(`!!document.querySelector('${target}')`))console.log('Missing navigation target',label,target,JSON.stringify(await sessionDiagnostic()));
-          await evaluate(scrolledIntoView(`document.querySelector('${target}')`,{block:'nearest',inline:'nearest',behavior:'instant'},`e=>{window.__navTarget=e;window.__navBefore=e.getBoundingClientRect().toJSON();return true}`,`${label} ${target} at ${width}x${height} zoom ${zoom}`))
-          await settledLayout();await settledLayout()
-          if(!await evaluate(`!!document.querySelector('${target}')`))console.log('SESSION MISSING',target,JSON.stringify({session:await sessionDiagnostic(),documents:await evaluate('window.__queryTrace'),availability:await evaluate('window.__availabilityTrace')}));
-          const shape=await evaluate(`(()=>{const e=document.querySelector('${target}'),r=e.getBoundingClientRect(),x=Math.max(r.left+1,Math.min(r.right-1,r.left+r.width/2)),y=Math.max(1,Math.min(innerHeight-1,r.top+r.height/2)),clipped=[];for(let p=e.parentElement;p;p=p.parentElement){const c=getComputedStyle(p);if(['hidden','clip'].includes(c.overflowY)&&p.scrollHeight>p.clientHeight+1)clipped.push({class:p.className,scroll:p.scrollHeight,client:p.clientHeight})}let exposed=0;if(e.tagName==='CANVAS')for(let py=Math.max(1,r.top+8);py<Math.min(innerHeight-1,r.bottom-8);py+=16)for(let px=Math.max(1,r.left+8);px<Math.min(innerWidth-1,r.right-8);px+=16)if(e.contains(document.elementFromPoint(px,py)))exposed++;return {zoom:Number(getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom')),docW:document.documentElement.scrollWidth,docH:document.documentElement.scrollHeight,rect:r.toJSON(),hit:document.elementFromPoint(x,y)?.outerHTML.slice(0,500),reachable:e.tagName==='CANVAS'?exposed>=4:e.contains(document.elementFromPoint(x,y)),exposed,clipped}})()`)
-          const good=Math.abs(shape.zoom-zoom)<0.001&&shape.docW<=width+1&&shape.docH<=height+1&&shape.rect.width>0&&shape.rect.height>0&&shape.rect.top<height&&shape.rect.bottom>0&&shape.reachable&&shape.clipped.length===0
+          const where=`${target} at ${width}x${height} zoom ${zoom} ${theme}`
+          let shape,good
+          for(let attempt=1;;attempt++){
+            if(await lapsedRead())await awaitDocument(where)
+            try{
+              if(!await evaluate(`!!document.querySelector('${target}')`))console.log('Missing navigation target',label,target,JSON.stringify(await sessionDiagnostic()));
+              await evaluate(scrolledIntoView(`document.querySelector('${target}')`,{block:'nearest',inline:'nearest',behavior:'instant'},`e=>{window.__navTarget=e;window.__navBefore=e.getBoundingClientRect().toJSON();return true}`,`${label} ${target} at ${width}x${height} zoom ${zoom}`))
+              await settledLayout();await settledLayout()
+              if(!await evaluate(`!!document.querySelector('${target}')`))console.log('SESSION MISSING',target,JSON.stringify({session:await sessionDiagnostic(),documents:await evaluate('window.__queryTrace'),availability:await evaluate('window.__availabilityTrace')}));
+              shape=await evaluate(`(()=>{const e=document.querySelector('${target}'),r=e.getBoundingClientRect(),x=Math.max(r.left+1,Math.min(r.right-1,r.left+r.width/2)),y=Math.max(1,Math.min(innerHeight-1,r.top+r.height/2)),clipped=[];for(let p=e.parentElement;p;p=p.parentElement){const c=getComputedStyle(p);if(['hidden','clip'].includes(c.overflowY)&&p.scrollHeight>p.clientHeight+1)clipped.push({class:p.className,scroll:p.scrollHeight,client:p.clientHeight})}let exposed=0;if(e.tagName==='CANVAS')for(let py=Math.max(1,r.top+8);py<Math.min(innerHeight-1,r.bottom-8);py+=16)for(let px=Math.max(1,r.left+8);px<Math.min(innerWidth-1,r.right-8);px+=16)if(e.contains(document.elementFromPoint(px,py)))exposed++;return {zoom:Number(getComputedStyle(document.documentElement).getPropertyValue('--ui-zoom')),docW:document.documentElement.scrollWidth,docH:document.documentElement.scrollHeight,rect:r.toJSON(),hit:document.elementFromPoint(x,y)?.outerHTML.slice(0,500),reachable:e.tagName==='CANVAS'?exposed>=4:e.contains(document.elementFromPoint(x,y)),exposed,clipped,held:${held},lapsed:${lapsed},at:performance.now()}})()`)
+              good=Math.abs(shape.zoom-zoom)<0.001&&shape.docW<=width+1&&shape.docH<=height+1&&shape.rect.width>0&&shape.rect.height>0&&shape.rect.top<height&&shape.rect.bottom>0&&shape.reachable&&shape.clipped.length===0
+            }catch(error){if(attempt<3&&await lapsedRead()){await awaitDocument(where);continue}throw error}
+            if(shape.held)heldAt=shape.at
+            if(good||shape.held||shape.lapsed<=heldAt||attempt===3)break
+            await awaitDocument(where)
+          }
           if(!good)console.log('SESSION FAILURE',JSON.stringify(await sessionDiagnostic()));
           if(!good)console.log('Navigation layout trace',JSON.stringify(await evaluate(`(()=>{const e=document.querySelector('${target}'),chain=[];for(let p=e;p;p=p.parentElement){const r=p.getBoundingClientRect(),c=getComputedStyle(p);chain.push({class:p.className,rect:r.toJSON(),at:p.scrollTop,scroll:p.scrollHeight,client:p.clientHeight,y:c.overflowY})}return {same:e===window.__navTarget,before:window.__navBefore,viewport:document.documentElement.dataset.viewport,chain}})()`)));
           if(!good&&artifacts){const shot=await browser.call('Page.captureScreenshot',{format:'png'},session);await writeFile(join(artifacts,`remote-${label.toLowerCase()}-failure.png`),Buffer.from(shot.data,'base64'))}

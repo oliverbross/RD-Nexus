@@ -75,8 +75,17 @@ const MIGRATED = [
   'remote-web/usePotaAlerts.ts',
   'remote-web/presentation.tsx',
   'remote-web/RemoteApp.tsx',
+  'remote-web/StreamView.tsx',
+  'remote-web/stream-capture.ts',
+  'remote-web/stream-link.ts',
   'remote-web/control-failure.ts',
   'remote-native/RemoteStation.tsx',
+  'remote-native/stream-input.ts',
+  // One clean way into streaming (2026-10-02) — born migrated: the beta line, the name a browser
+  // gives itself, and the question Nexus asks at the shack.
+  'remote-web/BetaNote.tsx',
+  'remote-web/browser-label.ts',
+  'remote-native/RemoteApprovalPrompt.tsx',
   'remote-monitor/MonitorApp.tsx',
   'remote-monitor/preview.tsx',
   'components/SettingsStation.tsx',
@@ -172,6 +181,10 @@ const MIGRATED = [
   'openingAlert.ts',
   'stormAlert.ts',
   'tv/ConnectTv.tsx',
+  // The dashboard bar over the Connect pop-out and the TV page: the index names, `UTC` and the
+  // clock digits are tokens; its prose (the Stay behind toggle, the hover words) is the catalog's.
+  'components/DashboardBar.tsx',
+  'components/DashRail.tsx',
   'components/DxpeditionsView.tsx',
   'features/dxpedChase.ts',
   'features/dxpedAlarm.ts',
@@ -180,10 +193,12 @@ const MIGRATED = [
   'components/prop/ActivityMatrix.tsx',
   'components/prop/BandAdvisor.tsx',
   'components/prop/BandConditionStrip.tsx',
+  'components/prop/BandTiles.tsx',
   'components/prop/BeaconMonitor.tsx',
   'components/prop/BestBandTable.tsx',
   'components/prop/ChaseFeedPane.tsx',
   'components/prop/ChasePane.tsx',
+  'components/prop/ClockPane.tsx',
   'components/prop/KpOutlookPane.tsx',
   'components/prop/DxpedCalendar.tsx',
   'components/prop/DxpedDigest.tsx',
@@ -198,6 +213,7 @@ const MIGRATED = [
   'components/prop/OpeningStrip.tsx',
   'components/prop/OpeningsLogPane.tsx',
   'components/prop/ScalesAnnunciator.tsx',
+  'components/prop/SolarTrends.tsx',
   'components/prop/SpaceWxGauges.tsx',
   'components/prop/WorkNowCard.tsx',
   // Batch 5 (2026-08-18) — spots, the watch list, the display filters and the Settings
@@ -288,6 +304,9 @@ const MIGRATED = [
   // reports (imported/skipped, added/refreshed, saved/already-there) are one entry per count.
   'components/MemoriesView.tsx',
   'components/RadioProgView.tsx',
+  // Program's map (2026-10-02): born migrated; its canvas writes only data (hearham's callsigns,
+  // place names, a formatted distance), never a word.
+  'components/RepeaterMap.tsx',
   'components/MemoryStrip.tsx',
   'components/RecallPanel.tsx',
   'components/BandPicker.tsx',
@@ -331,9 +350,13 @@ const MIGRATED = [
   // chip, and the two intent chips named for a programme and a band (POTA/SOTA, 6m/VHF).
   'components/ConnectView.tsx',
   'components/connect/PaneFrame.tsx',
+  // A pane's ⋯ menu (2026-09-29) — born migrated: its A− / A+ are glyphs, every word a catalog key.
+  'components/connect/BoxMenu.tsx',
   'components/connect/RailHandles.tsx',
   'components/connect/panes.tsx',
   'components/connect/paneFormat.ts',
+  // Connect's Spots box (plan H8), born migrated: its one status line is the Phone pane's own.
+  'components/connect/SpotsBox.tsx',
   'components/Conversation.tsx',
   'components/Composer.tsx',
   'components/MessageBubble.tsx',
@@ -377,14 +400,25 @@ const MIGRATED = [
   'components/DxChaserView.tsx',
   'components/NowBar.tsx',
   'components/TempoHeader.tsx',
+  // CockpitHeader.tsx (graduated 2026-10-02). It sat on PARTIAL for the four
+  // transmit controls it drew for six cockpits — the latch, Tune, ATU and Stop TX — and for the
+  // passive TX pill that rendered the latch. All five left it for the TX strip under the scope
+  // (`CockpitTxStrip.tsx`, which takes its place on PARTIAL for exactly that deferral), so what
+  // is left is migrated: the CAT pill's two plates are named constants.
+  'components/CockpitHeader.tsx',
   'components/PanelsMenu.tsx',
   'components/ThemeSwitcher.tsx',
+  'features/skins.ts',
   'components/PalettePicker.tsx',
   'components/Toasts.tsx',
-  'components/Splitter.tsx',
-  'components/SplitterSeam.tsx',
+  // Splitter.tsx and SplitterSeam.tsx sat here until PaneSeam replaced both (layout L1).
+  'components/PaneSeam.tsx',
+  // APRS's station list width divider (layout L7): born migrated, its name is the caller's.
+  'components/AprsRailSeam.tsx',
   'components/LinkPill.tsx',
   'components/panes/CockpitPaneFrame.tsx',
+  // ⊞ Panels ▸ Arrange (layout L3): born migrated; the panes' names are the cockpit's.
+  'components/panes/ArrangePanes.tsx',
   'features/profiles.ts',
   'features/registry.ts',
   // Batch 18 (2026-08-19) — the Operate cockpit: its header, the waterfall strip, the two
@@ -485,6 +519,8 @@ const MIGRATED = [
   // both held as named constants.
   'components/SubReceiverStrip.tsx',
   'components/RotorStrip.tsx',
+  // The strip's point-at handler as the cockpits wire it: migrated from birth, every word a key.
+  'components/rotorPointAt.ts',
   'components/prop/RotorPane.tsx',
   'components/prop/AmpPane.tsx',
   // The amplifier's cockpit strip — fully catalogued from the start. Its only bare literals are
@@ -495,6 +531,9 @@ const MIGRATED = [
   // Parsec presence mode's words (the Settings readout, the status-lane stop report) — migrated
   // from birth. The station sends tokens; every sentence is here, from the catalog.
   'features/parsecPresence.ts',
+  // The words for a file the station could not read and kept — migrated from birth. The station
+  // sends a store token and a path; every sentence is here, from the catalog.
+  'features/keptFiles.ts',
 ]
 
 /**
@@ -542,9 +581,9 @@ const MIGRATED = [
  *
  * `AprsCockpit.tsx` (batch 14, 2026-08-19) is here for exactly that reason and no other:
  * every string in it is migrated except the TX On/Off ARM LATCH — its label and its two
- * tooltips. APRS renders no stop control at all (the latch only holds the queue, so it is on
- * no cockpit's stop-line census), but the latch is still a transmit-path control, and those
- * move with the sweeps. It graduates the moment that batch lands.
+ * tooltips. That latch is APRS's one stop control (turning it off stops a beacon on the air and
+ * drops what is still queued), a transmit-path control, and those move with the sweeps. It
+ * graduates the moment that batch lands.
  *
  * `OperateQsoStrip.tsx` (batch 18, 2026-08-19) is here on the same narrow ruling, for FOUR
  * controls: STOP TX and TUNE — Operate's stop-line census, and Stop TX is the only control in
@@ -596,7 +635,8 @@ const MIGRATED = [
  *
  *   · Phone — THE PTT ROW, whole. The button's four labels ARE the accessible name
  *     `stop-line.test.tsx` matches (/push to talk|on air — release to stop|tx locked|tx off —
- *     click to enable/i) and its three-armed tooltip is that control's description, naming
+ *     click to enable/i); a fifth, "Armed — talk to transmit", shows while a streamed press waits
+ *     for the voice, under the name "ON AIR — release to stop". Its three-armed tooltip is that control's description, naming
  *     which switch is down and the mic the operator talks on. The LOCK toggle beside it stays
  *     with them because it decides whether the window's Space keyup is a PTT release at all —
  *     the census's fourth holder — and the Field Day exchange chip stays because it shares the
@@ -649,8 +689,14 @@ const MIGRATED = [
  */
 const PARTIAL = [
   'components/SettingsPanel.tsx',
-  'components/CockpitHeader.tsx',
+  // CockpitTxStrip.tsx (2026-10-02) — FT's TX cluster on every operating
+  // screen, the controls `CockpitHeader.tsx` was on this list for, moved and not created: the
+  // TX-ENABLE LATCH and its read-only twin, TUNE, ATU and STOP TX keep their written labels and
+  // tooltips until the transmit-path batch, with the stop-line sweeps re-run. Everything else it
+  // draws (the group's name, the TX state, Hold Tx, a remote stop's progress) is catalogued.
+  'components/CockpitTxStrip.tsx',
   'components/TopBar.tsx',
+  'components/UtcClock.tsx',
   'components/SetupHealth.tsx',
   'components/AprsCockpit.tsx',
   'components/OperateQsoStrip.tsx',

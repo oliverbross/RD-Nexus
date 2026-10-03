@@ -56,13 +56,13 @@ describe('coercePanelLayout', () => {
 
   it('coerces junk to the stock layout instead of throwing', () => {
     for (const junk of [null, 42, 'nope', [], { state: 7, share: 'x' }]) {
-      expect(coercePanelLayout(OPERATE_PANELS, junk)).toEqual({ v: 1, state: {}, share: {} })
+      expect(coercePanelLayout(OPERATE_PANELS, junk)).toEqual({ v: 2, state: {}, share: {} })
     }
   })
 
   it('recovers the stock layout from an unparseable stored record', () => {
     localStorage.setItem(KEY, '{not json')
-    expect(loadPanelLayout(OPERATE_PANELS)).toEqual({ v: 1, state: {}, share: {} })
+    expect(loadPanelLayout(OPERATE_PANELS)).toEqual({ v: 2, state: {}, share: {} })
   })
 
   it('drops unknown panel ids, unknown states, and non-positive shares', () => {
@@ -243,7 +243,7 @@ describe('usePanelLayout', () => {
     expect(result.current.shareOf('rxfreq')).toBe(1)
     // Coerced: an unknown id is not written, a collapsing share is clamped to the floor.
     expect(result.current.shareOf('bandActivity')).toBe(MIN_SHARE)
-    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ v: 1, state: { stations: 'removed' }, share: { bandActivity: MIN_SHARE } })
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ v: 2, state: { stations: 'removed' }, share: { bandActivity: MIN_SHARE } })
     // One Undo brings back the whole previous record.
     act(() => result.current.undo())
     expect(result.current.stateOf('waterfall')).toBe('removed')
@@ -279,11 +279,92 @@ describe('share (seam resize)', () => {
     expect(result.current.shareOf('rxfreq')).toBe(1)
   })
 
+  it('setShares with null clears a pane back to its stock share, in the same ONE undoable step', () => {
+    // A divider's reset: the stock split is a SHEET default the record never holds, so the only
+    // way back to it is for the record to hold nothing for the pair.
+    const { result } = renderHook(() => usePanelLayout(OPERATE_PANELS))
+    act(() => result.current.setShares({ bandActivity: 1.4, rxfreq: 0.6, stations: 1.2 }))
+    act(() => result.current.setShares({ bandActivity: null, rxfreq: null }))
+    expect(result.current.layout.share).toEqual({ stations: 1.2 })
+    expect(JSON.parse(localStorage.getItem(KEY)!).share).toEqual({ stations: 1.2 })
+    act(() => result.current.undo())
+    expect(result.current.layout.share).toEqual({ bandActivity: 1.4, rxfreq: 0.6, stations: 1.2 })
+  })
+
   it('reset clears shares back to default', () => {
     const { result } = renderHook(() => usePanelLayout(OPERATE_PANELS))
     act(() => result.current.setShare('rxfreq', 1.8))
     act(() => result.current.reset())
     expect(result.current.shareOf('rxfreq')).toBe(1)
+  })
+})
+
+describe('cols (the grid cockpits’ column dividers, layout L2)', () => {
+  const PHONE_KEY = panelStorageKey('phone')
+  const stored = () => JSON.parse(localStorage.getItem(PHONE_KEY)!)
+
+  it('a v1 record — every record saved before the column dividers — loads on the default columns, its panes and shares as stored', () => {
+    localStorage.setItem(PHONE_KEY, JSON.stringify({ v: 1, state: { spots: 'docked', receiver: 'removed' }, share: { spots: 1.3, needed: 0.7 } }))
+    const l = loadPanelLayout(PHONE_PANELS)
+    expect(l.cols, 'a record with no columns grew some').toBeUndefined()
+    expect(l.state).toEqual({ spots: 'docked', receiver: 'removed' })
+    expect(l.share).toEqual({ spots: 1.3, needed: 0.7 })
+    expect(l.v).toBe(2)
+  })
+
+  it('a v2 record keeps its columns across a reload, next to its panes and shares', () => {
+    const { result, unmount } = renderHook(() => usePanelLayout(PHONE_PANELS))
+    act(() => result.current.setShares({ spots: 1.2, needed: 0.8 }))
+    act(() => result.current.setCols!({ a: 1.3, b: 0.7, log: 560 }))
+    // The columns sit in a key of their own, beside the two an older build reads.
+    expect(stored()).toEqual({ v: 2, state: {}, share: { spots: 1.2, needed: 0.8 }, cols: { a: 1.3, b: 0.7, log: 560 } })
+    unmount()
+    const again = renderHook(() => usePanelLayout(PHONE_PANELS))
+    expect(again.result.current.layout.cols).toEqual({ a: 1.3, b: 0.7, log: 560 })
+    expect(again.result.current.layout.share).toEqual({ spots: 1.2, needed: 0.8 })
+  })
+
+  it('clamps stored columns on load: the fr pair into the writers’ range, the log width to whole px, junk dropped', () => {
+    const l = coercePanelLayout(PHONE_PANELS, {
+      v: 2,
+      state: {},
+      share: {},
+      cols: { a: 1e-9, b: 50, log: 612.6, bogus: 3 },
+    })
+    expect(l.cols).toEqual({ a: MIN_SHARE, b: 2 - MIN_SHARE, log: 613 })
+    for (const junk of [{ a: -1, b: 'wide', log: Infinity }, { log: 0 }, 'cols', null]) {
+      expect(coercePanelLayout(PHONE_PANELS, { v: 2, state: {}, share: {}, cols: junk }).cols, JSON.stringify(junk)).toBeUndefined()
+    }
+  })
+
+  it('setCols is ONE undoable step; null puts one column back to the default', () => {
+    const { result } = renderHook(() => usePanelLayout(PHONE_PANELS))
+    act(() => result.current.setCols!({ a: 1.4, b: 0.6 }))
+    act(() => result.current.setCols!({ log: 500 }))
+    expect(result.current.layout.cols).toEqual({ a: 1.4, b: 0.6, log: 500 })
+    // A divider's release is a single history entry: one Undo takes back exactly that release.
+    act(() => result.current.undo())
+    expect(result.current.layout.cols).toEqual({ a: 1.4, b: 0.6 })
+    act(() => result.current.setCols!({ a: null, b: null }))
+    expect(result.current.layout.cols, 'a reset leaves no column of its own behind').toBeUndefined()
+    expect(stored().cols).toBeUndefined()
+    // A write that could not have come from a divider changes nothing.
+    act(() => result.current.setCols!({ log: 480 }))
+    act(() => result.current.setCols!({ log: Number.NaN }))
+    expect(result.current.layout.cols).toEqual({ log: 480 })
+  })
+
+  it('⊞ Reset puts the default columns back and Undo restores them (with everything else Reset took)', () => {
+    const { result } = renderHook(() => usePanelLayout(PHONE_PANELS))
+    act(() => result.current.setPanelState('receiver', 'removed'))
+    act(() => result.current.setCols!({ a: 1.5, b: 0.5, log: 640 }))
+    act(() => result.current.reset())
+    expect(result.current.layout.cols).toBeUndefined()
+    expect(stored().cols).toBeUndefined()
+    act(() => result.current.undo())
+    expect(result.current.layout.cols).toEqual({ a: 1.5, b: 0.5, log: 640 })
+    expect(result.current.stateOf('receiver')).toBe('removed')
+    expect(stored().cols).toEqual({ a: 1.5, b: 0.5, log: 640 })
   })
 })
 
@@ -326,6 +407,36 @@ describe('cockpit vocabularies (TX-safety: the STOP line)', () => {
       }
     },
   )
+
+  // ⊞ ARRANGE (layout L3) can give a pane a PLACE, and that is one more thing an id can do. Every id
+  // a placement can hold must be one of its vocabulary's own ids — so the name check above has
+  // already read it — and none may be NAMED for a stop control, pinned or not. Checked against every
+  // vocabulary that arranges, and the check itself is proven to fire on a planted spec.
+  const arrangeNameProblems = (vocab: { view: string; panelIds: readonly string[]; arrange?: { columns: Record<string, readonly string[]>; pinned: readonly string[]; stockMerged?: readonly string[] } }) => {
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z]/g, '')
+    const a = vocab.arrange
+    if (!a) return []
+    const named = [...Object.values(a.columns).flat(), ...a.pinned, ...(a.stockMerged ?? [])]
+    return named.flatMap((id) => [
+      ...(vocab.panelIds.includes(id) ? [] : [`${vocab.view}: "${id}" can be placed but is not a vocabulary id`]),
+      ...((STOP_CONTROL_WORDS as readonly string[]).includes(norm(id)) ? [`${vocab.view}: "${id}" is named for a stop control`] : []),
+    ])
+  }
+
+  it('every id ⊞ Arrange can place is a vocabulary id, and none is named for a stop control (layout L3)', () => {
+    const arranging = ALL_PANEL_VOCABULARIES.filter((v) => v.arrange)
+    expect(arranging.map((v) => v.view), 'no vocabulary arranges: this guard would be reading nothing').toContain('phone')
+    for (const vocab of arranging) expect(arrangeNameProblems(vocab)).toEqual([])
+    // Control: a spec that could place a stop control, or an id its vocabulary does not have.
+    expect(
+      arrangeNameProblems({ view: 'planted', panelIds: ['decode'], arrange: { columns: { a: ['decode', 'ptt'], b: [], log: [] }, pinned: ['stopTx'] } }),
+    ).toEqual([
+      'planted: "ptt" can be placed but is not a vocabulary id',
+      'planted: "ptt" is named for a stop control',
+      'planted: "stopTx" can be placed but is not a vocabulary id',
+      'planted: "stopTx" is named for a stop control',
+    ])
+  })
 
   it('ALL_PANEL_VOCABULARIES holds every vocabulary this module exports', () => {
     // The backstop above is only as wide as this array, and an array is a thing somebody
@@ -383,6 +494,7 @@ describe('cockpit vocabularies (TX-safety: the STOP line)', () => {
     expect([...RTTY_PANELS.panelIds]).toEqual(['scope', 'stream'])
     expect([...CW_PANELS.panelIds]).toEqual([
       'scope', 'scopeCtl', 'dsp', 'txmeters', 'rxdsp', 'bandActivity', 'copilot', 'decode', 'sent',
+      'spots', 'needed',
     ])
   })
 
@@ -499,14 +611,16 @@ describe('panes a vocabulary ships HIDDEN (#345: Phone Spots and Needed)', () =>
     expect(JSON.parse(localStorage.getItem(PHONE_KEY)!).state.needed).toBeUndefined()
   })
 
-  it('only Phone ships panes hidden, and each hidden id is one of its own', () => {
+  it('only Phone and CW ship panes hidden — their Spots and Needed — and each hidden id is its own', () => {
     // ⚠️ `features/connectPresets.ts` reads Connect's record RAW (`state[s] === 'removed'`) and
     // writes it the same way, i.e. it takes absent to mean docked. That stays true only while
     // Connect lists nothing here: before a vocabulary gains a hidden pane, route every raw
-    // reader of its record through `panelStateIn`.
+    // reader of its record through `panelStateIn`. (CW's record has no raw reader: CwCockpit and
+    // panelHost read it through `stateOf`.)
     const shipsHidden = ALL_PANEL_VOCABULARIES.filter((v) => (v.defaultRemoved ?? []).length > 0)
-    expect(shipsHidden.map((v) => v.view)).toEqual(['phone'])
+    expect(shipsHidden.map((v) => v.view)).toEqual(['phone', 'cw'])
     expect([...(PHONE_PANELS.defaultRemoved ?? [])]).toEqual([...HIDDEN])
+    expect([...(CW_PANELS.defaultRemoved ?? [])]).toEqual([...HIDDEN])
     for (const v of ALL_PANEL_VOCABULARIES) {
       for (const id of v.defaultRemoved ?? []) {
         expect(v.panelIds, `"${v.view}" hides "${id}", which is not in its vocabulary`).toContain(id)
@@ -522,6 +636,65 @@ describe('panes a vocabulary ships HIDDEN (#345: Phone Spots and Needed)', () =>
     // A stored value always wins over the default, in both directions.
     expect(panelStateIn(PHONE_PANELS, { ...empty, state: { spots: 'docked' } }, 'spots')).toBe('docked')
     expect(panelStateIn(PHONE_PANELS, { ...empty, state: { receiver: 'removed' } }, 'receiver')).toBe('removed')
+  })
+})
+
+describe("CW ships Phone's two feeds hidden too (plan H8)", () => {
+  // The operator's pick: "CW gets Phone's Spots/Needed panes", hidden by default exactly as in Phone.
+  // Each case drives one reader of an absent state, as Phone's do, against CW's own record.
+  const CW_KEY = panelStorageKey('cw')
+
+  it('a FRESH CW record shows Spots and Needed hidden, and every other CW pane docked', () => {
+    const { result } = renderHook(() => usePanelLayout(CW_PANELS))
+    for (const id of ['spots', 'needed'] as const) expect(result.current.stateOf(id), `${id} ships visible`).toBe('removed')
+    for (const id of CW_PANELS.panelIds) {
+      if (id === 'spots' || id === 'needed') continue
+      expect(result.current.stateOf(id), `"${id}" changed its default`).toBe('docked')
+    }
+    expect(localStorage.getItem(CW_KEY)).toBeNull()
+  })
+
+  it('an existing CW layout loads unchanged: its choices, shares and places, and neither feed', () => {
+    savePanelLayout(CW_KEY, {
+      v: 2,
+      state: { copilot: 'removed', sent: 'docked' },
+      share: { decode: 1.6 },
+      place: { bandActivity: { col: 'a', order: 2 }, decode: { col: 'a', order: 0 }, sent: { col: 'a', order: 1 } },
+    } as PanelLayout<string>)
+    const { result } = renderHook(() => usePanelLayout(CW_PANELS))
+    expect(result.current.stateOf('spots'), 'Spots appeared on an upgrade').toBe('removed')
+    expect(result.current.stateOf('needed'), 'Needed appeared on an upgrade').toBe('removed')
+    expect(result.current.stateOf('copilot')).toBe('removed')
+    expect(result.current.stateOf('sent')).toBe('docked')
+    expect(result.current.stateOf('decode')).toBe('docked')
+    expect(result.current.shareOf('decode')).toBe(1.6)
+    // The operator's placement is kept as stored; the two new ids are simply not in it, so each
+    // stands at the foot of its stock column (panelPlace) — shown only once it is ticked.
+    expect(result.current.layout.place).toEqual({
+      decode: { col: 'a', order: 0 },
+      sent: { col: 'a', order: 1 },
+      bandActivity: { col: 'a', order: 2 },
+    })
+  })
+
+  it('a tick docks one and is stored; ⊞ Reset hides both again and Undo brings them back', () => {
+    const { result } = renderHook(() => usePanelLayout(CW_PANELS))
+    act(() => result.current.setPanelState('spots', 'docked'))
+    act(() => result.current.setPanelState('needed', 'docked'))
+    expect(JSON.parse(localStorage.getItem(CW_KEY)!).state).toMatchObject({ spots: 'docked', needed: 'docked' })
+    act(() => result.current.reset())
+    expect(result.current.stateOf('spots')).toBe('removed')
+    expect(result.current.stateOf('needed')).toBe('removed')
+    act(() => result.current.undo())
+    expect(result.current.stateOf('spots')).toBe('docked')
+    expect(result.current.stateOf('needed')).toBe('docked')
+  })
+
+  it("the feeds take Phone's places: Spots under Decode's column, Needed under the middle one, both last below three tracks", () => {
+    expect(CW_PANELS.arrange!.columns.a).toEqual(['decode', 'sent', 'spots'])
+    expect(CW_PANELS.arrange!.columns.b).toEqual(['bandActivity', 'copilot', 'needed'])
+    expect(CW_PANELS.arrange!.pinned).toEqual([])
+    expect(CW_PANELS.arrange!.stockMerged).toEqual(['decode', 'sent', 'bandActivity', 'copilot', 'spots', 'needed'])
   })
 })
 

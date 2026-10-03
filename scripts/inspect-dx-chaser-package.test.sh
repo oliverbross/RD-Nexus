@@ -31,6 +31,10 @@ mac_app="$tmp/Nexus Test.app"
 mkdir -p "$mac_app/Contents/MacOS"
 cp "$fixture/usr/bin/Nexus.exe" "$mac_app/Contents/MacOS/Nexus"
 expect_pass "$mac_app"
+rd_mac_app="$tmp/RD-Nexus Test.app"
+mkdir -p "$rd_mac_app/Contents/MacOS"
+cp "$fixture/usr/bin/Nexus.exe" "$rd_mac_app/Contents/MacOS/RD-Nexus"
+expect_pass "$rd_mac_app"
 
 # Raw Windows executable. Its parent also contains a good sibling; the bad file
 # must still fail, proving the inspector never scans the artifact's directory.

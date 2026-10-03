@@ -32,6 +32,7 @@ import { parseJs8Sample } from './js8'
 import { RemoteCollections, RemoteCollectionsContext } from './collections'
 import type { ApplicationClient } from './application-client'
 import type { QueryPage } from './application-query-protocol'
+import { pastTheSwitch } from '../components/ConnectView.testkit'
 
 // ⏱ THE PER-TEST DEADLINE, and why it is not vitest's default 5 s.
 //
@@ -72,6 +73,7 @@ function projectedSettings(): Settings {
 }
 beforeEach(() => {
   localStorage.clear()
+  pastTheSwitch()
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
   window.matchMedia = ((media: string) => ({ matches: false, media, addEventListener() {}, removeEventListener() {},
     addListener() {}, removeListener() {} })) as unknown as typeof window.matchMedia
@@ -124,7 +126,7 @@ it('connects exactly one real JS8 cockpit without entry, inbox, send, shortcut o
   const activityRow=root.querySelector('.js8-row'), observedReads=js8Reads
   await waitFor(()=>expect(js8Reads).toBeGreaterThan(observedReads+1), {timeout:2000})
   expect(root.querySelector('.js8-row')).toBe(activityRow)
-  const controls=root.querySelectorAll<HTMLButtonElement>('.js8-speed-chip,.js8-query,.js8-inbox-act,.js8-send,.js8-cq,.js8-hb,.js8-arm,.js8-cancel,.js8-drop')
+  const controls=root.querySelectorAll<HTMLButtonElement>('.js8-speed-chip,.js8-query,.js8-inbox-act,.js8-send,.js8-cq,.js8-hb,.js8-arm,.js8-confirm-yes,.js8-confirm-no,.js8-drop')
   expect(controls.length).toBeGreaterThan(15)
   for(const button of controls){expect(button.disabled).toBe(true);fireEvent.click(button)}
   fireEvent.doubleClick(root.querySelector('.js8-offset-row')!)
@@ -148,7 +150,7 @@ it('connects exactly one real JS8 cockpit without entry, inbox, send, shortcut o
     'check_for_update','get_propagation','sat_track_status','get_tle_status','get_kp_forecast','get_xray_now',
     'get_dxped_windows','get_feed_health','get_need_alerts','get_all_spots','get_fd_ruleset','log_operators','read_rotator','get_sat_transponder']
   expect(calls.filter(c=>!reads.includes(c))).toEqual([])
-  for(const forbidden of ['get_log','get_licensed_band_plan','qrz_lookup','resolve_entity','js8_enter','js8_send','js8_inbox_mark']) expect(calls).not.toContain(forbidden)
+  for(const forbidden of ['get_log','get_licensed_band_plan','qrz_lookup','resolve_entity','js8_enter','js8_send','js8_inbox_mark','js8_answer_reply','js8_composer']) expect(calls).not.toContain(forbidden)
 })
 
 it.each(['TempoFast', 'TempoDeep'])('browses the actual %s conversations without sending, archiving or changing the station', async tier => {
@@ -604,7 +606,7 @@ it.each(['connect','sats'] as const)('connects the actual %s section, keeps its 
     <RemoteCollectionsContext.Provider value={context}><App remote={{snapshot:current,settings,bandPlan:[],navigation:true,status:<div>Observer</div>}}/></RemoteCollectionsContext.Provider>
   </StationDataContext.Provider></StationControlContext.Provider>
   const {container,rerender,unmount}=render(view(true))
-  fireEvent.click(screen.getByRole('button',{name:section==='connect'?/^Connect —/:/^Satellites —/}))
+  fireEvent.click(screen.getByRole('button',{name:section==='connect'?/^Conditions \(formerly Connect\) —/:/^Satellites —/}))
   if(section==='connect'){
     await waitFor(()=>expect(container.querySelector('.connect-header')?.textContent).toContain('Station data · Read only'))
     expect(container.querySelectorAll('.connect-shell')).toHaveLength(1)
@@ -648,7 +650,7 @@ it.each(['settings','program'] as const)('connects the actual %s section with sa
     <RemoteCollectionsContext.Provider value={context}><App remote={{snapshot:current,settings,bandPlan:[],configuration:true,status:<div>Observer</div>}}/></RemoteCollectionsContext.Provider>
   </StationDataContext.Provider></StationControlContext.Provider>
   const {container,rerender,unmount}=render(view(true))
-  fireEvent.click(screen.getByRole('button',{name:section==='settings'?/^Settings$/:/^Program —/}))
+  fireEvent.click(screen.getByRole('button',{name:section==='settings'?/^Settings$/:/^Repeaters —/}))
   if(section==='settings'){
     await waitFor(()=>expect(container.querySelector('.settings-panel')?.textContent).toContain('Station settings'))
     expect(container.querySelectorAll('.settings-panel')).toHaveLength(1)

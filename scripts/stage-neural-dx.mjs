@@ -92,6 +92,26 @@ try {
 from nexus_bridge import install_nexus_bridge
 install_nexus_bridge(app, sys.modules[__name__])
 
+def _watch_nexus_parent():
+    try:
+        parent_pid = int(os.getenv('NEURAL_DX_NEXUS_PARENT_PID', '0'))
+    except ValueError:
+        return
+    if parent_pid <= 0:
+        return
+    import threading
+    import time
+    def watch():
+        while True:
+            try:
+                os.kill(parent_pid, 0)
+            except OSError:
+                os._exit(0)
+            time.sleep(0.5)
+    threading.Thread(target=watch, name='nexus-parent-watch', daemon=True).start()
+
+_watch_nexus_parent()
+
 if os.getenv('NEURAL_DX_SELF_TEST') == '1':
     import PIL.Image, paho.mqtt.client, sgp4.api, tools.log_meta_analyzer
     root = getattr(sys, '_MEIPASS', os.getcwd())

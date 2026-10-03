@@ -27,6 +27,7 @@ pub mod logexport;
 pub mod logfill;
 pub mod logstore;
 pub mod logwrite;
+pub mod mic;
 pub mod presence;
 pub mod privileges;
 pub mod remote_control;
@@ -276,6 +277,7 @@ impl AppState {
                 // Nobody holds the transmitter at construction — the engine recomputes this
                 // from `tx_owner()` every snapshot.
                 tx_busy_reason: None,
+                stream_mic: None,
                 slot: 0,
                 next_slot_ms: 0,
                 // Optimistic until the engine has seen decodes to judge from
@@ -996,6 +998,8 @@ impl AppState {
             log_store_problem: None,
             // Filled by the engine while the database has refused a change; None here.
             log_save_trouble: None,
+            // Filled by the engine from the files this run kept rather than save over; none here.
+            kept_files: Vec::new(),
             // Filled by the engine while Parsec presence mode is on; None here.
             parsec_presence: None,
         }
