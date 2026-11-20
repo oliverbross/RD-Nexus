@@ -8,14 +8,14 @@
 # machine that has the platform WebView runtime — see README.md.
 [package]
 publish = false
-name = "tempo"
-version = "1.14.0"
+name = "shackcq-desktop-nexus-review"
+version = "1.14.0-review.6.8"
 edition = "2021"
 license = "GPL-3.0-only"
-authors = ["KD9TAW <kd9taw@protonmail.com>"]
+authors = ["KD9TAW <kd9taw@protonmail.com>", "ShackCQ contributors"]
 repository = "https://github.com/kd9taw/nexus"
-homepage = "https://github.com/kd9taw/nexus"
-description = "Nexus — all-mode ham radio operations center; Tauri v2 desktop shell"
+homepage = "https://shackcq.com"
+description = "ShackCQ Desktop isolated review distribution based on Nexus v1.14.0"
 # Pin a modern-enough toolchain; Tauri v2 requires a recent stable Rust. This crate is its own
 # workspace (see below) so it does not inherit `rust-version` from the root workspace, but it
 # depends on path crates FROM that workspace (tempo-app, propagation, tempo-net, tempo-core,
@@ -48,7 +48,7 @@ rust-version = "1.91"
 significant_drop_in_scrutinee = "deny"
 
 [[bin]]
-name = "Nexus"
+name = "shackcq-desktop-nexus-review"
 path = "src/main.rs"
 
 [lib]
@@ -74,7 +74,6 @@ tauri-plugin-notification = "2"
 # Signed self-update (0.17.17). Apache-2.0 OR MIT (Tauri first-party, same licence as tauri
 # itself, already vendored) — compatible with our GPL-3.0-only. OSS-integration checklist run
 # 2026-07-25; NOTICE updated.
-tauri-plugin-updater = "2"
 # "Start Nexus when I sign in to this computer" (Settings ▸ Start at sign-in), so a Remote
 # station survives a reboot. Tauri first-party, Apache-2.0 OR MIT; it pulls auto-launch (MIT),
 # dirs (MIT OR Apache-2.0) and winreg (MIT) — all compatible with our GPL-3.0-only. Writes the
@@ -91,6 +90,7 @@ tauri-plugin-autostart = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Remote's outbound task is isolated from CAT/audio. These packages are already
 # in the graph except the reviewed WebSocket adapter and its framing dependencies.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
@@ -102,7 +102,7 @@ tokio-tungstenite = { version = "=0.30.0", default-features = false, features = 
 # reqwest's native-tls feature would also move EVERY reqwest client onto the OS TLS stack; the
 # one connection that needs that stack (HRDLog.net) uses the native-tls crate directly, and
 # scripts/check-reqwest-rustls-only.sh fails CI if reqwest ever gains the feature.
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json", "stream"] }
 # The application/domain logic. Built by the M3 UI task (#2). This shell only
 # locks its AppState behind a Mutex and forwards commands to it.
 tempo-app = { path = "../crates/tempo-app" }

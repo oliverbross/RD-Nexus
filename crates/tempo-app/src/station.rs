@@ -1298,6 +1298,22 @@ impl StationCore {
         n
     }
 
+    /// Atomically persist a caller-validated projection without invoking live-contact
+    /// observers or provider upload queues. Failure leaves the current view intact.
+    pub fn replace_logbook_projection(&mut self, records: Vec<QsoRecord>) -> Result<(), String> {
+        let path = self.log_path.as_ref().ok_or("logPathUnavailable")?;
+        let mut next = self.logbook.clone();
+        next.clear();
+        for record in records {
+            next.add(record);
+        }
+        let stamp = next.save(path).map_err(|_| "logSaveFailed")?;
+        self.logbook = next;
+        self.last_log_mtime = stamp;
+        self.refresh_worked_index();
+        Ok(())
+    }
+
     /// Import an external ADIF logbook: merge (deduped) into the persistent log,
     /// persist it, and return `(added, skipped, updated, total)` — where `updated`
     /// counts records ALREADY logged that the import upgraded. The next propagation
@@ -1761,6 +1777,29 @@ impl StationCore {
 mod grid_tests {
     use super::*;
     use tempo_core::logbook::QsoRecord;
+
+    #[test]
+    fn authoritative_projection_is_durable_and_never_queues_a_live_upload() {
+        let mut station = StationCore::new();
+        station.logbook.add(rec("VK8AA", "20m", "PH57"));
+        let before = station.logbook.adif();
+        assert!(station.replace_logbook_projection(vec![]).is_err());
+        assert_eq!(station.logbook.adif(), before);
+        let directory =
+            std::env::temp_dir().join(format!("nexus-projection-test-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        station.log_path = Some(directory.join("log.adi"));
+        station
+            .replace_logbook_projection(vec![rec("VK8BB", "40m", "PH57")])
+            .unwrap();
+        assert_eq!(station.logbook.records()[0].call, "VK8BB");
+        assert!(station.pending_uploads.is_empty());
+        let disk = Logbook::load(station.log_path.as_ref().unwrap());
+        assert_eq!(disk.records()[0].call, "VK8BB");
+        station.replace_logbook_projection(vec![]).unwrap();
+        assert!(Logbook::load(station.log_path.as_ref().unwrap()).is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     fn rec(call: &str, band: &str, grid: &str) -> QsoRecord {
         QsoRecord {

@@ -1,20 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Nexus",
-  "mainBinaryName": "Nexus",
-  "version": "1.14.0",
-  "identifier": "com.kd9taw.tempo",
+  "productName": "ShackCQ Desktop Nexus Review 6.8",
+  "mainBinaryName": "shackcq-desktop-nexus-review",
+  "version": "1.14.0-review.6.8",
+  "identifier": "app.shackcq.desktop.nexusreview6",
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ui run dev",
-    "beforeBuildCommand": "npm --prefix ui run build"
+    "beforeDevCommand": "cd ../ui && npm run dev",
+    "beforeBuildCommand": "cd ../ui && npm run build"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Nexus",
+        "title": "ShackCQ Desktop — Nexus Review 6.8",
         "label": "main",
         "width": 1200,
         "height": 720,
@@ -43,19 +43,19 @@
       "csp": null,
       "assetProtocol": {
         "enable": true,
-        "scope": ["$PICTURE/Nexus SSTV/**", "$LOCALDATA/Nexus/sstv-gallery/**"]
+        "scope": ["$PICTURE/ShackCQ Desktop Nexus Review SSTV/**", "$LOCALDATA/ShackCQ Desktop Nexus Review/sstv-gallery/**"]
       }
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
     "targets": "all",
     "category": "Utility",
-    "publisher": "KD9TAW",
-    "copyright": "Copyright (C) 2026 KD9TAW. GPL-3.0-only.",
-    "shortDescription": "Unified ham digital-ops nerve center (FT8/FT4 + Tempo)",
-    "longDescription": "Nexus is a unified, native ham digital-operations nerve center — FT8/FT4 decode, waterfall, spots, map, propagation, logbook, and awards in one app, plus Tempo two-way free-text calling. It keeps the technical data a ham operator expects — SNR, audio offset, dT, dial freq/band/sideband, mode/tier, T/R + slot timing — as first-class information, and makes station setup and propagation intelligence automatic.",
+    "publisher": "ShackCQ",
+    "copyright": "Copyright (C) 2026 KD9TAW and ShackCQ contributors. GPL-3.0-only.",
+    "shortDescription": "ShackCQ Desktop review build based on Nexus v1.14.0",
+    "longDescription": "An isolated ShackCQ Desktop review distribution based on the complete GPLv3 Nexus v1.14.0 application, retaining its Digi, radio, multi-radio, Hamlib, rotator, satellite, logbook and operating capabilities while adding bounded ShackCQ website synchronization.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -67,6 +67,7 @@
       "resources/hamlib/*": "resources/hamlib/",
       "resources/deepcw/*": "resources/deepcw/",
       "resources/tles/*": "resources/tles/",
+      "../ui/src/data/cqzones.LICENSE.txt": "resources/data/cqzones.LICENSE.txt",
       "../licenses/remote/*": "resources/remote/",
       "../licenses/openssl/*": "resources/openssl/",
       "../COPYING": "COPYING",
@@ -99,13 +100,6 @@
     },
     "macOS": {
       "entitlements": "Entitlements.plist"
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUxMDdDMUU4NzZFNzVDQkIKUldTN1hPZDI2TUVIVVpDZDRVb0QxS1ZLWE0zUndyMmNCZFZNM1ptT3M0dnAraXJzSGtiamNqTlMK",
-      "endpoints": ["https://github.com/kd9taw/Nexus/releases/latest/download/latest.json"],
-      "windows": { "installMode": "passive" }
     }
   }
 }

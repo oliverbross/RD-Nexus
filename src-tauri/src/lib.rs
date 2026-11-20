@@ -31,16 +31,20 @@
 /// Window → radio-chain addressing: the `(panel, instance)` token grammar, the window-label
 /// parser both the geometry store and the (future) chain resolver share, and the one-entry
 /// chain registry. Inert at runtime — see the module docs.
+mod acceptance;
 mod chains;
 /// The human DX-cluster node feeds: which run, which should, and how each node is doing.
 mod cluster_nodes;
 mod pouncer;
+mod product_mode;
 mod profile_sync;
 mod remote_monitor;
 mod remote_service;
 /// "Spot me": the operator's own activation to pota.app and the DX cluster, for the desktop and
 /// the Remote page alike.
 mod self_spot;
+mod shackcq_agent;
+mod shackcq_connector;
 /// Pins `assetProtocol.scope` to where SSTV images are actually written — they are one fact in
 /// two files, and when they drifted every gallery preview silently went blank.
 #[cfg(test)]
@@ -52,7 +56,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::Manager;
 use tauri::State;
-use tauri_plugin_updater::UpdaterExt;
 use tempo_app::dto::{
     AppSnapshot, DiagnosticsReportDto, ImportStats, LoggedQso, LotwSyncResult, MeterReadout,
     SourceKind, Spectrum, Tier, UploadReportDto, WinlinkAttachment, WinlinkMessage, WinlinkRow,
@@ -1451,6 +1454,9 @@ fn sanitize_profile(s: &str) -> Option<String> {
 /// `--profile` earns its place on the one test that matters here: it must be read BEFORE the
 /// config directory is chosen, so it cannot be a setting. Debug detail is not in that class.
 fn active_profile() -> Option<&'static str> {
+    if acceptance::active() {
+        return Some("acceptance");
+    }
     static PROFILE: OnceLock<Option<String>> = OnceLock::new();
     PROFILE
         .get_or_init(|| {
@@ -1479,14 +1485,17 @@ fn active_profile() -> Option<&'static str> {
 /// naming is testable without touching env/args.
 fn profile_dir_name(profile: Option<&str>) -> String {
     match profile {
-        Some(p) => format!("tempo-{p}"),
-        None => "tempo".to_string(),
+        Some(p) => format!("shackcq-nexus-review-{p}"),
+        None => "shackcq-nexus-review".to_string(),
     }
 }
 
 /// The config directory for a GIVEN profile (`None` = default) — `<base>/tempo[-<profile>]`.
 /// Used to peek at another profile's lock without being that profile.
 fn config_dir_for(profile: Option<&str>) -> PathBuf {
+    if let Some(i) = acceptance::get() {
+        return i.path("config");
+    }
     config_base().join(profile_dir_name(profile))
 }
 
@@ -1721,6 +1730,9 @@ fn use_single_radio() -> Result<(), String> {
 /// existing `log.adi` stays put and simply becomes the shared one, no migration). Override
 /// with `NEXUS_DATA_DIR` to place the shared log on a NAS/Drive-synced folder (a multi-PC shack).
 fn shared_data_dir() -> PathBuf {
+    if let Some(i) = acceptance::get() {
+        return i.path("data");
+    }
     // ⚠️ RESOLVED ONCE PER PROCESS (#289). The operator can choose this folder in Settings, and a
     // change must reach the app at the NEXT launch only: the logbook handle is opened from this
     // path at startup while Winlink asks again per call, so a mid-session change would split the
@@ -1731,7 +1743,7 @@ fn shared_data_dir() -> PathBuf {
             || match std::env::var_os("NEXUS_DATA_DIR").filter(|s| !s.is_empty()) {
                 Some(d) => PathBuf::from(d),
                 None => read_data_dir_pointer_in(&config_dir_for(None))
-                    .unwrap_or_else(|| config_base().join("tempo")),
+                    .unwrap_or_else(|| config_base().join("shackcq-nexus-review")),
             },
         )
         .clone()
@@ -1978,7 +1990,10 @@ fn get_data_folder() -> DataFolderInfo {
         .to_string(),
         log_present: current.join("log.adi").is_file(),
         current: current.to_string_lossy().into_owned(),
-        default: config_base().join("tempo").to_string_lossy().into_owned(),
+        default: config_base()
+            .join("shackcq-nexus-review")
+            .to_string_lossy()
+            .into_owned(),
         chosen: chosen.map(|p| p.to_string_lossy().into_owned()),
     }
 }
@@ -2752,6 +2767,9 @@ fn parks_cache_path() -> PathBuf {
 /// it is worth knowing before anyone moves either of them. (Splitting install from data is
 /// real work with a migration behind it; it is not this change.)
 fn local_data_dir() -> PathBuf {
+    if let Some(i) = acceptance::get() {
+        return i.path("cache");
+    }
     let base = if cfg!(windows) {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
     } else {
@@ -2759,7 +2777,8 @@ fn local_data_dir() -> PathBuf {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
     };
-    base.unwrap_or_else(|| PathBuf::from(".")).join("Nexus")
+    base.unwrap_or_else(|| PathBuf::from("."))
+        .join("ShackCQ Desktop Nexus Review")
 }
 
 /// The WSJT-X-format decode log (`ALL.TXT`), in the app's LOCAL data dir — the same class of
@@ -2844,13 +2863,12 @@ fn reveal_diag_log(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Where received SSTV images are saved — the same operator-findable local data
-/// dir as ALL.TXT (`%LOCALAPPDATA%\Nexus\sstv-gallery` on Windows,
-/// `~/.local/share/Nexus/sstv-gallery` on Unix). Each finished image lands here
+/// dir as ALL.TXT, inside the isolated ShackCQ review profile. Each finished image lands here
 /// as `<UTC stamp>_<mode>.bmp` with a `gallery.json` metadata sidecar beside
 /// the images (written by the `sstvrx` decode thread).
 fn sstv_gallery_dir() -> PathBuf {
     match PICTURES_DIR.get() {
-        Some(p) => p.join("Nexus SSTV"),
+        Some(p) => p.join("ShackCQ Desktop Nexus Review SSTV"),
         None => legacy_sstv_gallery_dir(),
     }
 }
@@ -3234,7 +3252,7 @@ fn voice_dir() -> PathBuf {
 /// tests, where [`DOCUMENTS_DIR`] is never set.
 fn recordings_dir() -> PathBuf {
     match DOCUMENTS_DIR.get() {
-        Some(d) => d.join("Nexus").join("Recordings"),
+        Some(d) => d.join("ShackCQ Desktop Nexus Review").join("Recordings"),
         None => legacy_recordings_dir(),
     }
 }
@@ -10603,6 +10621,9 @@ fn effective_rotator_addr(st: &tempo_app::settings::Settings) -> Option<String> 
 /// function took the "running with the right params" arm and never looked at the corpse. It
 /// looks now, in both places: after the spawn, and on every later sync.
 fn sync_rotctld(engine: &SharedEngine) {
+    if acceptance::active() {
+        return;
+    }
     // Serialize first, then read current settings. A delayed notification must
     // never restore a snapshot from before a newer local profile selection.
     // Drop Engine before any daemon operation; the lock order is ROTCTLD -> Engine.
@@ -12115,6 +12136,12 @@ fn b64_encode(data: &[u8]) -> String {
 /// attribute is where it runs. Both are load-bearing — keep them together.
 #[tauri::command(async)]
 fn set_tx_enabled(state: State<'_, SharedEngine>, enabled: bool) -> Result<AppSnapshot, String> {
+    if enabled && !shackcq_connector::SHACKCQ_DIGI_TX_ENABLED {
+        return Err(
+            "Transmit is locked in this ShackCQ review build; owner hardware acceptance is required"
+                .to_string(),
+        );
+    }
     let mut eng = engine_lock(&state);
     eng.set_tx_enabled(enabled);
     Ok(eng.snapshot())
@@ -13695,6 +13722,7 @@ fn set_fd_operator(state: State<'_, SharedEngine>, call: String) -> Result<AppSn
 /// its own writes). Silently returning a beta tester to the stable channel produces no error,
 /// no toast and no log line — the betas simply stop arriving. `Engine::apply_settings` now
 /// keeps the live value, so this is the only thing that can change it.
+#[cfg(any())]
 #[tauri::command(async)]
 fn set_beta_updates(state: State<'_, SharedEngine>, on: bool) -> Result<AppSnapshot, String> {
     let mut eng = engine_lock(&state);
@@ -14017,6 +14045,14 @@ fn call_station(
 ) -> Result<AppSnapshot, String> {
     let mut eng = engine_lock(&state);
     // Working a station keys a standard structured message (your grid in Tx1) — refuse
+    if let Some(isolation) = acceptance::get() {
+        isolation.revalidate()?;
+        if !isolation.manifest.digi_audio {
+            return Err("fixtureAudioRequired".into());
+        }
+        eng.select_fixture_contact(&call)?;
+        return Ok(eng.snapshot());
+    }
     // without a valid callsign + grid so we never emit a grid-less directed call. The
     // mode plugin decides which tiers are gated (Capabilities::structured_identity).
     eng.structured_tx_ready(true)?;
@@ -15650,7 +15686,7 @@ async fn sync_lotw_report(
 // log. The username + the incremental high-water cursor are non-secret and live
 // in Settings.
 
-const LOTW_KEYCHAIN_SERVICE: &str = "tempo";
+const LOTW_KEYCHAIN_SERVICE: &str = "app.shackcq.desktop.nexusreview";
 const LOTW_KEYCHAIN_USER: &str = "lotw-password";
 const EQSL_KEYCHAIN_USER: &str = "eqsl-password";
 const QRZ_KEYCHAIN_USER: &str = "qrz-password";
@@ -17062,48 +17098,75 @@ fn effective_clublog_key(settings_key: &str) -> String {
 }
 
 fn lotw_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, LOTW_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        LOTW_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn eqsl_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, EQSL_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        EQSL_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn qrz_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, QRZ_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        QRZ_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn qrz_logbook_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, QRZ_LOGBOOK_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        QRZ_LOGBOOK_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn hamqth_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, HAMQTH_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        HAMQTH_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn clublog_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, CLUBLOG_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        CLUBLOG_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn cloudlog_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, CLOUDLOG_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        CLOUDLOG_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn hrdlog_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, HRDLOG_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        HRDLOG_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 fn wrl_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, WRL_KEYCHAIN_USER)
-        .map_err(|e| format!("keychain unavailable: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        WRL_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("keychain unavailable: {e}"))
 }
 
 /// Delete a keychain entry idempotently — a missing entry counts as success
@@ -21139,8 +21202,11 @@ fn radioprog_cache_dir() -> PathBuf {
 const REPEATERBOOK_KEYCHAIN_USER: &str = "repeaterbook-token";
 
 fn repeaterbook_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, REPEATERBOOK_KEYCHAIN_USER)
-        .map_err(|e| format!("couldn't open the system keychain: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        REPEATERBOOK_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("couldn't open the system keychain: {e}"))
 }
 
 /// Store (or, if empty, clear) the operator's RepeaterBook API token (`rbuapp_…`, generated from
@@ -21988,6 +22054,7 @@ impl tempo_audio::rigctld_server::RigBackend for EngineRig {
 ///
 /// Order matters: report the most immediate hazard first, because the operator acts on the first
 /// thing they read.
+#[cfg(test)]
 fn install_block_reason(
     transmitting: bool,
     tuning: bool,
@@ -22013,6 +22080,7 @@ fn install_block_reason(
     None
 }
 
+#[cfg(any())]
 #[tauri::command]
 async fn update_install_block(state: State<'_, SharedEngine>) -> Result<Option<String>, String> {
     with_engine(&state, |eng| {
@@ -22049,6 +22117,7 @@ async fn update_install_block(state: State<'_, SharedEngine>) -> Result<Option<S
 /// in the seconds the install itself took; routing the restart through the same
 /// safe-shutdown means a keyed rig is unkeyed, never hard-killed. (`restart()` on the main
 /// thread would skip those events entirely — its own docs say so.)
+#[cfg(any())]
 #[tauri::command]
 fn restart_app(app: tauri::AppHandle) {
     tempo_core::applog::info(
@@ -22060,9 +22129,8 @@ fn restart_app(app: tauri::AppHandle) {
 
 // ─── Opt-in BETA update channel ────────────────────────────────────────────────────────────
 //
-// The STABLE self-updater (useSelfUpdate.ts → the plugin's own JS commands) is UNTOUCHED: every
-// non-beta user keeps that proven path byte-for-byte. This is a SEPARATE path only a user who
-// turned on `beta_updates` ever reaches. GitHub's `/releases/latest` redirect excludes
+// Retained upstream implementation is compiled out for the ShackCQ review product. GitHub's
+// `/releases/latest` redirect excludes
 // pre-releases, so the stable feed can never see a beta; the beta path lists releases via the
 // GitHub API, picks the newest build (pre-releases included, see
 // `tempo_app::update::newest_release_manifest`), and points the updater at THAT release's
@@ -22072,14 +22140,17 @@ fn restart_app(app: tauri::AppHandle) {
 
 /// The GitHub releases API — lists pre-releases too (unlike the `/releases/latest` redirect the
 /// stable feed uses). 20 is far more than the few betas a cycle ever has in flight.
+#[cfg(any())]
 const GITHUB_RELEASES_URL: &str = "https://api.github.com/repos/kd9taw/Nexus/releases?per_page=20";
 
 /// Holds the pending beta `Update` between the check that found it and the install the operator
 /// presses — the JS side cannot carry a Rust `Update` handle, so it lives here. `None` until a
 /// check finds a newer beta; taken (not cloned) at install time so a double-press can't double-run.
+#[cfg(any())]
 #[derive(Default)]
 struct BetaUpdateState(std::sync::Mutex<Option<tauri_plugin_updater::Update>>);
 
+#[cfg(any())]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BetaUpdateInfo {
@@ -22094,6 +22165,7 @@ struct BetaUpdateInfo {
 /// build — stashes the `Update` for [`install_beta_update`] and returns its version. `Ok(None)` =
 /// up to date or nothing installable; `Err` = a fetch/parse failure (the frontend treats it
 /// silently, exactly as the stable check does). Called only while `beta_updates` is on.
+#[cfg(any())]
 #[tauri::command]
 async fn check_beta_update(
     app: tauri::AppHandle,
@@ -22138,6 +22210,7 @@ async fn check_beta_update(
 /// out of state above, so a second press finds nothing to install. Progress is deliberately not
 /// streamed — the beta banner shows an indeterminate "installing" state, which keeps this opt-in
 /// path free of the Tauri `Channel` plumbing the codebase has no other use of.
+#[cfg(any())]
 #[tauri::command]
 async fn install_beta_update(state: tauri::State<'_, BetaUpdateState>) -> Result<(), String> {
     let update = state
@@ -22155,13 +22228,17 @@ async fn install_beta_update(state: tauri::State<'_, BetaUpdateState>) -> Result
 /// Our own update endpoint (schema 1): a `version.json` with a direct `"latest"` field. Primary,
 /// GitHub-first, and under our control — so update accuracy no longer depends on SourceForge's
 /// per-release "Default Download" flip.
+#[cfg(any())]
 const VERSION_JSON_URL: &str = "https://hamradiotools.io/nexus/version.json";
 /// SourceForge `best_release.json` — the FALLBACK release feed if the endpoint is unreachable.
+#[cfg(any())]
 const BEST_RELEASE_URL: &str = "https://sourceforge.net/projects/nexus-ham-radio/best_release.json";
 /// The download page the "Download" button opens — GitHub Releases (primary distribution), which
 /// lists every installer plus notes; SourceForge mirrors it.
+#[cfg(any())]
 const DOWNLOAD_PAGE_URL: &str = "https://github.com/kd9taw/nexus/releases/latest";
 
+#[cfg(any())]
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateInfo {
@@ -22177,6 +22254,7 @@ struct UpdateInfo {
 
 /// Blocking GET of a text/JSON URL — mirrors the propagation crate's reqwest usage (rustls, short
 /// timeout, a UA). Returns the raw body; call it via `spawn_blocking` from the command.
+#[cfg(any())]
 fn fetch_text(url: &str) -> Result<String, String> {
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
@@ -22200,6 +22278,7 @@ fn fetch_text(url: &str) -> Result<String, String> {
 /// fall back to SourceForge's best_release.json. `Ok(None)` = a feed was reachable but carried no
 /// usable version; `Err` = BOTH feeds failed to fetch (treated as offline → the frontend stays
 /// silent). Runs blocking HTTP, so call via `spawn_blocking`.
+#[cfg(any())]
 fn fetch_latest_version() -> Result<Option<String>, String> {
     // Primary: our own endpoint.
     if let Ok(body) = fetch_text(VERSION_JSON_URL) {
@@ -22216,6 +22295,7 @@ fn fetch_latest_version() -> Result<Option<String>, String> {
 /// Check the release feed for a newer version. Returns the current/latest versions and whether an
 /// update exists; the frontend decides whether to show the dismissible prompt. Returns `Err`
 /// offline or on a fetch error — the frontend treats that as a silent no-op (offline honesty).
+#[cfg(any())]
 #[tauri::command]
 async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
     let latest = tauri::async_runtime::spawn_blocking(fetch_latest_version)
@@ -22252,7 +22332,7 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<UpdateInfo, String> {
 /// How long to watch a freshly-spawned launcher before deciding it took the URL. Long enough
 /// for `xdg-open` to look up the handler and give up (it exits in tens of milliseconds when it
 /// is going to), short enough that the operator never notices the wait.
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 const LAUNCHER_PROBE: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// Hand a URL to one desktop launcher and report whether the launcher ACCEPTED it.
@@ -22268,7 +22348,7 @@ const LAUNCHER_PROBE: std::time::Duration = std::time::Duration::from_millis(400
 /// one still alive at the deadline has taken the URL — it is waiting on the browser, or it IS
 /// the browser. Waiting for that to exit would block for the browser's whole lifetime, which is
 /// what the detached spawn was avoiding in the first place.
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 fn spawn_launcher(program: &str, args: &[&str], url: &str) -> Result<(), String> {
     use std::process::Stdio;
     let mut child = tempo_core::process::command(program)
@@ -22301,7 +22381,7 @@ fn spawn_launcher(program: &str, args: &[&str], url: &str) -> Result<(), String>
 /// (present where `xdg-open` may not be), then the WSL bridge and the Debian browser
 /// alternative. The first launcher that ACCEPTS the URL wins; if every one of them refuses,
 /// so does this, carrying what each said.
-#[cfg(target_os = "linux")]
+#[cfg(any())]
 fn open_url_checked(url: &str) -> Result<(), String> {
     const LAUNCHERS: [(&str, &[&str]); 5] = [
         ("xdg-open", &[]),
@@ -22330,6 +22410,7 @@ fn open_url_checked(url: &str) -> Result<(), String> {
 ///
 /// `async` so the launcher probe runs off the UI thread, and logged either way: `check_for_update`
 /// writes a line per check, and a reporter's log used to show "update available" and then silence.
+#[cfg(any())]
 #[tauri::command(async)]
 fn open_download_page(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "linux")]
@@ -22630,6 +22711,7 @@ fn persist_journals(app_handle: &tauri::AppHandle) {
 ///
 /// A no-op off Windows: there `install()` returns to its caller, the frontend calls
 /// `restart_app`, and `quit_cleanup` runs in full on the ordinary exit path.
+#[cfg(any())]
 #[tauri::command]
 fn prepare_update_install(app: tauri::AppHandle) {
     #[cfg(windows)]
@@ -22864,6 +22946,19 @@ fn install_panic_logger() {
 /// Build and run the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Resolve explicit fixture isolation before any operator profile, keychain,
+    // log, daemon ledger or worker. Prerelease candidates refuse missing fixture
+    // arguments; stable product launches retain the full ordinary startup.
+    if let Err(error) = acceptance::initialize_if_requested() {
+        eprintln!("ShackCQ acceptance startup refused: {error}");
+        return;
+    }
+    // Subscribe at Nexus's authoritative contact-commit boundary. The connector journals the
+    // prepared record before the log append and marks it committed afterwards, allowing startup
+    // recovery to distinguish a committed contact from an abandoned pre-append record.
+    let _ = tempo_app::engine::install_contact_commit_observer(
+        shackcq_connector::observe_contact_commit,
+    );
     // WebKitGTK's default DMABUF/GBM compositing renderer degrades to a slow software
     // readback path on many Intel-iGPU / hybrid-graphics / newer-Mesa laptops, which
     // makes EVERY webview paint (clicks, scroll, hover) crawl — the "super slow on a
@@ -22881,7 +22976,9 @@ pub fn run() {
     // here instead, while `PATH` can be edited safely because nothing has started a thread
     // yet. See `deepcw::warm_cpu_cache_probe` for the whole of it.
     #[cfg(feature = "radio")]
-    tempo_audio::warm_cpu_cache_probe();
+    if !acceptance::active() {
+        tempo_audio::warm_cpu_cache_probe();
+    }
 
     // ── Diagnostic log ───────────────────────────────────────────────────────────────────
     // Opened before anything else can fail, because the failures worth diagnosing are the
@@ -22917,7 +23014,7 @@ pub fn run() {
     // profile so the new window inherits the radios list + all prefs — otherwise it would boot on
     // empty defaults and not know which radios exist. (The shared LOGBOOK is separate; see
     // shared_data_dir.) One-time: once tempo-<profile>/settings.json exists it diverges freely.
-    if active_profile().is_some() {
+    if !acceptance::active() && active_profile().is_some() {
         let mine = settings_path();
         if !mine.exists() {
             if let Ok(text) = std::fs::read_to_string(config_dir_for(None).join("settings.json")) {
@@ -22929,7 +23026,8 @@ pub fn run() {
         }
     }
 
-    let mut settings = Settings::load(&settings_path());
+    let mut settings =
+        acceptance::get().map_or_else(|| Settings::load(&settings_path()), |i| i.settings());
     // The DEBUG tier, as early as the settings are known — a diagnostic session must capture
     // the startup it was turned on for, not just what came after.
     tempo_core::applog::set_debug(settings.diag_debug_log);
@@ -22987,7 +23085,7 @@ pub fn run() {
     // Scoped to `r<id>` (radio-window) profiles: those are the multi-radio fleet, and base is their
     // shared source of truth. A hand-named `--profile hf` is a deliberately independent station
     // config and must keep its own roster and its own routing table.
-    if bound_radio.is_some() {
+    if !acceptance::active() && bound_radio.is_some() {
         let base = Settings::load(&config_dir_for(None).join("settings.json"));
         let missing: Vec<_> = base
             .radios
@@ -23041,7 +23139,7 @@ pub fn run() {
     // no Secret Service `set_password` fails, and clearing the field regardless would silently
     // DESTROY the operator's stored key (round 7 F12). If it did not store, the key stays in the
     // file — the same state as before this launch — and the migration is retried next launch.
-    if !settings.cloudlog_key.trim().is_empty() {
+    if !acceptance::active() && !settings.cloudlog_key.trim().is_empty() {
         let stored = cloudlog_keychain()
             .and_then(|entry| {
                 entry
@@ -23118,6 +23216,12 @@ pub fn run() {
     let receive_audio = rx_tap.receive_audio();
 
     #[cfg(feature = "radio")]
+    let audio_startup = product_mode::audio_policy(
+        product_mode::startup(),
+        acceptance::get().map(|i| i.manifest.digi_audio),
+    );
+
+    #[cfg(feature = "radio")]
     let mut radio_cfg = tempo_audio::service::RadioConfig {
         on_active_profile_change: None,
         // The SAME feed the UI reads (registered as managed state below) and the tee the
@@ -23127,7 +23231,21 @@ pub fn run() {
         rx_tap: rx_tap.clone(),
         capture_radio_id: Some(settings.active_radio),
         meter_feed: meter_feed.clone(),
-        ptt_method: settings.ptt_method.clone(),
+        // ShackCQ starts as the Basic radio/rotator bridge. Basic is controller-only: it must
+        // never ask CoreAudio for a default input or prompt for microphone permission. Digi
+        // audio is a separate, explicit lifecycle; selecting a product tab or reconnecting Web
+        // is not permission to construct a production audio backend.
+        audio_startup,
+        host_transmit_allowed: acceptance::get().is_some_and(|i| i.manifest.digi_audio)
+            || shackcq_connector::SHACKCQ_DIGI_TX_ENABLED,
+        // Fixture audio is a file-only route. Force VOX semantics so even a stale profile cannot
+        // cause CAT/serial PTT while the synthetic sequencer is exercised; the waveform goes only
+        // to the required fixture sink file.
+        ptt_method: if audio_startup == tempo_audio::service::AudioStartup::Fixture {
+            "vox".to_string()
+        } else {
+            settings.ptt_method.clone()
+        },
         // The operator's D1/D2/D3 choice, from the ACTIVE radio's profile. Without this the
         // picker is decorative: the setting saved, the UI moved, the CI-V command supported it,
         // and nothing carried the value into the backend (found by issue triage, same day).
@@ -23255,17 +23373,21 @@ pub fn run() {
     ))));
     let health: SharedHealth = Arc::new(FeedHealthState::default());
     cluster_nodes::set_config(node_config);
-    if cluster_active {
+    if !acceptance::active() && cluster_active {
         start_cluster_feeds(&spots, &cluster_call, &cluster_ssid, &health, false);
     }
-    start_pskr_feed(&live_paths, &cluster_call, &health);
-    start_wspr_feed(&live_paths, &cluster_call);
+    if !acceptance::active() {
+        start_pskr_feed(&live_paths, &cluster_call, &health);
+        start_wspr_feed(&live_paths, &cluster_call);
+    }
     // The APRS-IS feed is independent of the APRS RF decoder's arm state by design, so it comes
     // up here with the other network feeds rather than when the APRS view is entered.
-    sync_aprs_is_feed(&engine);
+    if !acceptance::active() {
+        sync_aprs_is_feed(&engine);
+    }
     // Integrated rotator: launch the bundled rotctld when a model is configured.
     sync_rotctld(&engine);
-    if region_enabled {
+    if !acceptance::active() && region_enabled {
         start_pskr_region_feed(&region_paths, &cluster_call, &region_grid);
     }
     // Record the LOGIN IDENTITY the feeds were started under, so a later Settings rename
@@ -23287,6 +23409,9 @@ pub fn run() {
     // expedition tagging works from launch — without it the cache stays cold until
     // the operator first opens Connect/DXpeditions.
     std::thread::spawn(|| {
+        if acceptance::active() {
+            return;
+        }
         let _ = propagation::live::dxped::fetch_plans();
     });
     // Warm the POTA/SOTA activator cache in the background on a slow cadence (~3 min;
@@ -23298,6 +23423,9 @@ pub fn run() {
     {
         let ota = ota_spots.clone();
         std::thread::spawn(move || loop {
+            if acceptance::active() {
+                break;
+            }
             for (prog, fetched) in [
                 ("POTA", propagation::live::pota::fetch_pota_spots()),
                 ("SOTA", propagation::live::pota::fetch_sota_spots(50)),
@@ -23373,6 +23501,9 @@ pub fn run() {
             };
             if stale {
                 std::thread::spawn(|| {
+                    if acceptance::active() {
+                        return;
+                    }
                     if let Err(e) = fcc_download_if_newer() {
                         eprintln!("tempo: FCC callsign→state auto-refresh failed: {e}");
                     }
@@ -23390,6 +23521,9 @@ pub fn run() {
             };
             if stale {
                 std::thread::spawn(|| {
+                    if acceptance::active() {
+                        return;
+                    }
                     if let Err(e) = cty_download_if_newer() {
                         eprintln!("tempo: cty.dat auto-refresh failed: {e}");
                     }
@@ -23403,6 +23537,9 @@ pub fn run() {
         // relaunches on a <6 h cache now cost zero network attempts.
         tles_load_from_disk();
         std::thread::spawn(|| {
+            if acceptance::active() {
+                return;
+            }
             std::thread::sleep(std::time::Duration::from_secs(subsec_jitter(120)));
             maybe_kick_tle_refresh(false);
         });
@@ -23435,6 +23572,10 @@ pub fn run() {
                 .is_some_and(|t| now_unix() - t <= max_secs)
         });
         eng.set_log_path(logbook_path());
+        if let Err(error) = shackcq_connector::recover_legacy_partition(&mut eng) {
+            eprintln!("ShackCQ legacy recovery refused: {error}");
+            return;
+        }
         // Club-sync position identity: generated once (8 hex), persisted, and
         // never edited — QSO ids are (posid, seq), so a changed id would
         // re-push every contact as new.
@@ -23495,7 +23636,7 @@ pub fn run() {
                 eng.load_conversations(convs);
             }
         }
-        if persisted_source == SourceKind::Companion {
+        if !acceptance::active() && persisted_source == SourceKind::Companion {
             if let Err(e) = eng.set_source(SourceKind::Companion) {
                 eprintln!("tempo: could not restore Companion source ({e}); using native");
             }
@@ -23533,6 +23674,9 @@ pub fn run() {
     {
         let sync_engine = engine.clone();
         std::thread::spawn(move || loop {
+            if acceptance::active() {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_secs(300));
             let (on, hours, last) = {
                 let eng = engine_lock(&sync_engine);
@@ -23601,6 +23745,9 @@ pub fn run() {
     {
         let auto_engine = engine.clone();
         std::thread::spawn(move || loop {
+            if acceptance::active() {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_secs(300));
             let (settings, suspended) = {
                 let eng = engine_lock(&auto_engine);
@@ -23712,6 +23859,9 @@ pub fn run() {
     {
         let push_engine = engine.clone();
         std::thread::spawn(move || loop {
+            if acceptance::active() {
+                break;
+            }
             std::thread::sleep(std::time::Duration::from_secs(2));
             let (
                 recs,
@@ -23726,6 +23876,7 @@ pub fn run() {
                 dxk,
                 cl_email,
                 cl_key,
+                shackcq_on,
             ) = {
                 // Recover a poisoned lock (conn_log pattern) — a panicked command
                 // holding the engine must not silently kill auto-upload forever.
@@ -23774,7 +23925,8 @@ pub fn run() {
                 // #290: what the full queue dropped, taken EVERY tick — before the return
                 // below, so it cannot pile up while nothing is on.
                 let dropped = eng.take_dropped_uploads();
-                if !(q || c || e || h || w || hrd || n || cl || dxk.is_some()) {
+                let shackcq_on = shackcq_connector::contact_outbox_enabled();
+                if !(q || c || e || h || w || hrd || n || cl || dxk.is_some() || shackcq_on) {
                     // Nothing enabled: LEAVE the queue intact (bounded at 256) so
                     // flipping a toggle on later still uploads this session's
                     // recent QSOs — log-first-configure-later must not lose them.
@@ -23793,6 +23945,7 @@ pub fn run() {
                     dxk,
                     cl_email,
                     cl_key,
+                    shackcq_on,
                 )
             };
             {
@@ -23883,6 +24036,20 @@ pub fn run() {
                 .filter(|p| p.origin == tempo_app::engine::UploadOrigin::CatchUp)
                 .count();
             for p in recs {
+                if shackcq_on && p.origin == tempo_app::engine::UploadOrigin::Live {
+                    if let Err(code) = shackcq_connector::capture_logged_contact(&p.rec) {
+                        conn_log("ShackCQ", "error", code);
+                        let mut eng = push_engine.lock().unwrap_or_else(|e| e.into_inner());
+                        eng.requeue_upload_at(
+                            p.rec,
+                            p.legs,
+                            p.attempts,
+                            now_unix.saturating_add(30),
+                            p.origin,
+                        );
+                        continue;
+                    }
+                }
                 // BACKOFF: a record not yet due goes back on the queue untouched — no push,
                 // no attempt spent, no toast. This is what turns 20-in-40-seconds into one
                 // push every few minutes for a genuinely-down service. It is ALSO what
@@ -24021,7 +24188,9 @@ pub fn run() {
         // config dir, shared by every profile on purpose: any instance may sweep any dead
         // instance's orphans, and the identity+parent checks inside keep a LIVE sibling
         // instance's daemons untouched.
-        tempo_audio::rigctld_proc::init_orphan_ledger(config_dir_for(None).join("daemon-pids"));
+        if !acceptance::active() {
+            tempo_audio::rigctld_proc::init_orphan_ledger(config_dir_for(None).join("daemon-pids"));
+        }
         let radio_engine = engine.clone();
         std::thread::spawn(move || {
             // The radio loop is the heartbeat — if it dies (error OR panic), TX/RX
@@ -24069,6 +24238,9 @@ pub fn run() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let mgr_engine = engine.clone();
         std::thread::spawn(move || {
+            if acceptance::active() {
+                return;
+            }
             // The running broker as (port, shutdown flag); None = not serving.
             let mut running: Option<(u16, std::sync::Arc<AtomicBool>)> = None;
             // …and the bind that FAILED, which is the other half of "not serving" (#165).
@@ -24152,6 +24324,9 @@ pub fn run() {
         use std::sync::atomic::{AtomicBool, Ordering};
         let mgr_engine = engine.clone();
         std::thread::spawn(move || {
+            if acceptance::active() {
+                return;
+            }
             // Running host as (port, shutdown); running client as (addr, shutdown).
             let mut hosting: Option<(u16, Arc<AtomicBool>)> = None;
             let mut client: Option<(String, Arc<AtomicBool>)> = None;
@@ -24306,6 +24481,9 @@ pub fn run() {
         let mgr_engine = engine.clone();
         let mgr_state = fd_board_state.clone();
         std::thread::spawn(move || {
+            if acceptance::active() {
+                return;
+            }
             // The running server as (port, shutdown flag); None = not serving.
             let mut running: Option<(u16, Arc<AtomicBool>)> = None;
             // The failed-bind half of "not serving" (#165's lesson): retry
@@ -24416,6 +24594,9 @@ pub fn run() {
         let mgr_prop = prop_cache.clone();
         let mgr_kp = kp_forecast_cache.clone();
         std::thread::spawn(move || {
+            if acceptance::active() {
+                return;
+            }
             let mut running: Option<(u16, Arc<AtomicBool>)> = None;
             let mut bind_failed: Option<(u16, std::time::Instant)> = None;
             loop {
@@ -24597,6 +24778,19 @@ pub fn run() {
 /// Everything the chain MOVES arrives in [`BuildDeps`], which clones, so the caller can hand a
 /// second identical set to a retry after setting a corrupt WebView2 user-data folder aside.
 fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
+    let mut context = tauri::generate_context!();
+    if let Some(i) = acceptance::get() {
+        let config = context.config_mut();
+        config.identifier = format!("app.shackcq.acceptance.{}", i.manifest.id);
+        for window in &mut config.app.windows {
+            window.incognito = true;
+            window.data_directory = Some(i.root.join("cache/webview"));
+            window.title = format!("ShackCQ isolated acceptance {}", i.manifest.id);
+        }
+        config.app.security.csp = Some(tauri::utils::config::Csp::Policy(
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost; media-src 'self' blob:; object-src 'none'; frame-src 'none'".into()
+        ));
+    }
     let remote_publisher = remote_monitor::Publisher::default();
     let remote_service = remote_service::Service::new(
         d.engine.clone(),
@@ -24629,15 +24823,22 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         #[cfg(feature = "radio")]
         Some(d.receive_audio.clone()),
     );
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    let mut builder = tauri::Builder::default();
+    if !acceptance::active() {
+        builder = builder
+            .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_notification::init())
+            .plugin(tauri_plugin_autostart::Builder::new().build())
+            .plugin(tauri_plugin_dialog::init());
+    }
+    builder
+        // This isolated ShackCQ review distribution must never consume Nexus release
+        // manifests or signing keys. The updater crate remains linked for the retained
+        // native code, but its webview plugin is deliberately not registered until a
+        // ShackCQ-owned signed update channel exists.
         // Start at sign-in. Driven from Rust only (`set_launch_at_login`); no capability entry.
-        .plugin(tauri_plugin_autostart::Builder::new().build())
         // The data-folder picker (#289). Driven from Rust only (`pick_data_folder`); no
         // capability entry, so the webview cannot open a dialog of its own.
-        .plugin(tauri_plugin_dialog::init())
         .manage(d.engine)
         .manage(remote_publisher)
         .manage(remote_service)
@@ -24662,14 +24863,15 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
         .manage(LogTallies::default())
         .manage(SharedQrzSession::default())
         .manage(SharedHamQthSession::default())
-        .manage(BetaUpdateState::default())
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(move |invoke| {
+            if let Some(i) = acceptance::get() {
+                if !acceptance::ipc_allowed(invoke.message.command()) || i.revalidate().is_err() {
+                    invoke.resolver.reject("acceptanceOperationDenied");
+                    return true;
+                }
+            }
+            let handler: fn(tauri::ipc::Invoke<tauri::Wry>) -> bool = tauri::generate_handler![
             display_metrics,
-            update_install_block,
-            prepare_update_install,
-            restart_app,
-            check_beta_update,
-            install_beta_update,
             log_operators,
             log_activations,
             export_log_for_activation,
@@ -24728,8 +24930,25 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             open_dxped_page,
             open_external_url,
             os_notify,
-            app_version,
-            radio_launch_info,
+             app_version,
+            shackcq_connector::shackcq_connector_capabilities,
+            product_mode::shackcq_product_mode,
+            product_mode::shackcq_set_product_mode,
+            shackcq_connector::shackcq_pairing_status,
+            shackcq_connector::shackcq_pair,
+            shackcq_connector::shackcq_forget_pairing,
+            shackcq_connector::shackcq_export_unassigned_contacts,
+            shackcq_agent::shackcq_agent_status,
+            shackcq_agent::shackcq_start_agent,
+            shackcq_agent::shackcq_stop_agent,
+            shackcq_connector::shackcq_fetch_configuration,
+            shackcq_connector::shackcq_sync_selected_logbook,
+            shackcq_connector::shackcq_contact_outbox_status,
+            shackcq_connector::shackcq_flush_contact_outbox,
+            shackcq_connector::shackcq_retry_rejected_contacts,
+            shackcq_connector::shackcq_publish_station_state,
+             shackcq_connector::shackcq_sync_completed_contact,
+             radio_launch_info,
             choose_radio,
             use_single_radio,
             import_pota_log,
@@ -24924,7 +25143,6 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             set_hold_tx_freq,
             set_blocked_calls,
             set_rtty_macros,
-            set_beta_updates,
             set_launch_at_login,
             answer_remote_autostart_offer,
             set_fd_operator,
@@ -24967,8 +25185,6 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             set_hamqth_password,
             clear_hamqth_password,
             qrz_lookup,
-            check_for_update,
-            open_download_page,
             set_qrz_logbook_key,
             clear_qrz_logbook_key,
             set_cloudlog_key,
@@ -25046,7 +25262,9 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             qsy_move_now,
             qsy_pause,
             qsy_stop
-        ])
+        ];
+            handler(invoke)
+        })
         // `move`: the hook claims the pounce receiver out of the shared bundle, so it owns
         // its half of `d` rather than borrowing a local that is about to go out of scope.
         .setup(move |app| {
@@ -25069,14 +25287,17 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             // The operator-facing folders. Captured here for the same reason as the resource dir:
             // the functions that need them are free functions with no handle. A failure to resolve
             // is not an error — the legacy in-config location is still a working default.
-            if let Ok(d) = app.path().document_dir() {
+            if let Some(i) = acceptance::get() {
+                let _ = DOCUMENTS_DIR.set(i.root.join("documents"));
+                let _ = PICTURES_DIR.set(i.root.join("pictures"));
+            } else if let Ok(d) = app.path().document_dir() {
                 let _ = DOCUMENTS_DIR.set(d);
             }
             if let Ok(p) = app.path().picture_dir() {
                 let _ = PICTURES_DIR.set(p);
             }
             // Bring an existing gallery along to Pictures before anything reads the index below.
-            migrate_sstv_gallery();
+            if !acceptance::active() { migrate_sstv_gallery(); }
             // Enforce the minimum window size at runtime too. The tauri.conf `minWidth`/
             // `minHeight` are set (both — Tauri no-ops minWidth alone), but re-applying here
             // in DPI-aware logical px is belt-and-suspenders across platforms. 900x600 is the
@@ -25148,7 +25369,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             // (and the exe-adjacent one) and pick the first that exists; a genuinely missing
             // model just surfaces the honest status.
             #[cfg(feature = "radio")]
-            {
+            if !acceptance::active() {
                 let mut candidates: Vec<std::path::PathBuf> = Vec::new();
                 if let Ok(res) = app.path().resource_dir() {
                     candidates.push(res.join("resources").join("deepcw"));
@@ -25207,7 +25428,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
             #[cfg(feature = "radio")]
             {
                 tempo_audio::rttyrx::spawn_rtty_rx(app.state::<SharedEngine>().inner().clone());
-                tempo_audio::amppoll::spawn_amp_poll(app.state::<SharedEngine>().inner().clone());
+                if !acceptance::active() { tempo_audio::amppoll::spawn_amp_poll(app.state::<SharedEngine>().inner().clone()); }
                 tempo_audio::pskrx::spawn_psk_rx(app.state::<SharedEngine>().inner().clone());
                 tempo_audio::aprsrx::spawn_aprs_rx(app.state::<SharedEngine>().inner().clone());
                 tempo_audio::sstvrx::spawn_sstv_rx(
@@ -25239,7 +25460,7 @@ fn build_app(d: BuildDeps) -> tauri::Result<tauri::App> {
                 }
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════
@@ -25456,8 +25677,11 @@ static WINLINK_SESSION: Mutex<Option<WinlinkFeed>> = Mutex::new(None);
 /// of view: [`set_winlink_password`] stores it, [`winlink_connect`] reads it, and nothing ever
 /// hands it back to the front end.
 fn winlink_keychain() -> Result<keyring::Entry, String> {
-    keyring::Entry::new(LOTW_KEYCHAIN_SERVICE, WINLINK_KEYCHAIN_USER)
-        .map_err(|e| format!("keychain unavailable: {e}"))
+    keyring::Entry::new(
+        &acceptance::credential_service(LOTW_KEYCHAIN_SERVICE),
+        WINLINK_KEYCHAIN_USER,
+    )
+    .map_err(|e| format!("keychain unavailable: {e}"))
 }
 
 /// Store (or, if `password` is empty, clear) the Winlink account password in the OS keychain.
@@ -30269,8 +30493,11 @@ mod tests {
         // Default profile's config dir == the shared "tempo" dir → single instance is unchanged
         // and shares the log with itself (no migration). A named profile is isolated but the
         // shared log dir stays "tempo", so the two never share config yet always share the log.
-        assert_eq!(profile_dir_name(None), "tempo");
-        assert_eq!(profile_dir_name(Some("radio-a")), "tempo-radio-a");
+        assert_eq!(profile_dir_name(None), "shackcq-nexus-review");
+        assert_eq!(
+            profile_dir_name(Some("radio-a")),
+            "shackcq-nexus-review-radio-a"
+        );
         assert_ne!(profile_dir_name(Some("radio-a")), profile_dir_name(None));
     }
 

@@ -44,6 +44,34 @@ use tempo_core::qso::{State as QsoState, Station as QsoStation};
 use tempo_core::qsy::{Directive, Roamer};
 use tempo_core::{channel, spectrum, tempo_fast, tx};
 
+/// Durable observers see the two sides of the local contact commit. `Preparing` is emitted
+/// after Nexus has minted the stable record id but before the append; `Committed` follows the
+/// append. A host can therefore journal the prepared record and reconcile it against the
+/// authoritative log after a process death in the narrow append-to-notification window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContactCommitPhase {
+    Preparing,
+    Committed,
+}
+
+pub type ContactCommitObserver = fn(ContactCommitPhase, &QsoRecord) -> Result<(), &'static str>;
+
+static CONTACT_COMMIT_OBSERVER: std::sync::OnceLock<ContactCommitObserver> =
+    std::sync::OnceLock::new();
+
+pub fn install_contact_commit_observer(observer: ContactCommitObserver) -> bool {
+    CONTACT_COMMIT_OBSERVER.set(observer).is_ok()
+}
+
+fn observe_contact_commit(phase: ContactCommitPhase, record: &QsoRecord) {
+    let Some(observer) = CONTACT_COMMIT_OBSERVER.get() else {
+        return;
+    };
+    if let Err(code) = observer(phase, record) {
+        tempo_core::applog::error("contact-journal", code);
+    }
+}
+
 /// The live waterfall row, published on its OWN lock so the UI can read it without
 /// contending for the engine mutex.
 ///
@@ -2572,6 +2600,13 @@ pub struct Engine {
     /// produces no residency, here as everywhere else; once the link has said where the rig
     /// is, every later knob move is the operator's exactly as before.
     rig_dial_seen: bool,
+    /// Monotonic evidence that the native CAT owner completed fresh frequency/mode reads.
+    /// Kept separate so an unrelated mode poll cannot confirm an optimistic dial request.
+    rig_freq_observation_revision: u64,
+    /// Last frequency read from the active CAT owner, never a requested dial.
+    /// The radio id prevents a pending read from being attributed to another rig.
+    rig_observed_dial: Option<(u32, u64)>,
+    rig_mode_observation_revision: u64,
     /// CW transmit queue (CAT keyer path): expanded CW text the radio loop drains and
     /// keys via `rig.send_morse`. Operator-initiated; gated by `tx_enabled` (Monitor).
     cw_queue: VecDeque<String>,
@@ -4521,6 +4556,9 @@ impl Engine {
             machinery_park: None,
             off_band_from: None,
             rig_dial_seen: false,
+            rig_freq_observation_revision: 0,
+            rig_observed_dial: None,
+            rig_mode_observation_revision: 0,
             cw_queue: VecDeque::new(),
             cw_sent: VecDeque::new(),
             cw_keyer_error: None,
@@ -5511,6 +5549,7 @@ impl Engine {
         // active — a fail-CLOSED bug, and the inverse of what the gate is for.
         self.rig_rx_ranges = None;
         self.rig_refused_dial_mhz = None;
+        self.rig_observed_dial = None;
         // The FT-710 scope state belongs to the RADIO too, and for a sharper reason than the
         // ranges above: only one radio in a roster is an FT-710, so carrying it across a switch
         // shows the outgoing rig's sweep mode and derived FIX start under a rig that has neither.
@@ -6023,6 +6062,7 @@ impl Engine {
     /// mirrors the knob. Updates the band from the frequency; leaves the operating mode +
     /// sideband to the rig-mode policy (the radio loop still owns what it commands).
     pub fn observe_rig_freq(&mut self, hz: u64) {
+        self.note_rig_freq_observation(hz);
         let mhz = hz as f64 / 1_000_000.0;
         // Is this the first thing the CAT link has ever said? Then it is not a knob move at
         // all: it is the link reporting where the rig ALREADY was, which is the boot seed's
@@ -6211,6 +6251,7 @@ impl Engine {
     pub fn seed_rig_dial(&mut self, hz: u64) {
         let mhz = hz as f64 / 1_000_000.0;
         self.rig_dial_seen = true;
+        self.rig_observed_dial = Some((self.settings.active_radio, hz));
         self.settings.dial_mhz = mhz;
         // A seed says where the rig IS and never where it came from, so it can leave no
         // band behind: whatever earlier excursion this field described, it does not describe
@@ -8407,7 +8448,29 @@ impl Engine {
         let m = mode.trim();
         if !m.is_empty() {
             self.rig_mode = Some(m.to_string());
+            self.rig_mode_observation_revision = self.rig_mode_observation_revision.wrapping_add(1);
         }
+    }
+
+    /// Record a successful native frequency read whose value already equals the retained dial.
+    /// This is readback evidence, but deliberately not a second operator-QSY event.
+    pub fn note_rig_freq_observation(&mut self, hz: u64) {
+        self.rig_observed_dial = Some((self.settings.active_radio, hz));
+        self.rig_freq_observation_revision = self.rig_freq_observation_revision.wrapping_add(1);
+    }
+
+    pub fn rig_observed_frequency_hz(&self) -> Option<u64> {
+        self.rig_observed_dial
+            .filter(|(radio_id, _)| *radio_id == self.settings.active_radio)
+            .map(|(_, hz)| hz)
+    }
+
+    /// Successful native CAT frequency and mode observation sequences.
+    pub fn rig_observation_revisions(&self) -> (u64, u64) {
+        (
+            self.rig_freq_observation_revision,
+            self.rig_mode_observation_revision,
+        )
     }
 
     /// Drop the last S-meter reading so the UI reverts to "—" — called when CAT goes
@@ -10511,6 +10574,7 @@ impl Engine {
         // The log mints the row's id; this copy, which the append and every queue below
         // carry, carries it too.
         rec.id = Some(self.station.logbook.add(rec.clone()));
+        observe_contact_commit(ContactCommitPhase::Preparing, &rec);
         // Through the station's append (not a bare `Logbook::append`) so the shared
         // log's freshness fingerprint moves with the file. Skip it and the recovery
         // gate misses on the next upload stamp / Needed-board poll and re-parses the
@@ -10518,6 +10582,9 @@ impl Engine {
         let persisted = self
             .station
             .append_to_log_checked(std::slice::from_ref(&rec), sync);
+        if persisted.is_some() {
+            observe_contact_commit(ContactCommitPhase::Committed, &rec);
+        }
         self.push_to_hrd(&rec);
         self.push_to_n1mm(&rec);
         // ...and to the WSJT-X UDP sink, which is the one a logger actually logs from. The
@@ -11076,6 +11143,40 @@ Pick the one you operate from on the Contesting tab in Settings.",
     /// Reply). Enters QSO mode answering `dxcall`, resets the TX watchdog, clears
     /// queues, and opens a fresh auto-log window (so the contact logs once when
     /// the sequence completes).
+    /// Select a station heard by an isolated, receive-only fixture. This deliberately
+    /// does not use call_station_ctx: that path arms TX and moves audio offsets.
+    /// The shell must admit this only for file-backed acceptance audio.
+    pub fn select_fixture_contact(&mut self, dxcall: &str) -> Result<(), String> {
+        if self.tx_enabled() || self.settings.mycall != "N0TST" {
+            return Err("fixtureContactDenied".into());
+        }
+        let (message, snr, _) = self
+            .latest_reply_from(dxcall, &self.settings.mycall)
+            .ok_or("fixtureReplyRequired")?;
+        if matches!(&self.mode, Mode::Qso { station, .. } if station.dxcall.as_deref() == Some(dxcall))
+        {
+            return Ok(());
+        }
+        let station = QsoStation::start(
+            &self.settings.mycall,
+            &self.settings.mygrid,
+            dxcall,
+            Some((&message, snr)),
+            self.settings.prefer_rrr,
+            false,
+        );
+        self.mode = Mode::Qso {
+            station: Box::new(station),
+            running: true,
+        };
+        self.reset_qso_log_identity();
+        self.qso_report_sent = None; // No transmission occurred in this fixture.
+        self.qso_start_unix = Some(now_unix_secs());
+        self.cq_running = false;
+        self.immediate_tx = false;
+        Ok(())
+    }
+
     pub fn call_station(&mut self, dxcall: &str) {
         let _ = self.call_station_ctx(dxcall, None, None, None, None);
     }
@@ -21328,6 +21429,11 @@ contact yourself."
         removed
     }
 
+    /// Replace a validated authoritative projection without emitting live-contact events.
+    pub fn replace_logbook_projection(&mut self, records: Vec<QsoRecord>) -> Result<(), String> {
+        self.station.replace_logbook_projection(records)
+    }
+
     /// See [`StationCore::import_adif`].
     pub fn import_adif(&mut self, text: &str) -> (usize, usize, usize, usize) {
         self.station.import_adif(text)
@@ -27489,6 +27595,30 @@ mod tests {
             "stays stopped across slots — the sequencer does NOT re-arm"
         );
         assert!(!e.snapshot().radio.transmitting);
+    }
+
+    #[test]
+    fn fixture_contact_selection_uses_received_report_without_tx_or_retune() {
+        let mut e = Engine::new("N0TST", "AA00", 0);
+        e.set_tx_enabled(false);
+        let dial = e.settings().dial_mhz;
+        assert!(e.select_fixture_contact("K1ABC").is_err());
+        e.ingest_decodes_for_test(&[dec_snr("N0TST K1ABC -12", -8)], 1);
+        e.select_fixture_contact("K1ABC").unwrap();
+        assert!(!e.tx_enabled());
+        assert_eq!(e.settings().dial_mhz, dial);
+        assert!(!e.manual_ptt());
+        assert!(e.poll_tx(2).is_empty());
+        assert!(e.log_current_qso());
+        e.select_fixture_contact("K1ABC").unwrap();
+        assert!(
+            !e.log_current_qso(),
+            "reselect/replay cannot duplicate the contact"
+        );
+        let mut ordinary = Engine::new("K2DEF", "FN31", 0);
+        ordinary.set_tx_enabled(false);
+        ordinary.ingest_decodes_for_test(&[dec_snr("K2DEF K1ABC -12", -8)], 1);
+        assert!(ordinary.select_fixture_contact("K1ABC").is_err());
     }
 
     #[test]

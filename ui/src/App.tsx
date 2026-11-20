@@ -73,7 +73,11 @@ import { useBandEdgeTones } from './useBandEdgeTones'
 import { useAchievements } from './useAchievements'
 import { useJourneyUnlocks } from './useJourneyUnlocks'
 import { useFeatures } from './useFeatures'
+import { durableGet, durableSet } from './features/durableStore'
 import { useReveals } from './useReveals'
+import { productModeAllowsView, useProductMode } from './productMode'
+import { useShackCqLogbookSync } from './useShackCqLogbookSync'
+import { ShackCqPairing } from './components/ShackCqPairing'
 import { sectionFeatures, featureById, type FeatureId } from './features/registry'
 import { resolveBootView, coerceArea } from './features/bootView'
 import { visibleNeeds, boardNeeds, workTarget, modeClassOf, topNeedByCall, alertsByCall, activityTypeByCall } from './features/needs'
@@ -171,15 +175,12 @@ import { Toasts } from './components/Toasts'
 import { ConfirmHost, confirmDialog } from './confirm'
 import { OnboardingBanner } from './components/OnboardingBanner'
 import { PounceBanner } from './components/PounceBanner'
-import { UpdateBanner } from './components/UpdateBanner'
-import { useSelfUpdate } from './useSelfUpdate'
 import { usePounce, type PounceAlert } from './usePounce'
 import { RevealNudge } from './components/RevealNudge'
 import { SetupWizard, type WizardDraft } from './components/SetupWizard'
 import { GettingStartedGuide } from './components/GettingStartedGuide'
 import { RadioPicker } from './components/RadioPicker'
 import { PROFILES, type ProfileId } from './features/profiles'
-import { maybeCheckForUpdate } from './features/updateCheck'
 
 // ⚠️ THIS FILE IS ON THE MIGRATED LIST (i18n/hardcoded-strings.test.ts). It is the shell: it
 // renders no cockpit control of its own, so what moved is its OWN prose — the loading line,
@@ -194,16 +195,16 @@ const ONBOARD_KEY = 'tempo-onboarded'
 const WIZARD_KEY = 'nexus.features.wizardSeen'
 function wizardSeen(): boolean {
   try {
-    return localStorage.getItem(WIZARD_KEY) === '1'
+    return durableGet(WIZARD_KEY) === '1'
   } catch {
     return true // storage blocked → don't nag
   }
 }
 function markWizardSeen(): void {
   try {
-    localStorage.setItem(WIZARD_KEY, '1')
+    durableSet(WIZARD_KEY, '1')
   } catch {
-    /* storage blocked — wizard simply won't persist as seen */
+    /* Both storage layers unavailable — wizard simply won't persist as seen. */
   }
 }
 // Read-only storage (e.g. Safari private mode): writes throw while reads succeed,
@@ -289,6 +290,8 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   // Modular features (toggles + profiles). Drives nav, view-gating, and the
   // gamification/achievements layer.
   const features = useFeatures()
+  const [productMode, setProductMode, productModeNeedsRestart] = useProductMode(!!remote)
+  const shackCqSync = useShackCqLogbookSync(!remote && productMode === 'digi')
   useAchievements(features.isOn('gamification'))
   useJourneyUnlocks(features.isOn('gamification'))
   const reveal = useReveals(features)
@@ -502,12 +505,6 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   const rttyPanels = usePanelLayout(RTTY_PANELS)
   const pskPanels = usePanelLayout(PSK_PANELS)
   const js8Panels = usePanelLayout(JS8_PANELS)
-
-  // One-shot on launch: check the release feed for a newer version (throttled to once/day + cached,
-  // silent when offline). Surfaces a dismissible "update available" toast; nothing auto-downloads.
-  useEffect(() => {
-    void maybeCheckForUpdate()
-  }, [])
 
   // Operate MODE: 'dx' (FT8/FT4 structured cockpit) or 'msg' (Tempo two-way
   // calling). The FT8/FT4 ⇄ Tempo switch binds the radio tier+mode and swaps only
@@ -1269,9 +1266,6 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   // Pounce — the app's one PUSH channel. The earcon has already played inside the hook by the
   // time `pounceAlert` is set; this is the visual half plus the one-click work.
   const { alert: pounceAlert, dismiss: dismissPounce } = usePounce()
-  // Signed self-update: downloads quietly, installs only on an explicit press that the engine
-  // refuses while the radio is busy (see useSelfUpdate / update_install_block).
-  const selfUpdate = useSelfUpdate(!!settings?.betaUpdates)
   const handlePounceWork = useCallback(
     (a: PounceAlert) => {
       // Route through the SAME path the needed board uses, so QSY, rig mode and pileup-split
@@ -2432,7 +2426,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   // Field Day is invisible (nav item hidden, view redirects away); master on → visible.
   const fdActive = settings?.fdActive === true
   const navEnabled: Record<FeatureId, boolean> = { ...features.enabled, fieldDay: fdActive }
-  const isViewEnabled = (v: View): boolean => navEnabled[v as FeatureId] !== false
+  const isViewEnabled = (v: View): boolean => navEnabled[v as FeatureId] !== false && productModeAllowsView(productMode, v)
   // A visible navigation item is not evidence that its station API is connected.
   // In particular, never mount SettingsPanel with the projected operating view:
   // it expects complete configuration and could display absent values as defaults.
@@ -2454,7 +2448,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
   // The nav already hides disabled sections; this guards a stale selection. Never
   // land on a disabled view (e.g. a Contest profile whose landing is Field Day while
   // the master is off) → operate.
-  const fallbackView: View = isViewEnabled(features.landing) ? features.landing : 'operate'
+  const fallbackView: View = productMode === 'basic' ? 'connect' : isViewEnabled(features.landing) ? features.landing : 'operate'
   const effectiveView: View = isViewEnabled(view) ? view : fallbackView
   // The remote contact forms stay in their original component tree while the
   // operator checks a needed station or the log. Mount only after first use;
@@ -3174,8 +3168,9 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
             onSetTxCycleAuto={handleSetTxCycleAuto}
         onSetHoldTxFreq={handleSetHoldTxFreq}
         onStopRecording={handleStopRecording}
-        hideTxControls={effectiveView === 'operate'}
+        hideTxControls={productMode === 'basic' || effectiveView === 'operate'}
         hideFrequencyControl={
+          productMode === 'basic' ||
           effectiveView === 'phone' ||
           effectiveView === 'cw' ||
           effectiveView === 'operate' ||
@@ -3228,7 +3223,22 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
         showLocalClock={localClock}
       />
 
-      <UpdateBanner update={selfUpdate} />
+
+      {!remote && <ShackCqPairing mode={productMode} />}
+
+      {!remote && productMode === 'digi' && (
+        <div className={`shackcq-logbook-sync shackcq-logbook-sync--${shackCqSync.phase}`} role="status">
+          {shackCqSync.phase === 'ready'
+            ? `Logbook synced · ${shackCqSync.result.configuration.logbook.connectionKind.toLowerCase()} · ${shackCqSync.result.remoteCount} contacts`
+            : shackCqSync.phase === 'syncing'
+              ? 'Syncing the logbook selected on ShackCQ Web…'
+              : shackCqSync.phase === 'unpaired'
+                ? 'Web logbook sync waits for ShackCQ pairing.'
+                : shackCqSync.phase === 'error'
+                  ? `Web logbook sync unavailable · ${shackCqSync.message}`
+                  : ''}
+        </div>
+      )}
 
       {/* ⚠️ NO blockReason — deliberate, operator ruling 2026-07-26.
           This used to disable Work and show "In a QSO with <call>" or "Transmitting" in place of
@@ -3261,7 +3271,7 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
         />
       )}
 
-      <NowBar
+      {productMode === 'digi' && <NowBar
         snap={snap}
         prop={prop}
         feedHealth={feedHealth}
@@ -3272,10 +3282,24 @@ function App({ remote }: { remote?: BrowserWorkspace } = {}) {
         // Profile-declared chip emphasis (dangling since the profiles landed).
         // A hand-blended feature set is tagged 'custom' (no profile) → default order.
         emphasis={features.profile === 'custom' ? undefined : PROFILES[features.profile].nowBarEmphasis}
-      />
+      />}
 
       <div className="shell">
         <ModeNav
+          productMode={productMode}
+          onProductModeChange={async (next) => {
+            if (next === productMode) return
+            if (productModeNeedsRestart && !(await confirmDialog({
+              title: `Switch to ${next === 'digi' ? 'Digi' : 'Basic'}?`,
+              body: next === 'digi'
+                ? 'ShackCQ will restart and open your configured receive audio devices. Transmit remains locked in this candidate.'
+                : 'ShackCQ will restart in Basic mode with audio stopped. Radio and rotator control remain available.',
+              confirmLabel: 'Restart ShackCQ',
+            }))) return
+            if (next === 'basic') void handleHaltTx()
+            const changed = await withErrorToast(() => setProductMode(next), 'Could not switch Desktop mode')
+            if (changed) setView(next === 'basic' ? 'connect' : 'operate')
+          }}
           view={effectiveView}
           mode={snap.mode}
           enabled={navEnabled}

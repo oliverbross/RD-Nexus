@@ -14,10 +14,10 @@
 /// `$PICTURE` is tauri 2.x's own spelling (`BaseDirectory::Picture`, tauri-2.11.2
 /// `src/path/mod.rs:190`) — NOT `$PICTURES`. A wrong variable name parses fine and grants
 /// nothing, which fails exactly like the bug this test exists for.
-const PICTURE_SCOPE: &str = "$PICTURE/Nexus SSTV/**";
+const PICTURE_SCOPE: &str = "$PICTURE/ShackCQ Desktop Nexus Review SSTV/**";
 /// Still needed: `sstv_gallery_dir()` falls back here when `picture_dir()` cannot be resolved,
 /// and `migrate_sstv_gallery()` reads it to bring an existing gallery forward.
-const LEGACY_SCOPE: &str = "$LOCALDATA/Nexus/sstv-gallery/**";
+const LEGACY_SCOPE: &str = "$LOCALDATA/ShackCQ Desktop Nexus Review/sstv-gallery/**";
 
 fn conf() -> String {
     // CARGO_MANIFEST_DIR is src-tauri/, where tauri.conf.json lives.
@@ -55,8 +55,8 @@ fn the_scope_still_names_the_directory_the_code_builds() {
     let lib = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/lib.rs"))
         .expect("lib.rs must be readable");
     assert!(
-        lib.contains(r#"join("Nexus SSTV")"#),
-        "sstv_gallery_dir() no longer joins \"Nexus SSTV\" — update PICTURE_SCOPE in this test \
+        lib.contains(r#"join("ShackCQ Desktop Nexus Review SSTV")"#),
+        "sstv_gallery_dir() no longer joins the isolated ShackCQ review folder — update PICTURE_SCOPE in this test \
          and the scope in tauri.conf.json together, or previews go blank"
     );
     assert!(

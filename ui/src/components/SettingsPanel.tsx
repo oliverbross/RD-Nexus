@@ -142,7 +142,6 @@ import {
   getCredentialsStatus,
   CREDENTIALS_CHANGED,
   setUnassistedMode,
-  setBetaUpdates,
   setLaunchAtLogin,
 } from '../api'
 import { AssistanceNote } from './AssistanceNote'
@@ -187,7 +186,6 @@ import { useLogbookGlobe } from '../features/logbookGlobe'
 import type { FeaturesApi } from '../useFeatures'
 import { FEATURES, featureById, featureCategoryLabel, type FeatureCategory, type FeatureDef, type FeatureId } from '../features/registry'
 import { PROFILE_LIST } from '../features/profiles'
-import { checkForUpdateManual } from '../features/updateCheck'
 import { ARRL_SECTIONS_BY_DIVISION, RETIRED_SECTIONS } from '../features/arrlSections'
 
 // Serial-port examples and walkthroughs are platform prose: a Mac's ports are /dev/cu.* and
@@ -2084,30 +2082,6 @@ export function SettingsPanel({
       (s) => s && reloadRadios(),
     )
   }
-  // --- App updates: the beta-channel opt-in. A LIVE verb like the roster and routing rules
-  // above, and for the sharpest version of the same reason. `set_settings` payloads no longer
-  // carry this field at all (the backend keeps the live value), because a payload is a snapshot
-  // from whenever its sender last read the settings and some senders hold theirs for the life of
-  // the window. Reverting this one is invisible — no error, no toast, no log line; the betas
-  // just stop arriving — so it gets the writer that a stale form cannot reach. Optimistic, then
-  // reconciled from the backend, so the switch does not lag a round-trip; `savedRef` moves with
-  // it because this is already persisted and must not read as an unsaved edit.
-  const toggleBetaUpdates = (on: boolean) => {
-    setForm((prev) => (prev ? { ...prev, betaUpdates: on } : prev))
-    if (savedRef.current) savedRef.current = { ...savedRef.current, betaUpdates: on }
-    void withErrorToast(() => setBetaUpdates(on), t('settings.betaUpdates.failed')).then((s) => {
-      if (!s) {
-        // The write failed and the toast said so — put the switch back where it was, rather
-        // than leave it showing a channel the backend is not on.
-        setForm((prev) => (prev ? { ...prev, betaUpdates: !on } : prev))
-        if (savedRef.current) savedRef.current = { ...savedRef.current, betaUpdates: !on }
-        return
-      }
-      // Re-pulls settings into App, which is what `useSelfUpdate` reads — so the channel
-      // takes effect on the next check rather than at the next launch.
-      onSaved?.()
-    })
-  }
   // --- Start at sign-in. The same ONE-WRITER shape as the beta channel above, with one
   // difference: the switch moves only after the backend answers, because the backend changes
   // the operating system's login entry FIRST and persists the choice only if that worked. An
@@ -3139,14 +3113,6 @@ export function SettingsPanel({
         <span className="settings-build" title={t('settings.panel.build.title')}>
           {t('settings.panel.build', { id: __BUILD_ID__ })}
         </span>
-        <button disabled={remote}
-          type="button"
-          className="settings-update-btn"
-          onClick={() => void checkForUpdateManual()}
-          title={t('settings.panel.update.title')}
-        >
-          {t('settings.panel.update.label')}
-        </button>
       </div>
 
       <form className="settings-form" onSubmit={handleSubmit}>
@@ -3759,31 +3725,6 @@ export function SettingsPanel({
                 </div>
               )
             })}
-          </fieldset>
-          )}
-
-          {/* ---- App updates: the beta (pre-release) channel opt-in ---- */}
-          {tab === 'appearance' && (
-          <fieldset className="settings-section" id="settings-app-updates">
-            <legend>{t('settings.betaUpdates.legend')}</legend>
-            <label className="settings-field">
-              <span className="settings-label">{t('settings.betaUpdates.label')}</span>
-              <button disabled={remote}
-                type="button"
-                role="switch"
-                aria-checked={!!form.betaUpdates}
-                className={`toggle${form.betaUpdates ? ' on' : ''}`}
-                onClick={() => toggleBetaUpdates(!form.betaUpdates)}
-                aria-label={
-                  form.betaUpdates
-                    ? t('settings.betaUpdates.aria.disable')
-                    : t('settings.betaUpdates.aria.enable')
-                }
-              >
-                <span className="toggle-knob" />
-              </button>
-              <span className="settings-hint">{t('settings.betaUpdates.hint')}</span>
-            </label>
           </fieldset>
           )}
 

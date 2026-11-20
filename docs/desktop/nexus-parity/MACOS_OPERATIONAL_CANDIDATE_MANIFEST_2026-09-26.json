@@ -1,0 +1,52 @@
+{
+  "status": "NOT_COMPLETE",
+  "createdUtc": "2026-09-26T01:34:00Z",
+  "nexusBaseline": "12efe3d2970729465add40d62cecd76bbaf5b63f",
+  "desktopBranch": "codex/shackcq-nexus-product-20260925",
+  "webHead": "98d56a2ac0a03a40028fd02309abcec191c439b7",
+  "waveLogGateBaseline": "9344a4852ad461b60a50fbb384e2afdf17f6e414",
+  "artifact": {
+    "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.2_hw-live_aarch64.zip",
+    "bytes": 39805735,
+    "sha256": "ae85ef1afba7d15559c87cf35e28ea10b462caccbce0fb97c766b412a8e9a797",
+    "format": "zip containing app bundle",
+    "architecture": "arm64",
+    "signature": "ad-hoc integrity only",
+    "notarized": false
+  },
+  "packagedExecutable": {
+    "relativePath": "ShackCQ Desktop Nexus Review.app/Contents/MacOS/shackcq-desktop-nexus-review",
+    "sha256": "c93d810fe4c1b7b004b2255a00e6fcd174a1f41c71278947c9673ded999febf7"
+  },
+  "build": {
+    "cargo": "cargo build --manifest-path src-tauri/Cargo.toml --bins --features radio,tauri/custom-protocol --release",
+    "bundle": "cargo tauri bundle --features radio --bundles app --ci --no-sign",
+    "tauriCli": "2.11.5"
+  },
+  "launch": {
+    "exactPackagedApp": true,
+    "installed": false,
+    "profile": "hw-live",
+    "realAudioOpened": false,
+    "productionDigiTxEnabled": false,
+    "observedRadio": {
+      "manufacturer": "Kenwood",
+      "model": "TS-480",
+      "hamlibModel": 2028,
+      "serialDevice": "/dev/cu.usbmodem207235B258321",
+      "baud": 38400,
+      "frequencyHz": 14236500,
+      "mode": "USB",
+      "vfo": "VFOA",
+      "split": false,
+      "pttAfterQuit": false,
+      "strengthDb": -60
+    }
+  },
+  "limitations": [
+    "No current DMG because the layout helper required forbidden macOS automation approval.",
+    "No Developer ID signature, notarization or stapling.",
+    "Pairing, website command round-trip, rotor, contact outbox and authority reconciliation workflows remain incomplete.",
+    "No Windows package."
+  ]
+}

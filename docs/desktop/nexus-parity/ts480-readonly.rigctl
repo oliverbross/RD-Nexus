@@ -1,0 +1,15 @@
+# Read-only hardware acceptance script. Never add upper-case setters here.
+f
+m
+v
+s
+t
+l STRENGTH
+l RFPOWER
+l SWR
+u NB
+u NR
+u LOCK
+u TUNER
+a
+_

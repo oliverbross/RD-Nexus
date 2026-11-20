@@ -1,0 +1,79 @@
+{
+  "status": "NOT_COMPLETE",
+  "createdUtc": "2026-09-26T06:25:00Z",
+  "desktop": {
+    "baselineCommit": "12efe3d2970729465add40d62cecd76bbaf5b63f",
+    "branch": "codex/shackcq-nexus-product-20260925",
+    "version": "1.14.0-review.4",
+    "bundleIdentifier": "app.shackcq.desktop.nexusreview4",
+    "profile": "/tmp/shackcq-operator-fixture.my46jC/review4-profile",
+    "dirtyCheckpoint": true
+  },
+  "web": {
+    "commit": "98d56a2ac0a03a40028fd02309abcec191c439b7",
+    "branch": "codex/desktop-web-ux-20260924",
+    "dirtyCheckpoint": true
+  },
+  "macos": {
+    "app": "src-tauri/target/release/bundle/macos/ShackCQ Desktop Nexus Review 4.app",
+    "extractedTestedApp": "/tmp/shackcq-operator-fixture.my46jC/review4-extracted-final3/ShackCQ Desktop Nexus Review 4.app",
+    "executable": "Contents/MacOS/shackcq-desktop-nexus-review",
+    "executableSha256": "5acb6d939792f039c76fec386362b95517731ac7ecd67973a5b3d6dacc3d048a",
+    "zip": {
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.4_aarch64.zip",
+      "bytes": 39557473,
+      "sha256": "ee0330606e09a505fdebc0d3140931f4fc3895e1982f98b41cf5440bf6dec4e7"
+    },
+    "dmg": {
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.4_plain_aarch64.dmg",
+      "bytes": 43268273,
+      "sha256": "f1683fee1e3bb2e484a38cf8368ab79ea15358cea581b967dd6d0d61fd679da2",
+      "creation": "plain hdiutil image; no Finder or AppleScript decoration",
+      "mountedExecutableSha256": "5acb6d939792f039c76fec386362b95517731ac7ecd67973a5b3d6dacc3d048a",
+      "extractedExecutableSha256": "5acb6d939792f039c76fec386362b95517731ac7ecd67973a5b3d6dacc3d048a"
+    },
+    "signature": {
+      "kind": "ad-hoc integrity",
+      "codesignStrictDeep": "PASS",
+      "developerId": false,
+      "notarized": false,
+      "teamIdentifier": null
+    }
+  },
+  "sourceExports": {
+    "desktop": {
+      "path": "src-tauri/target/release/bundle/source/ShackCQ_Desktop_Nexus_Review_1.14.0-review.4_source.tar.gz",
+      "bytes": 588964363,
+      "sha256": "e1ac230fb3c4e92eeabf1058b3cc5c73565b3111d987ee9341c50b77c2f8e394",
+      "excludes": "build outputs plus generated Review 4 acceptance report and manifest"
+    },
+    "web": {
+      "path": "/Users/oliver/Documents/Projects/RigWeave/desktop-web-ux-web-20260924/artifacts/review4/ShackCQ_Web_review4_source.tar.gz",
+      "bytes": 372599173,
+      "sha256": "ef2e889a6a51a36d5486531c5c65195248ba71561d2c5bab3ec74e37a0a6860b"
+    }
+  },
+  "packagedBasicLocalAdif": {
+    "pairingAndNativeCredentialPersistence": "PASS",
+    "zeroAudioCatStartup": "PASS",
+    "websiteTelemetry": "PASS",
+    "websiteFrequencyCommand": "PASS",
+    "independentRigReadbackHz": 14076000,
+    "rotatorTargetAndReadback": "PASS",
+    "rotatorReadbackDegrees": 123.4,
+    "rotatorStop": "PASS",
+    "rotatorStoppedDegrees": 187.81,
+    "cleanQuitRelaunchReconnect": "PASS",
+    "packagedRevocationStaleAndTwoTenantJourneys": "NOT_RUN"
+  },
+  "safety": {
+    "productionDigiTxEnabled": false,
+    "realSerialOrRadioUsed": false,
+    "realAudioUsed": false,
+    "rfOrPttOrTuneUsed": false,
+    "rotatorMovementUsed": false,
+    "productionProviderWrites": false,
+    "deploymentPerformed": false,
+    "osPromptsApproved": false
+  }
+}

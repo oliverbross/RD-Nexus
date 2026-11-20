@@ -16,6 +16,7 @@
 //! });
 //! ```
 
+use std::io::Write;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -30,7 +31,7 @@ use tempo_app::remote_monitor::provenance::{Connection as RemoteConnection, Read
 use tempo_core::tempo_fast;
 use tempo_core::timing::{now_unix_ms, SlotClock};
 
-use crate::backend::AudioBackend;
+use crate::backend::{AudioBackend, TxTeeHandle};
 use crate::device::CpalBackend;
 use crate::frames::RxRing;
 use crate::rig::tuning::{passband_for, retune_passband, same_named_band};
@@ -159,6 +160,12 @@ fn spawn_cat_daemon(
     network: bool,
     ptt_line: Option<SerialLine>,
 ) -> std::io::Result<(CatDaemon, Option<String>)> {
+    if std::env::var_os("SHACKCQ_ACCEPTANCE_RIGCTLD").is_some() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "acceptance cannot spawn a CAT daemon",
+        ));
+    }
     // ⚠️ The native CI-V daemon speaks Icom CI-V on the serial port itself and has NO keying
     // path — it cannot assert RTS. Taking it here would open the port, leave PTT unkeyed, and
     // present as a rig that tunes but never transmits. When keying rides the CAT port, Hamlib's
@@ -1088,6 +1095,15 @@ pub struct RadioConfig {
     /// this loop, read lock-free by the UI's `get_meters`. Defaulted so existing
     /// constructions (tests, tools) need no change.
     pub meter_feed: tempo_app::engine::MeterFeed,
+    /// Whether this process may construct a production sound-card backend at startup.
+    /// `Disabled` is the controller-only path used by ShackCQ Basic: CAT, rotator, pairing and
+    /// logging stay live while no audio host/device is even queried. This is intentionally
+    /// independent of the configured device names; an empty name must never mean permission to
+    /// open the system default device.
+    pub audio_startup: AudioStartup,
+    /// Immutable host TX permission, independent of receive audio. A software candidate may
+    /// receive through Device while refusing every keying and transmit-audio output route.
+    pub host_transmit_allowed: bool,
     /// PTT method: `"cat"` (launch + use rigctld), `"rts"`, `"dtr"`, or `"vox"`.
     pub ptt_method: String,
     /// Hamlib rig model number for `rigctld -m` (0 = none / VOX).
@@ -1153,6 +1169,8 @@ impl Default for RadioConfig {
             rx_tap: Arc::new(crate::rxtap::RxTap::new()),
             capture_radio_id: None,
             meter_feed: tempo_app::engine::MeterFeed::default(),
+            audio_startup: AudioStartup::Device,
+            host_transmit_allowed: true,
             ptt_method: "vox".to_string(),
             radio_label: String::new(),
             icom_data_mode: 1,
@@ -1181,6 +1199,270 @@ impl Default for RadioConfig {
             tx_level: 0.9,
             rx_gain: 1.0,
         }
+    }
+}
+
+/// Startup permission for the optional audio/DSP half of the retained radio loop.
+///
+/// This is a host policy, not a user-supplied device name. The ShackCQ shell selects it before
+/// the radio thread starts, so a Web preference, restored invalid device or remote command cannot
+/// turn a controller-only Basic process into a sound-card owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioStartup {
+    Disabled,
+    /// Explicit task-owned file source/sink. This never enumerates or opens an OS audio device.
+    Fixture,
+    Device,
+}
+
+/// Apply the host-selected audio policy at the final transport seam. Fixture mode may exercise
+/// Nexus's real sequencer and file sink, but it must never inherit a stored hardware keying method
+/// on a later settings tick. CAT remains available for a task-owned fake rig; its PTT route is VOX,
+/// which is process-local in [`Rig`], and every serial line declaration is held inactive.
+fn acceptance_fixture_cat_declared(transport: &Transport, expected: Option<&str>) -> bool {
+    let Some(expected) = expected else {
+        return false;
+    };
+    transport.rig_model == 2
+        && transport.rig_conn == "network"
+        && transport.rig_addr == expected
+        && expected == format!("127.0.0.1:{}", transport.rigctld_port)
+        && transport.serial_port.is_empty()
+        && !transport.icom_native_cat
+}
+
+fn constrain_transport_for_audio_policy(startup: AudioStartup, transport: &mut Transport) {
+    let acceptance_rigctld = std::env::var("SHACKCQ_ACCEPTANCE_RIGCTLD").ok();
+    constrain_transport_for_audio_policy_with_expected(
+        startup,
+        transport,
+        acceptance_rigctld.as_deref(),
+    );
+}
+
+fn constrain_transport_for_audio_policy_with_expected(
+    startup: AudioStartup,
+    transport: &mut Transport,
+    acceptance_rigctld: Option<&str>,
+) {
+    if startup != AudioStartup::Fixture {
+        return;
+    }
+    let keep_fixture_cat = acceptance_fixture_cat_declared(transport, acceptance_rigctld);
+    transport.ptt_method = "vox".to_string();
+    transport.serial_port.clear();
+    transport.ptt_serial_port.clear();
+    if !keep_fixture_cat {
+        transport.rig_model = 0;
+        transport.rig_conn.clear();
+        transport.rig_addr.clear();
+    }
+    transport.broker_self_port = None;
+    transport.control_lines = crate::rigctld_proc::ControlLines::hold_low();
+    transport.cat_rts_keys_ptt = false;
+    transport.icom_native_cat = false;
+    transport.voice_mic_device.clear();
+    transport.monitor_enabled = false;
+}
+
+#[derive(Default)]
+struct NoAudioBackend;
+
+impl AudioBackend for NoAudioBackend {
+    fn capture(&mut self) -> Vec<f32> {
+        Vec::new()
+    }
+
+    fn play(&mut self, _samples: &[f32]) {
+        // `RadioLoop::may_key` is false while this backend is selected. Keeping this a no-op is
+        // the shutdown-safe backstop: controller-only mode can flush/unkey through the normal
+        // lifecycle without manufacturing an audio sink or touching a device.
+    }
+}
+
+struct FixtureAudioBackend {
+    capture: std::collections::VecDeque<Vec<f32>>,
+    sink: std::fs::File,
+}
+
+impl FixtureAudioBackend {
+    fn open_from_env() -> Result<Self, String> {
+        let source = std::env::var("SHACKCQ_DIGI_FIXTURE_AUDIO_F32LE")
+            .map_err(|_| "SHACKCQ_DIGI_FIXTURE_AUDIO_F32LE is required".to_string())?;
+        let sink = std::env::var("SHACKCQ_DIGI_FIXTURE_SINK_F32LE")
+            .map_err(|_| "SHACKCQ_DIGI_FIXTURE_SINK_F32LE is required".to_string())?;
+        let source = std::path::PathBuf::from(source);
+        let sink = std::path::PathBuf::from(sink);
+        if !source.is_absolute() || !sink.is_absolute() || source == sink {
+            return Err("fixture audio paths must be distinct absolute paths".to_string());
+        }
+        let bytes = std::fs::read(&source)
+            .map_err(|error| format!("fixture audio source could not be read: {error}"))?;
+        if bytes.len() > 128 * 1024 * 1024 || bytes.len() % 4 != 0 {
+            return Err("fixture audio source must be bounded f32le PCM".to_string());
+        }
+        let mut samples = Vec::with_capacity(bytes.len() / 4);
+        for chunk in bytes.chunks_exact(4) {
+            let sample = f32::from_le_bytes(chunk.try_into().expect("four-byte chunk"));
+            if !sample.is_finite() || sample.abs() > 1.0 {
+                return Err("fixture audio source contains an invalid sample".to_string());
+            }
+            samples.push(sample);
+        }
+        let capture = samples
+            .chunks(240)
+            .map(<[f32]>::to_vec)
+            .collect::<std::collections::VecDeque<_>>();
+        let sink = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&sink)
+            .map_err(|error| format!("fixture audio sink could not be opened: {error}"))?;
+        Ok(Self { capture, sink })
+    }
+}
+
+impl AudioBackend for FixtureAudioBackend {
+    fn capture(&mut self) -> Vec<f32> {
+        self.capture.pop_front().unwrap_or_default()
+    }
+
+    fn play(&mut self, samples: &[f32]) {
+        let mut bytes = Vec::with_capacity(samples.len() * 4);
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+        let _ = self.sink.write_all(&bytes);
+        let _ = self.sink.flush();
+    }
+}
+
+enum RuntimeAudioBackend {
+    Disabled(NoAudioBackend),
+    Fixture(FixtureAudioBackend),
+    Device(CpalBackend, bool),
+}
+
+impl AudioBackend for RuntimeAudioBackend {
+    fn capture(&mut self) -> Vec<f32> {
+        match self {
+            Self::Disabled(b) => b.capture(),
+            Self::Fixture(b) => b.capture(),
+            Self::Device(b, _) => b.capture(),
+        }
+    }
+    fn play(&mut self, samples: &[f32]) {
+        match self {
+            Self::Disabled(b) => b.play(samples),
+            Self::Fixture(b) => b.play(samples),
+            Self::Device(b, allowed) => {
+                if *allowed {
+                    b.play(samples);
+                }
+            }
+        }
+    }
+    fn rx_level(&self) -> f32 {
+        match self {
+            Self::Disabled(b) => b.rx_level(),
+            Self::Fixture(b) => b.rx_level(),
+            Self::Device(b, _) => b.rx_level(),
+        }
+    }
+    fn spectrum_tap(&self) -> Option<(Arc<crate::monitor::SpscRing>, u32)> {
+        match self {
+            Self::Disabled(b) => b.spectrum_tap(),
+            Self::Fixture(b) => b.spectrum_tap(),
+            Self::Device(b, _) => b.spectrum_tap(),
+        }
+    }
+    fn capture_input(&self) -> Option<crate::receive_audio::CaptureInput> {
+        match self {
+            Self::Disabled(b) => b.capture_input(),
+            Self::Fixture(b) => b.capture_input(),
+            Self::Device(b, _) => b.capture_input(),
+        }
+    }
+    fn set_tx_level(&mut self, level: f32) {
+        match self {
+            Self::Disabled(b) => b.set_tx_level(level),
+            Self::Fixture(b) => b.set_tx_level(level),
+            Self::Device(b, _) => b.set_tx_level(level),
+        }
+    }
+    fn set_tx_tee(&mut self, tee: Option<TxTeeHandle>) {
+        match self {
+            Self::Disabled(b) => b.set_tx_tee(tee),
+            Self::Fixture(b) => b.set_tx_tee(tee),
+            Self::Device(b, _) => b.set_tx_tee(tee),
+        }
+    }
+    fn take_stream_error(&mut self) -> Option<String> {
+        match self {
+            Self::Disabled(b) => b.take_stream_error(),
+            Self::Fixture(b) => b.take_stream_error(),
+            Self::Device(b, _) => b.take_stream_error(),
+        }
+    }
+    fn set_rx_gain(&mut self, gain: f32) {
+        match self {
+            Self::Disabled(b) => b.set_rx_gain(gain),
+            Self::Fixture(b) => b.set_rx_gain(gain),
+            Self::Device(b, _) => b.set_rx_gain(gain),
+        }
+    }
+    fn flush_output(&mut self) -> usize {
+        match self {
+            Self::Disabled(b) => b.flush_output(),
+            Self::Fixture(b) => b.flush_output(),
+            Self::Device(b, _) => b.flush_output(),
+        }
+    }
+    fn set_monitor(&mut self, enabled: bool, device: &str, level: f32) -> Result<(), String> {
+        match self {
+            Self::Disabled(b) => b.set_monitor(enabled, device, level),
+            Self::Fixture(b) => b.set_monitor(enabled, device, level),
+            Self::Device(b, _) => b.set_monitor(enabled, device, level),
+        }
+    }
+    fn set_monitor_tx_mute(&mut self, muted: bool) {
+        match self {
+            Self::Disabled(b) => b.set_monitor_tx_mute(muted),
+            Self::Fixture(b) => b.set_monitor_tx_mute(muted),
+            Self::Device(b, _) => b.set_monitor_tx_mute(muted),
+        }
+    }
+    fn set_voice_mic(&mut self, device: Option<&str>) -> Result<(), String> {
+        match self {
+            Self::Disabled(b) => b.set_voice_mic(device),
+            Self::Fixture(b) => b.set_voice_mic(device),
+            Self::Device(b, _) => b.set_voice_mic(device),
+        }
+    }
+    fn voice_capture(&mut self) -> Vec<f32> {
+        match self {
+            Self::Disabled(b) => b.voice_capture(),
+            Self::Fixture(b) => b.voice_capture(),
+            Self::Device(b, _) => b.voice_capture(),
+        }
+    }
+    fn release_device(&mut self) {
+        match self {
+            Self::Disabled(b) => b.release_device(),
+            Self::Fixture(b) => b.release_device(),
+            Self::Device(b, _) => b.release_device(),
+        }
+    }
+}
+
+fn startup_audio_open<F>(policy: AudioStartup, open: F) -> Option<Result<CpalBackend, String>>
+where
+    F: FnOnce() -> Result<CpalBackend, String>,
+{
+    match policy {
+        AudioStartup::Disabled | AudioStartup::Fixture => None,
+        AudioStartup::Device => Some(open()),
     }
 }
 
@@ -1465,74 +1747,103 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
     // asked-about failure in the tracker, and until now it left no trace an operator could
     // send. Only the open/failure edges are logged here — never a per-tick or per-decode
     // line, which would defeat the file's size bound and bury exactly this.
-    tempo_core::applog::info(
-        "audio",
-        &format!(
-            "radio loop starting (in {:?}, out {:?})",
-            in_name.as_deref().unwrap_or("<system default>"),
-            out_name.as_deref().unwrap_or("<system default>")
-        ),
-    );
-    let mut backend = match CpalBackend::open(in_name.as_deref(), out_name.as_deref()) {
-        Ok(b) => b,
-        Err(e) => {
-            tempo_core::applog::error("audio", &format!("sound card failed to open: {e}"));
-            // Surface a sound-card open failure to the UI (which would otherwise
-            // see only a silent, blank waterfall).
-            {
-                let mut eng = engine_lock(&engine);
-                eng.set_audio_error(Some(format!("Sound card failed to open: {e}")));
-            }
-            // ⚠️ Do NOT die here when a device was NAMED. `CpalBackend::open` became strict
-            // about a configured-but-unresolvable device (device.rs `resolve_configured`),
-            // and this `Err` is what src-tauri turns into "RADIO ENGINE STOPPED — TX/RX is
-            // dead until you restart Nexus": there is no supervisor and no restart. Strict
-            // + that = a BRICK for the commonest workflow of all, the rig switched on after
-            // the app. So fall back to the system default ONCE, keep the loop alive, and
-            // leave the banner up saying which device failed.
-            if in_name.is_none() && out_name.is_none() {
-                return Err(e); // nothing was named — the machine has no usable sound card
-            }
-            // The fallback used to be ONE shot (`CpalBackend::open(None, None)?`), which handed
-            // back exactly the brick the paragraph above rejects. When the rig is switched on
-            // AFTER Nexus — the case named there as the commonest of all — the named codec and
-            // the system default can be missing in the SAME instant, because the USB device is
-            // still enumerating and has not become anyone's default yet. That `?` then killed
-            // the thread for the rest of the session, seconds before the device appeared, and
-            // `step`'s retry ladder below (`audio_retry_at` / `AUDIO_RETRY_MS`) never got to run
-            // because reaching it requires a backend. Retry on that same cadence instead: the
-            // operator keeps a banner naming both failures, and the loop starts the moment ANY
-            // device opens. Bounded by the operator, not by a counter — a dead radio thread is
-            // unrecoverable without a restart, while a retrying one heals itself.
-            let mut attempt = 0usize;
-            let b = loop {
-                match CpalBackend::open(None, None) {
-                    Ok(b) => break b,
-                    Err(fallback) => {
-                        attempt += 1;
-                        {
-                            let mut eng = engine_lock(&engine);
-                            eng.set_audio_error(Some(format!(
-                                "Sound card failed to open: {e} The system default failed too \
-                                 ({fallback}). Retrying every {}s — attempt {attempt}.",
-                                (AUDIO_RETRY_MS / 1000.0) as u64
-                            )));
-                        }
-                        std::thread::sleep(Duration::from_millis(AUDIO_RETRY_MS as u64));
-                    }
-                }
-            };
-            // Record what is ACTUALLY open. The first loop tick then sees the live settings
-            // still asking for the named device, differs, and re-attempts the strict open —
-            // so a codec that was busy for a moment (PipeWire, another app) recovers by
-            // itself and clears the banner, with no restart and no re-picking.
-            cfg.audio_in.clear();
-            cfg.audio_out.clear();
-            tempo_core::applog::warn(
+    let fixture_backend = if cfg.audio_startup == AudioStartup::Fixture {
+        tempo_core::applog::info(
+            "audio",
+            "explicit Digi fixture audio active: f32le file source and file sink; no OS audio device queried",
+        );
+        Some(FixtureAudioBackend::open_from_env()?)
+    } else {
+        None
+    };
+    let mut backend = if let Some(fixture) = fixture_backend {
+        engine_lock(&engine).set_audio_error(Some(
+            "Synthetic fixture audio active — no physical input or output is open.".to_string(),
+        ));
+        RuntimeAudioBackend::Fixture(fixture)
+    } else {
+        match startup_audio_open(cfg.audio_startup, || {
+            tempo_core::applog::info(
                 "audio",
-                "opened the system default sound card instead of the configured one",
+                &format!(
+                    "radio loop starting device audio (in {:?}, out {:?})",
+                    in_name.as_deref().unwrap_or("<system default>"),
+                    out_name.as_deref().unwrap_or("<system default>")
+                ),
             );
-            b
+            CpalBackend::open(in_name.as_deref(), out_name.as_deref())
+        }) {
+            None => {
+                tempo_core::applog::info(
+                    "audio",
+                    "controller-only startup: audio host and devices were not queried",
+                );
+                engine_lock(&engine).set_audio_error(Some(
+                    "Audio not started — CAT, rotator, pairing and logging remain available."
+                        .to_string(),
+                ));
+                RuntimeAudioBackend::Disabled(NoAudioBackend)
+            }
+            Some(Ok(b)) => RuntimeAudioBackend::Device(b, cfg.host_transmit_allowed),
+            Some(Err(e)) => {
+                tempo_core::applog::error("audio", &format!("sound card failed to open: {e}"));
+                // Surface a sound-card open failure to the UI (which would otherwise
+                // see only a silent, blank waterfall).
+                {
+                    let mut eng = engine_lock(&engine);
+                    eng.set_audio_error(Some(format!("Sound card failed to open: {e}")));
+                }
+                // ⚠️ Do NOT die here when a device was NAMED. `CpalBackend::open` became strict
+                // about a configured-but-unresolvable device (device.rs `resolve_configured`),
+                // and this `Err` is what src-tauri turns into "RADIO ENGINE STOPPED — TX/RX is
+                // dead until you restart Nexus": there is no supervisor and no restart. Strict
+                // + that = a BRICK for the commonest workflow of all, the rig switched on after
+                // the app. So fall back to the system default ONCE, keep the loop alive, and
+                // leave the banner up saying which device failed.
+                if in_name.is_none() && out_name.is_none() {
+                    return Err(e); // nothing was named — the machine has no usable sound card
+                }
+                // The fallback used to be ONE shot (`CpalBackend::open(None, None)?`), which handed
+                // back exactly the brick the paragraph above rejects. When the rig is switched on
+                // AFTER Nexus — the case named there as the commonest of all — the named codec and
+                // the system default can be missing in the SAME instant, because the USB device is
+                // still enumerating and has not become anyone's default yet. That `?` then killed
+                // the thread for the rest of the session, seconds before the device appeared, and
+                // `step`'s retry ladder below (`audio_retry_at` / `AUDIO_RETRY_MS`) never got to run
+                // because reaching it requires a backend. Retry on that same cadence instead: the
+                // operator keeps a banner naming both failures, and the loop starts the moment ANY
+                // device opens. Bounded by the operator, not by a counter — a dead radio thread is
+                // unrecoverable without a restart, while a retrying one heals itself.
+                let mut attempt = 0usize;
+                let b = loop {
+                    match CpalBackend::open(None, None) {
+                        Ok(b) => break b,
+                        Err(fallback) => {
+                            attempt += 1;
+                            {
+                                let mut eng = engine_lock(&engine);
+                                eng.set_audio_error(Some(format!(
+                                    "Sound card failed to open: {e} The system default failed too \
+                                 ({fallback}). Retrying every {}s — attempt {attempt}.",
+                                    (AUDIO_RETRY_MS / 1000.0) as u64
+                                )));
+                            }
+                            std::thread::sleep(Duration::from_millis(AUDIO_RETRY_MS as u64));
+                        }
+                    }
+                };
+                // Record what is ACTUALLY open. The first loop tick then sees the live settings
+                // still asking for the named device, differs, and re-attempts the strict open —
+                // so a codec that was busy for a moment (PipeWire, another app) recovers by
+                // itself and clears the banner, with no restart and no re-picking.
+                cfg.audio_in.clear();
+                cfg.audio_out.clear();
+                tempo_core::applog::warn(
+                    "audio",
+                    "opened the system default sound card instead of the configured one",
+                );
+                RuntimeAudioBackend::Device(b, cfg.host_transmit_allowed)
+            }
         }
     };
     backend.set_tx_level(cfg.tx_level);
@@ -1550,11 +1861,13 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
             ),
         );
     }
-    crate::rxdsp::spawn(
-        cfg.rx_tap.clone(),
-        cfg.spectrum_feed.clone(),
-        cfg.meter_feed.clone(),
-    );
+    if cfg.audio_startup == AudioStartup::Device {
+        crate::rxdsp::spawn(
+            cfg.rx_tap.clone(),
+            cfg.spectrum_feed.clone(),
+            cfg.meter_feed.clone(),
+        );
+    }
 
     // Resolve the PTT method into a Rig and probe it. `open_rig` launches rigctld
     // for CAT (its kill-on-drop handle lives as long as the rig) and reports the
@@ -1569,6 +1882,7 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
         seed_line_declarations(&mut applied, eng.settings());
         eng.settings().active_radio
     };
+    constrain_transport_for_audio_policy(cfg.audio_startup, &mut applied);
     // Initial open: allow coexisting onto a pre-existing EXTERNAL rigctld (e.g. WSJT-X already sharing
     // the rig). Mid-session rig SWITCHES pass `allow_coexist=false` when they reuse their own port.
     let (mut rig, rigctld_proc, init_probe) = open_rig(&applied, true);
@@ -1611,7 +1925,7 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
     // Background clock-offset probe (SNTP), on its own thread so a slow/failed
     // network query never stalls the audio loop. Honors the `clock_check`
     // setting and fails silently off-grid (publishes None → UI shows DT health).
-    {
+    if std::env::var_os("SHACKCQ_ACCEPTANCE_RIGCTLD").is_none() {
         let clk_engine = engine.clone();
         std::thread::spawn(move || clock_probe_loop(clk_engine));
     }
@@ -1621,10 +1935,15 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
     // retargets the WSJT-X address — otherwise a GridTracker/PSK setup done AFTER launch
     // never connects (the reported "needs a Nexus restart" bug). `*_applied` tracks what
     // the current emitters were built for so the loop rebuilds only on a real change.
-    let mut wsjtx = build_wsjtx_server(cfg.wsjtx_udp, &cfg.wsjtx_addr);
-    let mut wsjtx_applied = (cfg.wsjtx_udp, cfg.wsjtx_addr.clone());
-    let mut psk = cfg.pskreporter.then(PskReporter::new);
-    let mut psk_applied = cfg.pskreporter;
+    let external_reporting_allowed = cfg.audio_startup == AudioStartup::Device;
+    let mut wsjtx =
+        build_wsjtx_server(external_reporting_allowed && cfg.wsjtx_udp, &cfg.wsjtx_addr);
+    let mut wsjtx_applied = (
+        external_reporting_allowed && cfg.wsjtx_udp,
+        cfg.wsjtx_addr.clone(),
+    );
+    let mut psk = (external_reporting_allowed && cfg.pskreporter).then(PskReporter::new);
+    let mut psk_applied = external_reporting_allowed && cfg.pskreporter;
 
     // The loop's persistent state lives in RadioLoop; one iteration is
     // RadioLoop::step (generic over the AudioBackend, so a MockBackend can drive
@@ -1655,38 +1974,42 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
     // monitor thread pauses its pool work while set, so a switch never queues behind slow
     // monitor CAT reads (the pool lock is otherwise held for whole read bursts).
     let switch_pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    {
+    if cfg.audio_startup != AudioStartup::Fixture {
         let mon_engine = engine.clone();
         let mon_pool = pool.clone();
         let mon_pending = switch_pending.clone();
         std::thread::spawn(move || monitor_loop(mon_engine, mon_pool, mon_pending));
     }
     loop {
-        state.apply_remote_selection(
-            &engine,
-            &pool,
-            &mut rig,
-            &mut backend,
-            &mut last_active,
-            &switch_pending,
-            open_monitor,
-            || {
-                if let Some(notify) = &cfg.on_active_profile_change {
-                    notify();
-                }
-            },
-        );
+        if cfg.audio_startup != AudioStartup::Fixture {
+            state.apply_remote_selection(
+                &engine,
+                &pool,
+                &mut rig,
+                &mut backend,
+                &mut last_active,
+                &switch_pending,
+                open_monitor,
+                || {
+                    if let Some(notify) = &cfg.on_active_profile_change {
+                        notify();
+                    }
+                },
+            );
+        }
         // Dual-radio: if the operator switched the active radio, hand off between the active Rig and
         // the monitor pool BEFORE the normal tick — so `state.applied` already matches the new active
         // and the `rig_differs` teardown never fires (the new rig is already connected + on-frequency).
-        handoff_if_switched(
-            &engine,
-            &pool,
-            &mut rig,
-            &mut state,
-            &mut last_active,
-            &switch_pending,
-        );
+        if cfg.audio_startup != AudioStartup::Fixture {
+            handoff_if_switched(
+                &engine,
+                &pool,
+                &mut rig,
+                &mut state,
+                &mut last_active,
+                &switch_pending,
+            );
+        }
         // App shutdown: unkey the transmitter through the still-alive rig before
         // the process exits. Without this, quitting while keyed (a TX slot or a
         // tune carrier) leaves the radio transmitting until its own timeout.
@@ -1740,15 +2063,17 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
         {
             let e = engine_lock(&engine);
             let s = e.settings();
-            if (s.wsjtx_udp, s.wsjtx_udp_addr.as_str())
+            let want_wsjtx = external_reporting_allowed && s.wsjtx_udp;
+            let want_psk = external_reporting_allowed && s.pskreporter;
+            if (want_wsjtx, s.wsjtx_udp_addr.as_str())
                 != (wsjtx_applied.0, wsjtx_applied.1.as_str())
             {
-                wsjtx = build_wsjtx_server(s.wsjtx_udp, &s.wsjtx_udp_addr);
-                wsjtx_applied = (s.wsjtx_udp, s.wsjtx_udp_addr.clone());
+                wsjtx = build_wsjtx_server(want_wsjtx, &s.wsjtx_udp_addr);
+                wsjtx_applied = (want_wsjtx, s.wsjtx_udp_addr.clone());
             }
-            if s.pskreporter != psk_applied {
-                psk = s.pskreporter.then(PskReporter::new);
-                psk_applied = s.pskreporter;
+            if want_psk != psk_applied {
+                psk = want_psk.then(PskReporter::new);
+                psk_applied = want_psk;
             }
         }
         let sinks = Sinks {
@@ -1764,12 +2089,22 @@ pub fn run_radio(engine: Arc<Mutex<Engine>>, mut cfg: RadioConfig) -> Result<(),
             &sinks,
             now,
             &mut |t: &Transport| {
+                match cfg.audio_startup {
+                    AudioStartup::Disabled => {
+                        return Ok(RuntimeAudioBackend::Disabled(NoAudioBackend));
+                    }
+                    AudioStartup::Fixture => {
+                        return FixtureAudioBackend::open_from_env()
+                            .map(RuntimeAudioBackend::Fixture);
+                    }
+                    AudioStartup::Device => {}
+                }
                 let inn = (!t.audio_in.is_empty()).then_some(t.audio_in.as_str());
                 let outn = (!t.audio_out.is_empty()).then_some(t.audio_out.as_str());
                 CpalBackend::open(inn, outn).map(|mut b| {
                     b.set_tx_level(t.tx_level);
                     b.set_rx_gain(t.rx_gain);
-                    b
+                    RuntimeAudioBackend::Device(b, cfg.host_transmit_allowed)
                 })
             },
             &mut |t: &Transport, allow_coexist: bool| open_rig(t, allow_coexist),
@@ -2758,6 +3093,13 @@ impl StationSinks {
 }
 
 struct RadioLoop {
+    /// False for ShackCQ Basic/controller-only operation. CAT remains owned by this same loop,
+    /// but every transmitter-producing route is refused and the audio backend is inert.
+    audio_enabled: bool,
+    /// Immutable host policy. Unlike device names and PTT settings, this is never rebuilt from
+    /// operator preferences; fixture isolation therefore survives every live settings update.
+    audio_startup: AudioStartup,
+    host_transmit_allowed: bool,
     cur_tier: Tier,
     /// The slot period the clock + capture ring were BUILT for. Tracked alongside
     /// the tier because tier alone no longer determines it: Q65, FST4/FST4W and
@@ -3380,6 +3722,7 @@ impl RadioLoop {
             return None;
         }
         let mut want = Transport::from_settings(eng.settings());
+        constrain_transport_for_audio_policy(self.audio_startup, &mut want);
         self.apply_port_alias(&mut want);
         if want != self.applied {
             return None;
@@ -3400,6 +3743,9 @@ impl RadioLoop {
 
     fn new(applied: Transport, rigctld_proc: Option<CatDaemon>, cfg: &RadioConfig) -> Self {
         Self {
+            audio_enabled: cfg.audio_startup != AudioStartup::Disabled,
+            audio_startup: cfg.audio_startup,
+            host_transmit_allowed: cfg.host_transmit_allowed,
             remote_radio_id: None,
             remote_connection: None,
             yaesu_wf: None,
@@ -4236,7 +4582,7 @@ impl RadioLoop {
             let s = e.settings();
             (
                 s.flex_native_pan,
-                s.flex_native_audio,
+                s.flex_native_audio && self.audio_startup == AudioStartup::Device,
                 s.flex_radio_ip.trim().to_string(),
             )
         } else {
@@ -4626,7 +4972,14 @@ impl RadioLoop {
     }
 
     fn may_key(&self) -> bool {
-        !self.handoff_deferred && !self.cat_hold_active
+        self.host_transmit_allowed
+            && self.audio_enabled
+            && !self.handoff_deferred
+            && !self.cat_hold_active
+    }
+
+    fn physical_outputs_allowed(&self) -> bool {
+        self.host_transmit_allowed && self.audio_startup == AudioStartup::Device
     }
 
     /// After a dial push that CROSSED a band boundary, make the app the last word on the
@@ -4961,6 +5314,12 @@ impl RadioLoop {
         // radio chain, so they live outside this per-radio loop state.
         station: &mut StationSinks,
     ) -> Result<(), String> {
+        // The host's receive-only permission is independent of Engine arm paths (CW,
+        // Tune, manual PTT, remote, and slot modes). Keep RX/CAT running, clear queued
+        // transmit intents, and retain the final may_key/physical-output backstops below.
+        if !self.host_transmit_allowed {
+            engine_lock(engine).halt_tx();
+        }
         // ── DID THE OS STEP THE CLOCK UNDER US? ──────────────────────────────
         //
         // Windows restores the system clock from the RTC on resume from sleep or
@@ -5169,6 +5528,7 @@ impl RadioLoop {
                 // simplex here (see `fm_repeater_config`) so a beacon never keys through a shift.
                 let fm = eng.fm_repeater_config();
                 let mut want = Transport::from_settings(eng.settings());
+                constrain_transport_for_audio_policy(self.audio_startup, &mut want);
                 self.apply_port_alias(&mut want);
                 let cat_hold = eng.cat_port_hold();
                 // The satellite mirrors, refreshed here because this is the one
@@ -6402,6 +6762,9 @@ impl RadioLoop {
                             let mut eng = engine_lock(engine);
                             eng.remote_observe_cat(remote_read.as_ref(), Some(true));
                             eng.remote_observe_dial(remote_read.as_ref(), Some(hz));
+                            if hz == self.last_dial {
+                                eng.note_rig_freq_observation(hz);
+                            }
                         }
                         self.freq_misses = 0; // a good read clears the breaker's miss run
                                               // A tripped breaker's re-probe answered: the link is BACK. Reset the health
@@ -6829,7 +7192,7 @@ impl RadioLoop {
                         // the Hamlib source this was read out of, and for why 2 is a no-op
                         // rather than a new behaviour on Icom and Kenwood.
                         let fire_atu = engine_lock(engine).take_atu_tune();
-                        if fire_atu && self.may_key() {
+                        if fire_atu && self.may_key() && self.physical_outputs_allowed() {
                             crate::civ::diag::note("ATU: operator asked the rig to tune up");
                             // ⭐⭐ THREE OUTCOMES, NOT TWO (transmit review R1, 2026-09-19).
                             //
@@ -7077,6 +7440,9 @@ impl RadioLoop {
                         let mut eng = engine_lock(engine);
                         eng.remote_observe_cat(remote_read.as_ref(), Some(true));
                         eng.remote_observe_dial(remote_read.as_ref(), Some(hz));
+                        if hz == self.last_dial {
+                            eng.note_rig_freq_observation(hz);
+                        }
                     }
                     if hz != self.last_dial {
                         self.last_dial = hz;
@@ -7137,15 +7503,21 @@ impl RadioLoop {
             // whole write surface does), so a rig refusal is surfaced to the OPERATOR, the
             // send_morse precedent.
             if let Some(cmd) = { engine_lock(engine).take_voice_mem() } {
-                let r = match cmd {
-                    tempo_app::engine::VoiceMemCmd::Play(ch) => rig.send_voice_mem(ch),
-                    tempo_app::engine::VoiceMemCmd::Stop => rig.stop_voice_mem(),
-                };
-                if r.is_err() {
+                if self.physical_outputs_allowed() {
+                    let r = match cmd {
+                        tempo_app::engine::VoiceMemCmd::Play(ch) => rig.send_voice_mem(ch),
+                        tempo_app::engine::VoiceMemCmd::Stop => rig.stop_voice_mem(),
+                    };
+                    if r.is_err() {
+                        crate::civ::diag::note(
+                            "the rig rejected the voice-memory command (Hamlib \
+                             send_voice_mem/stop_voice_mem) — this radio's backend may not \
+                             support voice memories over CAT",
+                        );
+                    }
+                } else {
                     crate::civ::diag::note(
-                        "the rig rejected the voice-memory command (Hamlib \
-                         send_voice_mem/stop_voice_mem) — this radio's backend may not \
-                         support voice memories over CAT",
+                        "voice-memory command refused by controller-only/fixture output policy",
                     );
                 }
             }
@@ -7390,16 +7762,24 @@ impl RadioLoop {
             // not polling HOLDS the word in the engine's queue, so the macro resumes on the
             // radio it was typed for instead of keying the one being switched away from.
             let ready = now >= self.cw_busy_until && self.may_key();
+            let physical_outputs_allowed = self.physical_outputs_allowed();
             let (abort, wpm, word, soundcard, pitch, winkeyer_port, serial_key, in_cw) = {
                 let mut eng = engine_lock(engine);
                 (
                     eng.take_cw_abort(),
                     eng.cw_wpm(),
                     if ready { eng.poll_cw_one() } else { None },
-                    eng.cw_soundcard(),
+                    // Fixture mode always renders CW into its file sink. Falling through to the
+                    // CAT keyer would put `send_morse` on a live control socket even though PTT
+                    // itself is pinned to process-local VOX.
+                    eng.cw_soundcard() || !physical_outputs_allowed,
                     eng.cw_pitch_hz(),
-                    eng.cw_winkeyer_port(),
-                    eng.cw_serial_key_port()
+                    physical_outputs_allowed
+                        .then(|| eng.cw_winkeyer_port())
+                        .flatten(),
+                    physical_outputs_allowed
+                        .then(|| eng.cw_serial_key_port())
+                        .flatten()
                         .map(|p| (p, eng.cw_serial_key_line())),
                     eng.settings().operating_mode == tempo_app::settings::OperatingMode::Cw,
                 )
@@ -7428,8 +7808,10 @@ impl RadioLoop {
                 self.serial_keyer = None;
             }
             if abort {
-                let _ = rig.stop_morse(); // CAT keyer abort (cut the one word in the rig buffer)
-                                          // WinKeyer abort: one Clear Buffer byte stops keying + flushes its queue.
+                if self.physical_outputs_allowed() {
+                    let _ = rig.stop_morse(); // CAT keyer abort (cut the one word in the rig buffer)
+                }
+                // WinKeyer abort: one Clear Buffer byte stops keying + flushes its queue.
                 #[cfg(feature = "serial")]
                 if let Some((_, wk)) = self.winkeyer.as_mut() {
                     let _ = wk.clear();
@@ -7694,6 +8076,7 @@ impl RadioLoop {
             // ([`Self::may_key`]) the queue is not polled, so the over waits instead of
             // going out on the outgoing rig.
             let ready = now >= self.rtty_busy_until && self.may_key();
+            let physical_outputs_allowed = self.physical_outputs_allowed();
             let (abort, msg, stream_tick, baud, shift, reverse, center_hz, fsk_port_line) = {
                 let mut eng = engine_lock(engine);
                 // Keep the cockpit's sending indicator honest each tick: an over is
@@ -7772,7 +8155,10 @@ impl RadioLoop {
                     // untouched, exactly like the FT8 TX marker — and the centre is already
                     // clamped to 300–3700 Hz on the way in, so it cannot leave the passband.
                     eng.rtty_center_hz(),
-                    eng.rtty_fsk_port().map(|p| (p, eng.rtty_fsk_line())),
+                    physical_outputs_allowed
+                        .then(|| eng.rtty_fsk_port())
+                        .flatten()
+                        .map(|p| (p, eng.rtty_fsk_line())),
                 )
             };
             #[cfg(not(feature = "serial"))]
@@ -12041,7 +12427,26 @@ fn ptt_mode_for(t: &Transport) -> PttMode {
 /// launches the bundled `rigctld`, sets the dial/mode, and probes by reading the
 /// frequency back; for serial PTT it opens the control line; for VOX `cat_ok` is
 /// `None` (not applicable). Mirrors WSJT-X's Test CAT.
+fn acceptance_transport_allowed(t: &Transport, expected: &str) -> bool {
+    t.rig_model == 2
+        && t.rig_conn == "network"
+        && t.rig_addr == expected
+        && expected == format!("127.0.0.1:{}", t.rigctld_port)
+        && t.serial_port.is_empty()
+        && t.ptt_method == "vox"
+        && !t.icom_native_cat
+}
+
 fn open_rig(t: &Transport, allow_coexist: bool) -> RigOpen {
+    if let Ok(expected) = std::env::var("SHACKCQ_ACCEPTANCE_RIGCTLD") {
+        if !acceptance_transport_allowed(t, &expected) {
+            return (
+                Rig::vox(),
+                None,
+                CatProbe::status(Some(false), "acceptance transport refused"),
+            );
+        }
+    }
     match t.ptt_method.as_str() {
         // CAT PTT: control + keying both over the CAT daemon (rigctld, the native CI-V
         // daemon, or the OmniRig shim — `cat_available` is what says one can exist).
@@ -12179,6 +12584,15 @@ fn open_cat(
     allow_coexist: bool,
     ptt_line: Option<SerialLine>,
 ) -> RigOpen {
+    if let Ok(expected) = std::env::var("SHACKCQ_ACCEPTANCE_RIGCTLD") {
+        if !acceptance_transport_allowed(t, &expected) {
+            return (
+                Rig::vox(),
+                None,
+                CatProbe::status(Some(false), "acceptance endpoint refused"),
+            );
+        }
+    }
     debug_assert!(
         ptt_line.is_none() || !allow_coexist,
         "shared-port keying must own its daemon — coexisting risks silent no-key"
@@ -12533,7 +12947,138 @@ fn probe_cat_or_explain(rig: &mut Rig, t: &Transport) -> (Option<bool>, String) 
 mod tests {
     mod receive_source;
     mod remote_radio;
-    use super::should_command_rf_power;
+    use super::{
+        constrain_transport_for_audio_policy, should_command_rf_power, startup_audio_open,
+        AudioStartup, CpalBackend, Transport,
+    };
+
+    #[test]
+    fn acceptance_transport_requires_the_exact_fixture_without_keying() {
+        let mut s = test_settings();
+        s.rig_model = 2;
+        s.rig_conn = "network".into();
+        s.rig_addr = "127.0.0.1:45432".into();
+        s.rigctld_port = 45432;
+        s.serial_port.clear();
+        s.ptt_method = "vox".into();
+        s.icom_native_cat = false;
+        let t = Transport::from_settings(&s);
+        assert!(super::acceptance_transport_allowed(&t, "127.0.0.1:45432"));
+        assert!(!super::acceptance_transport_allowed(&t, "127.0.0.1:45433"));
+        s.serial_port = "SYNTHETIC-PHYSICAL-SENTINEL".into();
+        assert!(!super::acceptance_transport_allowed(
+            &Transport::from_settings(&s),
+            "127.0.0.1:45432"
+        ));
+        s.serial_port.clear();
+        s.ptt_method = "cat".into();
+        assert!(!super::acceptance_transport_allowed(
+            &Transport::from_settings(&s),
+            "127.0.0.1:45432"
+        ));
+    }
+
+    #[test]
+    fn controller_only_startup_never_calls_the_audio_factory() {
+        use std::cell::Cell;
+
+        let calls = Cell::new(0usize);
+        let opened = startup_audio_open(AudioStartup::Disabled, || {
+            calls.set(calls.get() + 1);
+            Err::<CpalBackend, String>("the forbidden factory was called".to_string())
+        });
+        assert!(
+            opened.is_none(),
+            "controller-only startup has no audio backend"
+        );
+        assert_eq!(
+            calls.get(),
+            0,
+            "CoreAudio/device discovery was not requested"
+        );
+
+        let fixture = startup_audio_open(AudioStartup::Fixture, || {
+            calls.set(calls.get() + 1);
+            Err::<CpalBackend, String>("the forbidden factory was called".to_string())
+        });
+        assert!(fixture.is_none(), "fixture audio does not use CPAL");
+        assert_eq!(calls.get(), 0, "fixture audio did not query OS audio");
+
+        let attempted = startup_audio_open(AudioStartup::Device, || {
+            calls.set(calls.get() + 1);
+            Err::<CpalBackend, String>("no device".to_string())
+        });
+        assert!(
+            attempted.is_some(),
+            "device mode owns its honest open result"
+        );
+        assert_eq!(
+            calls.get(),
+            1,
+            "only explicit device mode calls the factory"
+        );
+    }
+
+    #[test]
+    fn fixture_policy_removes_stored_physical_keying_on_every_transport_rebuild() {
+        let mut settings = test_settings();
+        settings.ptt_method = "cat".to_string();
+        settings.ptt_serial_port = "/dev/cu.real-ptt".to_string();
+        settings.cat_rts_keys_ptt = true;
+        settings.icom_native_cat = true;
+        settings.voice_mic_device = "System microphone".to_string();
+        settings.monitor_enabled = true;
+
+        let mut transport = Transport::from_settings(&settings);
+        constrain_transport_for_audio_policy(AudioStartup::Fixture, &mut transport);
+
+        assert_eq!(transport.ptt_method, "vox");
+        assert_eq!(transport.rig_model, 0);
+        assert!(transport.serial_port.is_empty());
+        assert!(transport.ptt_serial_port.is_empty());
+        assert!(transport.rig_conn.is_empty());
+        assert!(transport.rig_addr.is_empty());
+        assert!(transport.broker_self_port.is_none());
+        assert!(!transport.cat_rts_keys_ptt);
+        assert!(!transport.icom_native_cat);
+        assert!(transport.voice_mic_device.is_empty());
+        assert!(!transport.monitor_enabled);
+    }
+
+    #[test]
+    fn fixture_policy_preserves_only_the_exact_task_owned_loopback_cat() {
+        let mut settings = test_settings();
+        settings.rig_model = 2;
+        settings.rig_conn = "network".to_string();
+        settings.rig_addr = "127.0.0.1:45432".to_string();
+        settings.rigctld_port = 45432;
+        settings.serial_port.clear();
+        settings.ptt_method = "cat".to_string();
+        settings.icom_native_cat = false;
+        let mut transport = Transport::from_settings(&settings);
+
+        assert!(super::acceptance_fixture_cat_declared(
+            &transport,
+            Some("127.0.0.1:45432")
+        ));
+        assert!(!super::acceptance_fixture_cat_declared(
+            &transport,
+            Some("127.0.0.1:45433")
+        ));
+
+        super::constrain_transport_for_audio_policy_with_expected(
+            AudioStartup::Fixture,
+            &mut transport,
+            Some("127.0.0.1:45432"),
+        );
+
+        assert_eq!(transport.rig_model, 2);
+        assert_eq!(transport.rig_conn, "network");
+        assert_eq!(transport.rig_addr, "127.0.0.1:45432");
+        assert_eq!(transport.ptt_method, "vox");
+        assert!(transport.serial_port.is_empty());
+        assert!(transport.ptt_serial_port.is_empty());
+    }
 
     #[test]
     fn remote_reads_require_the_owned_radio_transport_and_survive_only_their_generation() {
@@ -19373,6 +19918,102 @@ mod tests {
         assert!(rig.keyed, "PTT keyed on the TX slot");
         assert!(state.tx_until_ms.is_some(), "TX hold deadline set");
         assert!(!backend.played.is_empty(), "TX audio played to the backend");
+    }
+
+    #[test]
+    fn host_tx_permission_denies_all_arm_paths_without_disabling_receive() {
+        // Real loop + memory audio/VOX rig. Positive controls below prove the same
+        // queued slot and Tune requests produce output when the host permits TX.
+        for action in ["slot", "tune", "cw", "ptt"] {
+            let engine = Arc::new(Mutex::new(Engine::new("W9XYZ", "EN37", 0)));
+            {
+                let mut eng = engine.lock().unwrap();
+                match action {
+                    "slot" => eng.broadcast("CQ TEST W9XYZ EN37"),
+                    "tune" => eng.set_tune(true),
+                    "cw" => eng.send_cw("TEST"),
+                    "ptt" => eng.set_ptt(true),
+                    _ => unreachable!(),
+                }
+            }
+            let mut backend = MockBackend::new();
+            backend.queue_capture(vec![0.01; 480]);
+            let mut rig = Rig::vox();
+            let mut state = loop_state();
+            state.host_transmit_allowed = false;
+            assert!(state.audio_enabled, "RX remains enabled");
+            assert!(!state.may_key());
+            assert!(!state.physical_outputs_allowed());
+            let (sinks, mut ra, mut rr) = (no_sinks(), mock_reopen_audio(), mock_reopen_rig());
+            state
+                .step(
+                    &engine,
+                    &mut backend,
+                    &mut rig,
+                    &sinks,
+                    0.0,
+                    &mut ra,
+                    &mut rr,
+                    &mut StationSinks::new(),
+                )
+                .unwrap();
+            assert!(!rig.keyed, "{action} must not key");
+            assert!(
+                backend.played.is_empty(),
+                "{action} must not play transmit audio"
+            );
+            // The boundary tick consumes/clears a completed RX window. Inspect
+            // another capture inside the slot, where the receive ring is retained.
+            backend.queue_capture(vec![0.01; 480]);
+            state
+                .step(
+                    &engine,
+                    &mut backend,
+                    &mut rig,
+                    &sinks,
+                    20.0,
+                    &mut ra,
+                    &mut rr,
+                    &mut StationSinks::new(),
+                )
+                .unwrap();
+            assert!(!state.rx.is_empty(), "{action} must keep receiving samples");
+            assert!(
+                !engine.lock().unwrap().tx_enabled(),
+                "UI must report disarmed"
+            );
+        }
+    }
+
+    #[test]
+    fn host_tx_permission_positive_control_retains_slot_and_tune_output() {
+        for tune in [false, true] {
+            let engine = Arc::new(Mutex::new(Engine::new("W9XYZ", "EN37", 0)));
+            if tune {
+                engine.lock().unwrap().set_tune(true);
+            } else {
+                engine.lock().unwrap().broadcast("CQ TEST W9XYZ EN37");
+            }
+            let mut backend = MockBackend::new();
+            let mut rig = Rig::vox();
+            let mut state = loop_state();
+            assert!(state.host_transmit_allowed);
+            let (sinks, mut ra, mut rr) = (no_sinks(), mock_reopen_audio(), mock_reopen_rig());
+            state
+                .step(
+                    &engine,
+                    &mut backend,
+                    &mut rig,
+                    &sinks,
+                    0.0,
+                    &mut ra,
+                    &mut rr,
+                    &mut StationSinks::new(),
+                )
+                .unwrap();
+            assert!(rig.keyed);
+            assert!(!backend.played.is_empty());
+        }
     }
 
     /// The FT8 late-TX fix (operator-approved key-at-boundary, 2026-07-21): when the

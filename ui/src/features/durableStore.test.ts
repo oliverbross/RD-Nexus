@@ -93,6 +93,28 @@ describe('migration off localStorage', () => {
 })
 
 describe('reads and writes', () => {
+  it('restores wizard completion after an incognito localStorage restart', async () => {
+    let nativeState: Record<string, string> = {}
+    mockLoad.mockImplementation(async () => ({ ...nativeState }))
+    mockSave.mockImplementation(async (state) => {
+      nativeState = { ...state }
+      return true
+    })
+
+    await loadDurable()
+    durableSet('nexus.features.wizardSeen', '1')
+    await flushDurable()
+    expect(nativeState['nexus.features.wizardSeen']).toBe('1')
+
+    // A clean incognito relaunch has no browser storage or module memory. Only ui-state.json
+    // remains, exactly like the isolated packaged application.
+    window.localStorage.clear()
+    __resetDurableForTest()
+    await loadDurable()
+    expect(window.localStorage.getItem('nexus.features.wizardSeen')).toBeNull()
+    expect(durableGet('nexus.features.wizardSeen')).toBe('1')
+  })
+
   it('prefers the durable copy over localStorage', async () => {
     window.localStorage.setItem('nexus.navOrder', 'OLD')
     mockLoad.mockResolvedValue({ 'nexus.navOrder': 'NEW' })

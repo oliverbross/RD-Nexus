@@ -1,0 +1,83 @@
+{
+  "status": "NOT_COMPLETE",
+  "createdUtc": "2026-09-26",
+  "desktop": {
+    "baselineCommit": "12efe3d2970729465add40d62cecd76bbaf5b63f",
+    "branch": "codex/shackcq-nexus-product-20260925",
+    "dirtyCheckpoint": true,
+    "binaryDiffSha256": "a71c37e82560b5d08862de8e34a110531e98b666fa3b437c8a5c8cb8bb933bfb",
+    "selectedContentManifestSha256": "1ea0e89384ff73116f2b1b4269e62bba6bc828ce8d10cecc223ee37ba7e71c92",
+    "version": "1.14.0-review.5",
+    "bundleIdentifier": "app.shackcq.desktop.nexusreview5"
+  },
+  "web": {
+    "commit": "98d56a2ac0a03a40028fd02309abcec191c439b7",
+    "branch": "codex/desktop-web-ux-web-20260924",
+    "dirtyCheckpoint": true
+  },
+  "macos": {
+    "architecture": "arm64",
+    "app": "src-tauri/target/release/bundle/macos/ShackCQ Desktop Nexus Review 5.app",
+    "executableSha256": "de33833a5f5a842eb98d46b936d59c8ad2333fd49c65cfe20acd8deffc652607",
+    "zip": {
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.5_aarch64.zip",
+      "bytes": 39605654,
+      "sha256": "46c09ff22ab3732539dad7b0f5ec5fa5bed8db188d75bb38f44f01e6c233422a",
+      "extractedSignature": "PASS",
+      "extractedExecutableIdentity": "MATCH"
+    },
+    "dmg": {
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.5_plain_aarch64.dmg",
+      "bytes": 43743848,
+      "sha256": "60f25a3205c740cf33c0c6cc011250e1a84101282ec6824719d3b5b3e66d5795",
+      "creation": "plain hdiutil image; no Finder or AppleScript decoration",
+      "checksum": "PASS",
+      "mountedContents": "Review 5 app only",
+      "mountedSignature": "PASS",
+      "mountedExecutableIdentity": "MATCH"
+    },
+    "signature": {
+      "kind": "ad-hoc integrity",
+      "codesignStrictDeep": "PASS",
+      "developerId": false,
+      "notarized": false,
+      "gatekeeperAssessment": "NOT_RUN",
+      "teamIdentifier": null
+    },
+    "launch": {
+      "status": "NOT_RUN",
+      "reason": "isolated-profile launcher command refused by enforced allowlist; default profile deliberately not used because it could attach to configured hardware"
+    }
+  },
+  "verification": {
+    "nativeAgentTests": 7,
+    "nativeConnectorTests": 9,
+    "stationProjectionTests": 1,
+    "audioPolicyTests": 2,
+    "productModeUiTests": 3,
+    "webNexusContractTests": 6,
+    "hostedTypecheck": "PASS",
+    "optimizedBuild": "PASS",
+    "packagedOperatorJourneys": "NOT_RUN"
+  },
+  "matrix": {
+    "nativeMacosPassedOfSix": 0,
+    "officialWaveLogGatePassedOfThree": 0,
+    "complete": 0,
+    "partial": 2,
+    "blocked": 3,
+    "notRun": 4
+  },
+  "safety": {
+    "productionDigiTxEnabled": false,
+    "realSerialOrRadioUsed": false,
+    "realAudioUsed": false,
+    "rfOrPttOrTuneUsed": false,
+    "rotatorMovementUsed": false,
+    "productionProviderWrites": false,
+    "installedApplicationChanged": false,
+    "deploymentPerformed": false,
+    "osPromptsApproved": false,
+    "commitPushOrExternalCi": false
+  }
+}

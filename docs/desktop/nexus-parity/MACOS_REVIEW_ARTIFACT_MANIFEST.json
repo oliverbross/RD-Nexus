@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "createdUtc": "2026-09-25T14:55:05Z",
+  "candidate": {
+    "productName": "ShackCQ Desktop Nexus Review",
+    "version": "1.14.0-review.2",
+    "bundleIdentifier": "app.shackcq.desktop.nexusreview",
+    "binaryName": "shackcq-desktop-nexus-review",
+    "runtimeVersion": "Nexus v1.14.0 + ShackCQ review patch set",
+    "agentVersion": "not bundled; website connector is native in-process",
+    "productionDigiTxEnabled": false
+  },
+  "source": {
+    "nativeCommit": "12efe3d2970729465add40d62cecd76bbaf5b63f",
+    "nativeBranch": "codex/shackcq-nexus-product-20260925",
+    "nativeDirty": true,
+    "nativePorcelainDigestSha256": "b2ccfe4c92960ae57bf9e1a6afd1806e83453e487155bd54e441c75717ce4b74",
+    "trackedPatchDigestSha256": "391fce7754a43c8cd8de46484eec2ef1eb49004173277da75a4ac841fd9ebd6d",
+    "nativePatchSourceContentDigestSha256": "9506a37ea14943a82d6d3174a1c77b3258392e7ac720ba5dacfe4d8b789447a6",
+    "webCommit": "98d56a2ac0a03a40028fd02309abcec191c439b7",
+    "webDirty": true,
+    "webPorcelainDigestSha256": "5a94fa77ed224095621be972b4922402f182e5c09a1b98caca57e13348e98a44",
+    "webContractPatchDigestSha256": "196b755514b51a397078257704de182c1a7c644ac9e3e0a81d8381e298116def",
+    "webContractSourceContentDigestSha256": "a636ae1f0c18e329b1c3ac04dc3551146e7eb54921177afe23af1690c6843a7f",
+    "frontendContentDigestSha256": "735b8555b4959e4ce45d32c1199a0b35fc54a878d8bfbd670f2febde750062a4",
+    "nexusRelease": "v1.14.0",
+    "nexusCommit": "12efe3d2970729465add40d62cecd76bbaf5b63f",
+    "patchSet": [
+      "isolated package, binary, bundle, profile, data and credential identities",
+      "Nexus updater endpoint/key removed and updater artifacts disabled",
+      "Basic and Digi product modes with fail-closed Basic default",
+      "ShackCQ connector with station.observe, contact.ingress, configuration.read and logbook.read",
+      "automatic selected-logbook pull and deduplicating Nexus ADIF import in Digi mode",
+      "ShackCQ Web Digi route and settings surface removed",
+      "hard review-build refusal when arming the universal Nexus TX latch",
+      "Nexus Remote fail-closed origin pending SCQ-WEB-REMOTE-001",
+      "Tauri UI prebuild working-directory correction"
+    ]
+  },
+  "build": {
+    "command": "cargo tauri build --features radio,custom-protocol --bundles app --config '{\"bundle\":{\"createUpdaterArtifacts\":false}}'",
+    "dmgCommand": "hdiutil create -volname 'ShackCQ Desktop Nexus Review' -srcfolder '<app>' -ov -format UDZO '<stable dmg>'",
+    "features": ["radio", "custom-protocol", "tauri/custom-protocol"],
+    "os": "macOS 27.0",
+    "architecture": "arm64",
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18) aarch64-apple-darwin",
+    "tauriCli": "2.11.5",
+    "dependenciesAndResources": [
+      "complete pinned Nexus Rust/Tauri application",
+      "Hamlib bundle resources",
+      "DeepCW model + metadata + AGPL license",
+      "TLE resources",
+      "COPYING and NOTICE",
+      "radio and custom-protocol feature lanes"
+    ],
+    "deepCwModelSha256": "a7b3b4aa2610d3e88b8c7d4420eceee31be2d0ae595b3413264334f3ffb1eab5",
+    "deepCwMetadataSha256": "b4342157b90229ee7380e165f3d8036179b80d1e6ae02f2557388b7fcd558c01"
+  },
+  "artifacts": [
+    {
+      "kind": "macOS app",
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ Desktop Nexus Review.app",
+      "binarySha256": "260ecea2df4dec7121c91aa94d58f48f70d440e38a11a4ff1f0111d7ba57062b",
+      "binaryBytes": 62815312
+    },
+    {
+      "kind": "macOS DMG",
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.2_aarch64.dmg",
+      "sha256": "66e2b2f9550d138c05b39f83e571a4f0e9da033d35d3c4e5932ea2d064b3217e",
+      "bytes": 43785737
+    }
+  ],
+  "signing": {
+    "status": "AD_HOC_ONLY",
+    "identifier": "app.shackcq.desktop.nexusreview",
+    "teamIdentifier": null,
+    "codesignDeepStrict": "PASS",
+    "gatekeeperAssessment": "REJECTED_UNSIGNED_DEVELOPER_ID",
+    "notarized": false,
+    "stapled": false
+  },
+  "verification": {
+    "dmgImageInfo": "PASS",
+    "dmgReadonlyMount": "PASS",
+    "mountedBundleIdentifier": "app.shackcq.desktop.nexusreview",
+    "mountedVersion": "1.14.0-review.2",
+    "mountedCodesignDeepStrict": "PASS",
+    "applicationLaunched": false,
+    "installed": false,
+    "hardwareExercised": false,
+    "externalServicesExercised": false
+  }
+}

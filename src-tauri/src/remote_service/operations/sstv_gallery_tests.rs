@@ -15,7 +15,7 @@ fn picture(
     mode: &str,
     finished_utc: &str,
 ) -> (PathBuf, tempo_app::dto::SstvGalleryEntry) {
-    let dir = crate::test_pictures_dir().join("Nexus SSTV");
+    let dir = crate::test_pictures_dir().join("ShackCQ Desktop Nexus Review SSTV");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     // A 1×1 24-bit BMP: real bytes, so the delete removes a real file.

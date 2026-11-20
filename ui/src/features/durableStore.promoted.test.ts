@@ -25,6 +25,10 @@ describe('what a reinstall must not take away', () => {
     expect(isDurable('nexus.features.v1')).toBe(true)
   })
 
+  it('keeps the first-run wizard dismissal', () => {
+    expect(isDurable('nexus.features.wizardSeen')).toBe(true)
+  })
+
   it('keeps the MAIN window pane layout, for every cockpit', () => {
     // By prefix, not by an entry per view — a list would have to be edited each time a
     // cockpit is added, and the cockpit somebody forgets is the one whose operator loses

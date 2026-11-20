@@ -10,7 +10,9 @@ use tokio_tungstenite::tungstenite::{
     client::IntoClientRequest, protocol::WebSocketConfig, Message,
 };
 
-pub const REMOTE_ORIGIN: &str = "https://remote-staging.hamradiotools.io";
+// Fail closed until SCQ-WEB-REMOTE-001 provides a reviewed ShackCQ pairing
+// service. The narrower station/contact connector is configured separately.
+pub const REMOTE_ORIGIN: &str = "https://remote-review.shackcq.invalid";
 const HTTP_LIMIT: usize = 16384;
 /// The RX DSP tick, which is also one Opus frame. A literal here so the socket loop is
 /// one piece of code in a build without tempo-audio; the assertion below pins it to the
@@ -93,7 +95,7 @@ impl Client {
             // This Nexus binds remembered grants to the approval generation, so the service may list
             // the generation to it and renew the browser approvals it gives. A service without the
             // browser approval lifetime ignores the header and answers exactly as before.
-            .header("x-nexus-device-lifetime", "1")
+            .header("x-shackcq-device-lifetime", "1")
             .json(&body);
         if let Some(token) = token {
             request = request.bearer_auth(token);

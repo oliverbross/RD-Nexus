@@ -47,6 +47,7 @@ const snapshot = {
 // Settings are needed only by the dismissal case: App renders the wizard as
 // `showWizard && settings`, so without them there is no wizard to dismiss.
 let settingsAnswer: unknown = null
+let nativeUiState: Record<string, string> = {}
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
@@ -67,8 +68,11 @@ vi.mock('./api', async (importOriginal) => {
     logOperators: vi.fn(async () => []),
     logActivations: vi.fn(async () => []),
     radioLaunchInfo: vi.fn(async () => ({ showPicker: false })),
-    uiStateLoad: vi.fn(async () => ({})),
-    uiStateSave: vi.fn(async () => ({})),
+    uiStateLoad: vi.fn(async () => ({ ...nativeUiState })),
+    uiStateSave: vi.fn(async (state: Record<string, string>) => {
+      nativeUiState = { ...state }
+      return true
+    }),
     getAllSpots: vi.fn(async () => []),
     getNeedAlerts: vi.fn(async () => []),
     getPropagation: vi.fn(async () => null),
@@ -97,12 +101,15 @@ vi.mock('./components/Waterfall', () => ({ Waterfall: () => <div data-testid="wa
 
 import App from './App'
 import { openPanelWindow } from './api'
+import { __resetDurableForTest, flushDurable, loadDurable } from './features/durableStore'
 
 const neededOpens = () =>
   (openPanelWindow as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => c[0] === 'needed').length
 
-beforeEach(() => {
+beforeEach(async () => {
+  __resetDurableForTest()
   localStorage.clear()
+  nativeUiState = {}
   settingsAnswer = null
   ;(openPanelWindow as unknown as ReturnType<typeof vi.fn>).mockClear()
   globalThis.ResizeObserver = class {
@@ -119,8 +126,12 @@ beforeEach(() => {
       addListener() {},
       removeListener() {},
     }) as unknown as MediaQueryList) as typeof window.matchMedia
+  await loadDurable()
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  __resetDurableForTest()
+})
 
 async function mount(): Promise<void> {
   window.location.hash = '#operate'
@@ -131,6 +142,12 @@ async function mount(): Promise<void> {
 }
 
 describe('#240 — the Needed window on first launch', () => {
+  it('shows the setup wizard for a genuinely fresh profile', async () => {
+    settingsAnswer = defaultSettings
+    await mount()
+    await waitFor(() => expect(document.querySelector('.wizard-title')).not.toBeNull())
+  })
+
   it('does NOT pop out while the first-run setup wizard is pending', async () => {
     // Fresh install: no persisted feature state, wizard never seen.
     await mount()
@@ -149,6 +166,26 @@ describe('#240 — the Needed window on first launch', () => {
     // ESC = skip-all (SetupWizard's own contract), which is App's handleWizardSkip.
     fireEvent.keyDown(dialog, { key: 'Escape' })
     await waitFor(() => expect(neededOpens()).toBe(1))
+  })
+
+  it('does not show the wizard again after an incognito restart', async () => {
+    settingsAnswer = defaultSettings
+    await mount()
+    const dialog = await waitFor(() => {
+      const d = document.querySelector('[role="dialog"]')
+      expect(d).not.toBeNull()
+      return d as HTMLElement
+    })
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await flushDurable()
+    expect(nativeUiState['nexus.features.wizardSeen']).toBe('1')
+
+    cleanup()
+    localStorage.clear()
+    __resetDurableForTest()
+    await loadDurable()
+    await mount()
+    expect(document.querySelector('.wizard-title')).toBeNull()
   })
 
   it('control: a later launch (features persisted, wizard seen) still pops it out at once', async () => {

@@ -64,6 +64,10 @@ export const DURABLE_KEYS: readonly string[] = [
   // 2026-08-21 against 1.7.5, alongside the panel layout below: settings.json survived and
   // these did not, which is exactly the split this file exists to correct.
   'nexus.features.v1',
+  // Completing or deliberately skipping the first-run wizard is durable setup state. In an
+  // isolated acceptance launch the webview is incognito, so a localStorage-only marker is lost
+  // at process exit and the wizard otherwise reappears over an already paired/configured app.
+  'nexus.features.wizardSeen',
 ]
 
 /** The MAIN window's pane layout is durable; a detached panel's is not.

@@ -1,0 +1,62 @@
+{
+  "status": "NOT_COMPLETE",
+  "createdUtc": "2026-09-26T03:10:00Z",
+  "desktop": {
+    "baselineCommit": "12efe3d2970729465add40d62cecd76bbaf5b63f",
+    "branch": "codex/shackcq-nexus-product-20260925",
+    "version": "1.14.0-review.3",
+    "bundleIdentifier": "app.shackcq.desktop.nexusreview3",
+    "profile": "review3finalaccept",
+    "dirtyCheckpoint": true
+  },
+  "web": {
+    "commit": "98d56a2ac0a03a40028fd02309abcec191c439b7",
+    "branch": "codex/desktop-web-ux-web-20260924",
+    "dirtyCheckpoint": true
+  },
+  "macos": {
+    "app": "src-tauri/target/release/bundle/macos/ShackCQ Desktop Nexus Review 3.app",
+    "executableSha256": "301ed177a5d36a6bb35bedd6f381bcc23ea2b78de1a70a4bb976a7b3ae8e3645",
+    "zip": {
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.3_aarch64.zip",
+      "bytes": 39557712,
+      "sha256": "5dc0a3c0e442062fd1aa94f79c655f52a228633509cdfa62de87e522636faef5"
+    },
+    "dmg": {
+      "path": "src-tauri/target/release/bundle/macos/ShackCQ_Desktop_Nexus_Review_1.14.0-review.3_plain_aarch64.dmg",
+      "bytes": 43278834,
+      "sha256": "029112e0322e942cb72bfcc8e209b95ecef7cf20944991bad88cdaa66f536d55",
+      "creation": "plain hdiutil image; no Finder or AppleScript decoration",
+      "mountedExecutableSha256": "301ed177a5d36a6bb35bedd6f381bcc23ea2b78de1a70a4bb976a7b3ae8e3645"
+    },
+    "signature": {
+      "kind": "ad-hoc integrity",
+      "codesignStrictDeep": "PASS",
+      "developerId": false,
+      "notarized": false,
+      "teamIdentifier": null
+    }
+  },
+  "sourceExports": {
+    "desktop": {
+      "path": "src-tauri/target/release/bundle/source/ShackCQ_Desktop_Nexus_Review_1.14.0-review.3_source.tar.gz",
+      "bytes": 47434156,
+      "sha256": "58322b6d6ae2bae05119a7ac4197ded0fbad5db9b16b146603bdeb4df601bca1"
+    },
+    "web": {
+      "path": "/Users/oliver/Documents/Projects/RigWeave/desktop-web-ux-web-20260924/artifacts/review3/ShackCQ_Web_review3_source.tar.gz",
+      "bytes": 250338320,
+      "sha256": "fd86f3be66001e6d9d82e820ab3b42c06b139cd689cbdaec89bcc5ea6733bb62"
+    }
+  },
+  "safety": {
+    "productionDigiTxEnabled": false,
+    "realSerialOrRadioUsed": false,
+    "realAudioUsed": false,
+    "rfOrPttOrTuneUsed": false,
+    "rotatorMovementUsed": false,
+    "productionProviderWrites": false,
+    "deploymentPerformed": false,
+    "osPromptsApproved": false
+  }
+}

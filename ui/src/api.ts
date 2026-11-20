@@ -175,6 +175,18 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 // Public API
 // ---------------------------------------------------------------------------
 
+export interface ShackCqProductModeStatus {
+  mode: 'basic' | 'digi'
+  isolated: boolean
+  restartRequired: boolean
+}
+export function getShackCqProductMode(): Promise<ShackCqProductModeStatus> {
+  return invoke('shackcq_product_mode')
+}
+export function setShackCqProductMode(mode: 'basic' | 'digi'): Promise<ShackCqProductModeStatus> {
+  return invoke('shackcq_set_product_mode', { mode })
+}
+
 /** The rolling connectivity log (newest first) — Settings ▸ Connections. */
 export async function getConnectionLog(): Promise<import('./types').ConnEvent[]> {
   return invoke('get_connection_log')
@@ -197,6 +209,101 @@ export function remoteStationAction(action: RemoteStationAction): Promise<Remote
 
 export async function getSnapshot(): Promise<AppSnapshot> {
   return invoke<AppSnapshot>('get_snapshot')
+}
+
+export type ShackCqConnectorAuth = Readonly<{
+  origin: string
+  credentialAlias: string
+  stationProfileId: string
+  deviceId: string
+}>
+
+export type ShackCqPairingRecord = Readonly<{
+  auth: ShackCqConnectorAuth
+  agentId: string
+  accountLabel: string
+  stationLabel: string
+  connectUrl: string
+}>
+
+export function getShackCqPairing(): Promise<ShackCqPairingRecord | null> {
+  return invoke('shackcq_pairing_status')
+}
+
+export function pairShackCq(origin: string, code: string, name: string): Promise<ShackCqPairingRecord> {
+  return invoke('shackcq_pair', { request: { origin, code, name } })
+}
+
+export function forgetShackCqPairing(): Promise<void> {
+  return invoke('shackcq_forget_pairing')
+}
+
+export function exportShackCqUnassignedContacts(): Promise<string> {
+  return invoke('shackcq_export_unassigned_contacts')
+}
+
+export type ShackCqAgentStatus = Readonly<{
+  running: boolean
+  connected: boolean
+  generation: number | null
+  lastError: string | null
+}>
+
+export function getShackCqAgentStatus(): Promise<ShackCqAgentStatus> {
+  return invoke('shackcq_agent_status')
+}
+
+export function startShackCqAgent(): Promise<ShackCqAgentStatus> {
+  return invoke('shackcq_start_agent')
+}
+
+export function stopShackCqAgent(): Promise<ShackCqAgentStatus> {
+  return invoke('shackcq_stop_agent')
+}
+
+export type ShackCqSelectedLogbook = Readonly<{
+  authority: 'WEB_LOCAL' | 'WAVELOG'
+  connectionKind: 'LOCAL' | 'EXTERNAL' | 'MANAGED'
+  integrationId: string | null
+  automaticSync: true
+}>
+
+export type ShackCqDesktopConfiguration = Readonly<{
+  protocol: { major: 1; minor: 0 }
+  revision: number
+  stationProfileId: string
+  logbook: ShackCqSelectedLogbook
+}>
+
+export type ShackCqLogbookSync = Readonly<{
+  configuration: ShackCqDesktopConfiguration
+  imported: ImportStats
+  remoteCount: number
+}>
+
+export function syncShackCqSelectedLogbook(auth: ShackCqConnectorAuth): Promise<ShackCqLogbookSync> {
+  return invoke('shackcq_sync_selected_logbook', { auth })
+}
+
+export type ShackCqContactOutboxStatus = Readonly<{
+  pending: number
+  awaitingDestination: number
+  delivered: number
+  rejected: number
+  lastError: string | null
+}>
+
+export function getShackCqContactOutboxStatus(): Promise<ShackCqContactOutboxStatus> {
+  return invoke('shackcq_contact_outbox_status')
+}
+
+export function flushShackCqContactOutbox(): Promise<ShackCqContactOutboxStatus> {
+  return invoke('shackcq_flush_contact_outbox')
+}
+
+/** Explicit recovery only; ordinary outbox polling never revives a rejected contact. */
+export function retryShackCqRejectedContacts(): Promise<ShackCqContactOutboxStatus> {
+  return invoke('shackcq_retry_rejected_contacts')
 }
 
 /** The propagation & opening-intelligence nowcast (adaptive bands, openings,

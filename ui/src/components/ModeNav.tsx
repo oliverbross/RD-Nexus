@@ -30,6 +30,7 @@ import { Fragment, useState, type ButtonHTMLAttributes } from 'react'
 import { Tooltip, TooltipProvider } from './ui/Tooltip'
 import { t, type MessageKey } from '../i18n'
 import { type FeatureId, type View } from '../features/registry'
+import type { ProductMode } from '../productMode'
 import { orderNav, moveNav, loadNavOrder, saveNavOrder, resetNavOrder } from '../navOrder'
 
 // ⚠️ THIS FILE IS ON THE MIGRATED LIST (i18n/hardcoded-strings.test.ts). Every button's
@@ -44,6 +45,8 @@ import { orderNav, moveNav, loadNavOrder, saveNavOrder, resetNavOrder } from '..
 export type { View }
 
 interface Props {
+  productMode?: ProductMode
+  onProductModeChange?: (mode: ProductMode) => void
   /** Current view selected in the UI. */
   view: View
   /** The operating mode reported by the snapshot (drives the live badge). */
@@ -234,7 +237,7 @@ const MODE_LABEL: Record<OpMode, string> = {
   fieldDay: 'FIELD DAY',
 }
 
-export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, onClubBoard }: Props) {
+export function ModeNav({ productMode = 'digi', onProductModeChange = () => {}, view, mode, enabled, onSelect, tier, onDigitalMode, onClubBoard }: Props) {
   // Operator's drag-and-drop rail order for the global sections (shared across windows).
   // `order` is the persisted id list; `orderNav` folds it over the shipped ITEMS so a new
   // section is never lost and a deleted one is dropped.
@@ -253,6 +256,7 @@ export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, on
   const items = orderedIds
     .map((id) => ITEMS.find((it) => it.id === id)!)
     .filter((it) => enabled[it.id] !== false)
+    .filter((it) => productMode === 'digi' || it.id === 'connect' || it.id === 'needed')
   const customized = order.length > 0
 
   const dropOn = (targetId: string | null) => {
@@ -295,11 +299,15 @@ export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, on
     <TooltipProvider>
       <nav className="mode-nav" aria-label={t('nav.aria')}>
         <div className="mode-nav-top">
+          <div className="product-mode-switch" role="group" aria-label="ShackCQ operating mode">
+            <button type="button" className={productMode === 'basic' ? 'active' : ''} aria-pressed={productMode === 'basic'} onClick={() => onProductModeChange('basic')}>Basic</button>
+            <button type="button" className={productMode === 'digi' ? 'active' : ''} aria-pressed={productMode === 'digi'} onClick={() => onProductModeChange('digi')}>Digi</button>
+          </div>
           {/* Operating group order (operator spec): Phone · CW · Digital group
               (FT + Tempo). The FT8/FT4 pick lives in the top bar's tier pills. */}
-          {enabled.phone !== false && navBtn(PHONE)}
-          {enabled.cw !== false && navBtn(CW)}
-          <div className="mode-nav-group" role="group" aria-label={t('nav.digital.group.aria')}>
+          {productMode === 'digi' && enabled.phone !== false && navBtn(PHONE)}
+          {productMode === 'digi' && enabled.cw !== false && navBtn(CW)}
+          {productMode === 'digi' && <div className="mode-nav-group" role="group" aria-label={t('nav.digital.group.aria')}>
             <span className="mode-nav-group-label">{t('nav.digital.group.label')}</span>
             {DIGITAL_SUBS.filter(
               // FT + Tempo are core (always shown); RTTY/SSTV hide when disabled
@@ -326,7 +334,7 @@ export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, on
                 </Tooltip>
               )
             })}
-          </div>
+          </div>}
           {/* Global situational/logging surfaces + opt-in extras — drag to reorder. */}
           {items.map((it) => (
             <Fragment key={it.id}>
@@ -399,9 +407,9 @@ export function ModeNav({ view, mode, enabled, onSelect, tier, onDigitalMode, on
         </div>
 
         <div className="mode-nav-bottom">
-          <span className="mode-current" title={t('nav.mode.title')}>
+          <span className="mode-current" title={productMode === 'basic' ? 'Basic radio and rotator control' : t('nav.mode.title')}>
             <span className="mode-current-dot" aria-hidden="true" />
-            {MODE_LABEL[mode]}
+            {productMode === 'basic' ? 'BASIC' : MODE_LABEL[mode]}
           </span>
           {/* One word for the gear: tooltip, accessible name and visible label are the same
               claim about the same button, so they are one entry. */}

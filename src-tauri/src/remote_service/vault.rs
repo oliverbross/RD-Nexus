@@ -15,7 +15,7 @@
 //! off, and the browser still has to press TX On.
 use serde::{Deserialize, Serialize};
 
-const SERVICE: &str = "org.hamradiotools.nexus.remote";
+const SERVICE: &str = "app.shackcq.desktop.nexusreview.remote";
 const ACCOUNT: &str = "pairing";
 const STATE: &str = "state";
 
@@ -83,7 +83,10 @@ pub trait Vault: Send + Sync {
 
 pub struct SystemVault;
 fn entry(account: &str) -> Result<keyring::Entry, &'static str> {
-    keyring::Entry::new(SERVICE, account).map_err(|_| "credentialStoreUnavailable")
+    // Remote restores its vault during startup, before any UI command. It must
+    // share the acceptance namespace used by the connector and LoTW stores.
+    keyring::Entry::new(&crate::acceptance::credential_service(SERVICE), account)
+        .map_err(|_| "credentialStoreUnavailable")
 }
 fn read() -> Result<Option<Record>, &'static str> {
     match entry(ACCOUNT)?.get_password() {
